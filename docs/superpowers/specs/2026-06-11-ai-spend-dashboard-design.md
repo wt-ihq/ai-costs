@@ -36,7 +36,7 @@ A single internal dashboard tracking AI tool spend per user and per department a
 | ChatGPT Business ($25/seat) | **Manual** — no documented CSV export; member table visible in UI | Per-user usage in UI only | Entry via clipboard paste of member table, or hand-keyed fields |
 | HiBob | **API** — People endpoint, service-user credentials | Employee → department, status, start/leave dates | Identity spine for all joins |
 
-Seat-based tools (ChatGPT Business, Claude Team): "user spend" = allocated seat cost + usage visibility. Metered tools (Cursor overage, Anthropic, OpenAI): true usage cost. The dashboard must keep this distinction visible (`cost_type = seat | metered`).
+Seat-based tools (ChatGPT Business, Claude Team) carry **two cost components**: allocated seat cost, plus overage/credit usage on top (ChatGPT Business: Codex/workspace credits, per-user credits visible in the member table; Claude Team: per-user per-model spend in the CSV export). Metered tools (Cursor overage, Anthropic, OpenAI): true usage cost. The dashboard must keep this distinction visible (`cost_type = seat | overage | metered`).
 
 ## 4. Architecture
 
@@ -66,7 +66,7 @@ Core tables (names indicative):
 
 - **`employees`** — from HiBob: email, full name, department, site, employment status, start/leave dates. Synced daily; leavers retained (historical spend must keep its attribution).
 - **`identities`** — `(vendor, external_email_or_id) → employee_id`, with `match_method: exact_email | alias_rule | manual | unmatched`. Unmatched identities keep their spend rows (attributed to "Unmatched") and surface in an admin queue.
-- **`spend_facts`** — one row per `(source, day, grain entity)`: `cost_usd`, `tokens`, `requests` (nullable), `cost_type: seat | metered`, nullable FKs to employee, api_key, project, model string. Single fact table so every rollup is one `GROUP BY`; the UI splits seat/metered explicitly.
+- **`spend_facts`** — one row per `(source, day, grain entity)`: `cost_usd`, `tokens`, `requests` (nullable), `cost_type: seat | overage | metered`, nullable FKs to employee, api_key, project, model string. Single fact table so every rollup is one `GROUP BY`; the UI splits the cost types explicitly. Overage rows: Claude Team per-user per-model spend from the CSV export; ChatGPT Business per-user credit consumption converted to USD via an admin-configured credit rate.
 - **`api_keys`** — vendor key registry: external key id, name, `created_by_email`, derived `owner_employee_id`, `owner_override` (column in v1, no UI). Same shape for **`projects`** (OpenAI projects, Anthropic workspaces).
 - **`seat_assignments`** — `(vendor, employee, seat_type, monthly_price_usd, period)`. Generates monthly seat-cost facts. Membership comes from each vendor's member list (API or manual import); per-seat prices come from a small admin-maintained config (defaults: ChatGPT Business $25, Claude Team $30, Cursor Teams $40), since vendors don't expose negotiated pricing via API.
 - **`sync_runs`** — every automated pull: source, started/finished, status, rows written, error detail.
@@ -88,7 +88,7 @@ Each source has a **normalizer**: a pure function `(raw API response) → spend_
 ### Manual (monthly, admin UI)
 
 - **Claude Team CSV:** drag-and-drop → parse → validation (unknown emails, negative amounts, overlapping periods flagged per row) → preview table → explicit confirm. Atomic: bad files never partially ingest.
-- **ChatGPT Business:** structured entry form. Primary path: paste the member table from the admin UI; we parse the clipboard text. Fallback: hand-keyed totals (member count, seat price, period). Both stamp a "data as of" date.
+- **ChatGPT Business:** structured entry form. Primary path: paste the member table from the admin UI; we parse the clipboard text, including the per-user **credits** column for overage. Fallback: hand-keyed totals (member count, seat price, total credits used, period). Credits convert to USD via an admin-configured credit rate. Both paths stamp a "data as of" date.
 
 Staleness of manual sources is computed and displayed everywhere relevant ("ChatGPT Business data is 34 days old"), never hidden.
 
@@ -96,9 +96,9 @@ Staleness of manual sources is computed and displayed everywhere relevant ("Chat
 
 Five viewer pages + one admin page. Global controls: date range, department filter.
 
-1. **Overview** — scorecards (total monthly spend, seat vs metered split, MoM delta), 12-month stacked-by-vendor trend, department bar chart, vendor donut.
+1. **Overview** — scorecards (total monthly spend, seat / overage / metered split, MoM delta), 12-month stacked-by-vendor trend, department bar chart, vendor donut.
 2. **Departments** — dept × vendor matrix with totals and per-head spend (dept spend ÷ HiBob headcount). Click a department → its people and trend.
-3. **People** — searchable, sortable table: person, department, seats held, seat cost, metered spend, last-active (where vendors provide it). Click a person → profile panel: seats, usage, spend history. Sort by "seat cost with zero activity" = seat-hygiene view.
+3. **People** — searchable, sortable table: person, department, seats held, seat cost, overage, metered spend, last-active (where vendors provide it). Click a person → profile panel: seats, usage, spend history. Sort by "seat cost with zero activity" = seat-hygiene view.
 4. **API Platforms** — Anthropic + OpenAI (+ Cursor overage) spend by key/project with creator attribution, model breakdown, per-row trend sparklines.
 5. **Data Health** — per-source freshness and last sync status, row counts, manual-import age, unmatched-identity queue with one-click "assign to employee" (admin).
 6. **Imports** (admin) — the monthly manual workflow described above, plus manual sync trigger and backfill controls.
@@ -119,7 +119,7 @@ Designed as a product, not a template: custom typography, considered color syste
 - **Normalizers:** unit tests against recorded fixture responses from each vendor API (the most likely breakage point).
 - **Identity matcher:** unit tests covering aliases, case differences, leavers, duplicates, unmatched flow.
 - **CSV/clipboard parsers:** unit tests with real export samples plus malformed variants.
-- **Rollup queries:** tests asserting seat/metered splits and department totals against a seeded fixture DB.
+- **Rollup queries:** tests asserting seat/overage/metered splits and department totals against a seeded fixture DB.
 - Minimal e2e smoke: auth gate works, each page renders with seeded data.
 
 ## 10. Out of scope for v1 (explicit)
