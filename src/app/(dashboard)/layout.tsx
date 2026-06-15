@@ -1,15 +1,17 @@
+import { redirect } from "next/navigation";
 import { Nav } from "@/components/nav";
 import { auth } from "@/auth";
 
-/** Best-effort session read — tolerates missing auth env in local dev. */
-async function getRole(): Promise<string | undefined> {
-  if (process.env.AUTH_DISABLED === "true") return "admin"; // local-dev bypass
-  try {
-    const session = await auth();
-    return (session?.user as { role?: string } | undefined)?.role;
-  } catch {
-    return undefined;
-  }
+/**
+ * Authoritative auth gate for the whole dashboard (every page nests here).
+ * Verifies the real session server-side and redirects signed-out users.
+ * AUTH_DISABLED is a local-dev-only bypass (never set in production).
+ */
+async function requireRole(): Promise<string> {
+  if (process.env.AUTH_DISABLED === "true") return "admin";
+  const session = await auth().catch(() => null);
+  if (!session?.user) redirect("/api/auth/signin");
+  return (session.user as { role?: string }).role ?? "viewer";
 }
 
 export default async function DashboardLayout({
@@ -17,7 +19,7 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const role = await getRole();
+  const role = await requireRole();
   const isAdmin = role === "admin";
 
   return (
