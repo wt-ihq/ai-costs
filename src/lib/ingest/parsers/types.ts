@@ -11,6 +11,21 @@ export interface FactParseResult {
   errors: ParseRowError[];
 }
 
+/** A per-user row from the Claude Team MTD spend dashboard. */
+export interface ClaudeSpendRow {
+  name: string;
+  email: string;
+  /** month-to-date spend in GBP, as billed (the dashboard reports £, not $) */
+  mtdGbp: number;
+  /** false when the spend-limit column reads "Unavailable" (no active seat) */
+  available: boolean;
+}
+
+export interface ClaudeSpendResult {
+  rows: ClaudeSpendRow[];
+  errors: ParseRowError[];
+}
+
 /** A Claude Team seat from the roster CSV (priced per tier downstream). */
 export interface SeatRow {
   email: string;
