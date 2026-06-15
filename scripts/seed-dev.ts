@@ -11,8 +11,12 @@ import { parseClaudeRoster } from "@/lib/ingest/parsers/claude-roster";
 import { parseClaudeSpend, buildClaudeSpendFacts } from "@/lib/ingest/parsers/claude-spend";
 import { buildSeatFacts, type SeatAssignment } from "@/lib/ingest/seats";
 import { normalizeCursor } from "@/lib/ingest/normalizers/cursor";
+import { normalizeAnthropic } from "@/lib/ingest/normalizers/anthropic";
+import { normalizeOpenAI } from "@/lib/ingest/normalizers/openai";
 import { cursorUsageFixture } from "@/lib/ingest/fixtures/cursor-usage";
-import { attachEmployees, upsertSpendFacts, loadEmployees } from "@/lib/ingest/persist";
+import { anthropicCostFixture } from "@/lib/ingest/fixtures/anthropic-cost";
+import { openaiCostFixture } from "@/lib/ingest/fixtures/openai-cost";
+import { attachEmployees, upsertSpendFacts, loadEmployees, type ResolvedFact } from "@/lib/ingest/persist";
 import type { SpendFact } from "@/lib/types";
 
 process.loadEnvFile(".env.local");
@@ -84,14 +88,41 @@ async function main() {
   const claudeOverage = buildClaudeSpendFacts(spend.rows, "2026-06-15", gbpUsd);
   console.log(`claude MTD: ${spend.rows.length} rows, ${claudeOverage.length} with spend`);
 
-  // 4) Cursor metered (fixture).
+  // 4) Cursor metered (fixture) — email-keyed.
   const cursor = normalizeCursor(cursorUsageFixture);
 
-  const all = [...seatFacts, ...claudeOverage, ...cursor];
-  const { facts, unmatched } = attachEmployees(all, employees);
-  const written = await upsertSpendFacts(supabase, facts);
+  const emailKeyed = [...seatFacts, ...claudeOverage, ...cursor];
+  const { facts, unmatched } = attachEmployees(emailKeyed, employees);
 
-  console.log(`\nseeded ${written} facts (${seatFacts.length} seat, ${claudeOverage.length} overage, ${cursor.length} metered)`);
+  // 5) API platforms — keyed by api key / project; attributed to the
+  // key/project OWNER (not an end-user email). Seed the registry + facts.
+  const keyOwner: Record<string, string> = {
+    "anthropic:ak_prod_ingest": "jonathan.lakin@intenthq.com",
+    "anthropic:ak_research": "gary.kimmelman@intenthq.com",
+    "openai:proj_search": "kai.kashefi@intenthq.com",
+    "openai:proj_assistant": "albert.pastrana@intenthq.com",
+  };
+  await supabase.from("api_keys").insert([
+    { vendor: "anthropic", external_key_id: "ak_prod_ingest", name: "Prod ingest key", created_by_email: keyOwner["anthropic:ak_prod_ingest"], owner_employee_id: idByEmail.get(keyOwner["anthropic:ak_prod_ingest"]) },
+    { vendor: "anthropic", external_key_id: "ak_research", name: "Research key", created_by_email: keyOwner["anthropic:ak_research"], owner_employee_id: idByEmail.get(keyOwner["anthropic:ak_research"]) },
+  ]);
+  await supabase.from("projects").insert([
+    { vendor: "openai", external_id: "proj_search", name: "Search project", created_by_email: keyOwner["openai:proj_search"], owner_employee_id: idByEmail.get(keyOwner["openai:proj_search"]) },
+    { vendor: "openai", external_id: "proj_assistant", name: "Assistant project", created_by_email: keyOwner["openai:proj_assistant"], owner_employee_id: idByEmail.get(keyOwner["openai:proj_assistant"]) },
+  ]);
+
+  const platformFacts = [
+    ...normalizeAnthropic(anthropicCostFixture),
+    ...normalizeOpenAI(openaiCostFixture),
+  ];
+  const platformResolved: ResolvedFact[] = platformFacts.map((f) => ({
+    ...f,
+    employeeId: idByEmail.get(keyOwner[`${f.source}:${f.entityKey}`]) ?? null,
+  }));
+
+  const written = await upsertSpendFacts(supabase, [...facts, ...platformResolved]);
+
+  console.log(`\nseeded ${written} facts (${seatFacts.length} seat, ${claudeOverage.length} overage, ${cursor.length + platformFacts.length} metered)`);
   console.log(`unmatched entity keys: ${unmatched.length}`);
   const { count } = await supabase.from("spend_facts").select("*", { count: "exact", head: true });
   console.log(`✅ spend_facts now holds ${count} rows`);
