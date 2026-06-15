@@ -1,5 +1,6 @@
 import { AwaitingData, PageHeader, Panel } from "@/components/ui";
 import { ChatGptImport } from "@/components/chatgpt-import";
+import { ClaudeSpendImport } from "@/components/claude-spend-import";
 
 export default function ImportsPage() {
   return (
@@ -8,18 +9,26 @@ export default function ImportsPage() {
         title="Imports"
         subtitle="Monthly manual workflow, manual sync trigger, and backfill controls (admin)."
       />
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4">
         <Panel>
-          <h2 className="mb-4 text-sm font-medium">Claude Team CSV</h2>
-          <AwaitingData note="Drag-and-drop → parse → per-row validation → preview → confirm. Atomic (spec §6)" />
+          <h2 className="mb-1 text-sm font-medium">Claude Team — MTD spend</h2>
+          <p className="mb-4 text-xs text-muted">
+            Paste the &ldquo;MTD spend&rdquo; table. Email-matched; £ converted to USD at the rate below.
+          </p>
+          <ClaudeSpendImport />
         </Panel>
+
         <Panel>
-          <h2 className="mb-4 text-sm font-medium">ChatGPT Business</h2>
+          <h2 className="mb-1 text-sm font-medium">ChatGPT Business — workspace analytics</h2>
+          <p className="mb-4 text-xs text-muted">
+            Paste the analytics table. Fuzzy name-matched (no email); credits converted via rate.
+          </p>
           <ChatGptImport />
         </Panel>
-        <Panel className="lg:col-span-2">
-          <h2 className="mb-4 text-sm font-medium">Sync & backfill</h2>
-          <AwaitingData note="Manual sync trigger + backfill controls (spec §4, §7.6)" />
+
+        <Panel>
+          <h2 className="mb-4 text-sm font-medium">Claude Team roster (seats) &amp; sync</h2>
+          <AwaitingData note="Roster CSV upload (seat tiers) + manual sync trigger + backfill controls (spec §4, §6, §7.6)" />
         </Panel>
       </div>
     </>

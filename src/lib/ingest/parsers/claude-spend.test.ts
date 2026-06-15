@@ -42,6 +42,28 @@ describe("parseClaudeSpend", () => {
     expect(rows[2].available).toBe(false);
     expect(rows[2].mtdGbp).toBe(0);
   });
+
+  it("handles the real paste: space-separated amounts + whitespace separator lines", () => {
+    const realPaste = [
+      "        ",
+      "Custom spend limit",
+      "MTD spend    ",
+      "    ",
+      "Jason Cornock",
+      "jason.cornock@intenthq.com",
+      "–    £4.54    ",
+      "    ",
+      "Jerry Marcel Lieveld",
+      "jerry.lieveld@intenthq.com",
+      "–    £1,035.35    ",
+    ].join("\n");
+    const { rows, errors } = parseClaudeSpend(realPaste);
+    expect(errors).toEqual([]);
+    expect(rows).toEqual([
+      { name: "Jason Cornock", email: "jason.cornock@intenthq.com", mtdGbp: 4.54, available: true },
+      { name: "Jerry Marcel Lieveld", email: "jerry.lieveld@intenthq.com", mtdGbp: 1035.35, available: true },
+    ]);
+  });
 });
 
 describe("buildClaudeSpendFacts", () => {
