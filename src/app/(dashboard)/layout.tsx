@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 
 /** Best-effort session read — tolerates missing auth env in local dev. */
 async function getRole(): Promise<string | undefined> {
+  if (process.env.AUTH_DISABLED === "true") return "admin"; // local-dev bypass
   try {
     const session = await auth();
     return (session?.user as { role?: string } | undefined)?.role;

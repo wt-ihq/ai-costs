@@ -5,6 +5,10 @@ import { auth } from "@/auth";
  * CRON_SECRET, and the auth routes must stay public.
  */
 export default auth((req) => {
+  // Local-dev escape hatch: skip the sign-in gate when explicitly enabled.
+  // Never set AUTH_DISABLED in a deployed environment.
+  if (process.env.AUTH_DISABLED === "true") return;
+
   const { pathname } = req.nextUrl;
   const isPublic =
     pathname.startsWith("/api/auth") || pathname.startsWith("/api/cron");
