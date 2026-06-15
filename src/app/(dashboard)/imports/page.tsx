@@ -1,4 +1,5 @@
 import { AwaitingData, PageHeader, Panel } from "@/components/ui";
+import { ChatGptImport } from "@/components/chatgpt-import";
 
 export default function ImportsPage() {
   return (
@@ -14,7 +15,7 @@ export default function ImportsPage() {
         </Panel>
         <Panel>
           <h2 className="mb-4 text-sm font-medium">ChatGPT Business</h2>
-          <AwaitingData note="Paste member table (parses credits column) or hand-keyed fallback; stamps 'data as of'" />
+          <ChatGptImport />
         </Panel>
         <Panel className="lg:col-span-2">
           <h2 className="mb-4 text-sm font-medium">Sync & backfill</h2>

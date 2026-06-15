@@ -30,6 +30,24 @@ export async function loadEmployees(supabase: SupabaseClient) {
   return data ?? [];
 }
 
+/** Employees with names, for ChatGPT's no-email fuzzy matching. */
+export async function loadEmployeeNames(supabase: SupabaseClient) {
+  const { data, error } = await supabase.from("employees").select("id, fullName:full_name");
+  if (error) throw new Error(`loadEmployeeNames: ${error.message}`);
+  return (data ?? []) as { id: string; fullName: string }[];
+}
+
+/** Upsert employees from HiBob (the identity spine). Keyed on email. */
+export async function upsertEmployees(
+  supabase: SupabaseClient,
+  rows: Record<string, unknown>[],
+): Promise<number> {
+  if (rows.length === 0) return 0;
+  const { error } = await supabase.from("employees").upsert(rows, { onConflict: "email" });
+  if (error) throw new Error(`upsertEmployees: ${error.message}`);
+  return rows.length;
+}
+
 /** Idempotent upsert on the (source, day, cost_type, entity_key, model) key. */
 export async function upsertSpendFacts(
   supabase: SupabaseClient,

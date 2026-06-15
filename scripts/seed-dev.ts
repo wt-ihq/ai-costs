@@ -16,7 +16,8 @@ import { normalizeOpenAI } from "@/lib/ingest/normalizers/openai";
 import { cursorUsageFixture } from "@/lib/ingest/fixtures/cursor-usage";
 import { anthropicCostFixture } from "@/lib/ingest/fixtures/anthropic-cost";
 import { openaiCostFixture } from "@/lib/ingest/fixtures/openai-cost";
-import { attachEmployees, upsertSpendFacts, loadEmployees, type ResolvedFact } from "@/lib/ingest/persist";
+import { normalizeHibob } from "@/lib/ingest/normalizers/hibob";
+import { attachEmployees, upsertSpendFacts, loadEmployees, upsertEmployees, type ResolvedFact } from "@/lib/ingest/persist";
 import type { SpendFact } from "@/lib/types";
 
 process.loadEnvFile(".env.local");
@@ -44,14 +45,21 @@ async function main() {
   const roster = parseClaudeRoster(readFileSync("reports/claude team.csv", "utf8"));
   console.log(`roster: ${roster.seats.length} seats, ${roster.errors.length} errors`);
 
-  await supabase.from("employees").insert(
-    roster.seats.map((s) => ({
-      hibob_id: s.email,
+  // Employees flow through the HiBob normalizer (the identity spine). In dev we
+  // synthesise a HiBob payload from the roster with dev-assigned departments;
+  // the real HiBob fetch (sources/hibob.ts) needs service-user creds.
+  const hibobPayload = {
+    employees: roster.seats.map((s) => ({
+      id: `hibob-${s.email}`,
       email: s.email,
-      full_name: s.fullName,
-      department: deptFor(s.email),
-      employment_status: "active",
+      displayName: s.fullName,
+      work: { department: deptFor(s.email), site: "London" },
+      employmentStatus: "Active",
     })),
+  };
+  await upsertEmployees(
+    supabase,
+    normalizeHibob(hibobPayload) as unknown as Record<string, unknown>[],
   );
   const employees = await loadEmployees(supabase);
   const idByEmail = new Map(employees.map((e) => [e.email, e.id]));
