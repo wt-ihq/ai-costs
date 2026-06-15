@@ -31,3 +31,39 @@ describe("parseChatGptMemberTable", () => {
     });
   });
 });
+
+// Real copy/paste shape: 4 lines per member (the actual UI export).
+const blockPasted = [
+  "Name\tSeat type\tCredits spent\tMessages sent",
+  "Omar Ali",
+  "ChatGPT",
+  "36K",
+  "97",
+  "Gareth J",
+  "ChatGPT",
+  "450",
+  "6.72K",
+  "Brandon Jones",
+  "ChatGPT",
+  "100",
+  "213",
+].join("\n");
+
+describe("parseChatGptMemberTable (block format)", () => {
+  it("parses 4-line blocks, handling K suffixes and the header", () => {
+    const { members, errors } = parseChatGptMemberTable(blockPasted, "2026-06-15", 0.01);
+    expect(errors).toEqual([]);
+    expect(members).toEqual([
+      { name: "Omar Ali", creditsSpent: 36000, messagesSent: 97 },
+      { name: "Gareth J", creditsSpent: 450, messagesSent: 6720 },
+      { name: "Brandon Jones", creditsSpent: 100, messagesSent: 213 },
+    ]);
+  });
+
+  it("converts credits to USD overage facts keyed by normalized name", () => {
+    const { facts } = parseChatGptMemberTable(blockPasted, "2026-06-15", 0.01);
+    expect(facts).toHaveLength(3);
+    expect(facts[0]).toMatchObject({ entityKey: "omar ali", costUsd: 360 }); // 36000 * 0.01
+    expect(facts[1]).toMatchObject({ entityKey: "gareth j", costUsd: 4.5 });
+  });
+});
