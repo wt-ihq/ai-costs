@@ -1,45 +1,78 @@
 import type { SpendFact } from "@/lib/types";
-import type { ParseResult } from "./claude-csv";
+import { parseHumanNumber, type ParseRowError } from "./types";
+
+export interface ChatGptMember {
+  /** display name as shown (often abbreviated, e.g. "Gareth J") */
+  name: string;
+  creditsSpent: number;
+  messagesSent: number;
+}
+
+export interface ChatGptParseResult {
+  /** overage facts (credits × rate), keyed by normalized display name */
+  facts: SpendFact[];
+  /** every active member, for ChatGPT seat assignment + activity */
+  members: ChatGptMember[];
+  errors: ParseRowError[];
+}
+
+/** Normalize a display name for keying (no email available from ChatGPT). */
+export function normalizeName(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
 
 /**
- * ChatGPT Business member-table paste (spec §6). The admin copies the member
- * table from the ChatGPT admin UI; we parse the tab/multi-space separated text,
- * including the per-user credits column for overage. Credits convert to USD via
- * an admin-configured `usdPerCredit` rate.
- *
- * Seat cost is generated from seat_assignments; here we emit only overage.
- * No documented CSV export exists, hence paste-first with a hand-keyed fallback.
+ * ChatGPT Business "Workspace analytics" table, copy/pasted as text
+ * (reports/chatgpt member table.png). Columns: Name, Seat type, Credits spent,
+ * Messages sent. No email — identity is resolved by fuzzy name match downstream
+ * (see matchByName). Credits convert to USD overage via an admin credit rate.
  */
 export function parseChatGptMemberTable(
   text: string,
   asOf: string,
   usdPerCredit: number,
-): ParseResult {
+): ChatGptParseResult {
   const facts: SpendFact[] = [];
-  const errors: ParseResult["errors"] = [];
+  const members: ChatGptMember[] = [];
+  const errors: ParseRowError[] = [];
 
-  const rows = text.trim().split(/\r?\n/).filter(Boolean);
-  rows.forEach((row, i) => {
-    const cells = row.split(/\t|\s{2,}/).map((c) => c.trim());
-    const email = cells.find((c) => c.includes("@"));
-    const creditsCell = cells.find((c) => /^\d[\d,.]*$/.test(c.replace(/,/g, "")));
+  text
+    .trim()
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .forEach((line, i) => {
+      const lower = line.toLowerCase();
+      // skip header / scorecard rows
+      if (lower.startsWith("name") || lower.includes("credits spent")) return;
 
-    if (!email) {
-      // header / separator rows are skipped, not errored
-      if (i > 0) errors.push({ line: i + 1, message: "no email found in row" });
-      return;
-    }
-    const credits = creditsCell ? Number(creditsCell.replace(/,/g, "")) : 0;
-    if (credits > 0) {
-      facts.push({
-        source: "chatgpt_business",
-        day: asOf,
-        costType: "overage",
-        entityKey: email.toLowerCase(),
-        costUsd: credits * usdPerCredit,
-      });
-    }
-  });
+      const cells = line.split(/\t|\s{2,}/).map((c) => c.trim());
+      const name = cells[0];
+      const numbers = cells
+        .slice(1)
+        .map(parseHumanNumber)
+        .filter((n) => Number.isFinite(n));
 
-  return { facts, errors };
+      if (!name || numbers.length < 1) {
+        errors.push({ line: i + 1, message: `unparseable row: "${line}"` });
+        return;
+      }
+      // Column order after name (skipping "ChatGPT"): Credits spent, Messages sent
+      const [creditsSpent = 0, messagesSent = 0] = numbers;
+
+      members.push({ name, creditsSpent, messagesSent });
+
+      if (creditsSpent > 0) {
+        facts.push({
+          source: "chatgpt_business",
+          day: asOf,
+          costType: "overage",
+          entityKey: normalizeName(name),
+          costUsd: creditsSpent * usdPerCredit,
+          requests: messagesSent || null,
+        });
+      }
+    });
+
+  return { facts, members, errors };
 }

@@ -32,8 +32,8 @@ A single internal dashboard tracking AI tool spend per user and per department a
 | Cursor Teams ($40/seat) | **API** — Admin API | Per-user daily usage + per-event (model, tokens, cost) | 90-day window per request; paginate for backfill |
 | Anthropic Console | **API** — Usage (`/v1/organizations/usage_report/messages`) + Cost Report (beta) | Per-API-key, per-workspace, per-model, daily | No end-user dimension; key `created_by` available when listing keys |
 | OpenAI Developer Platform | **API** — `/v1/organization/usage/*` + `/v1/organization/costs` | Per-project, per-`user_id` (only if apps pass it), per-key, daily | Admin key is Org-Owner-scoped; cannot be used on data endpoints |
-| Claude Team ($30/seat) | **Manual** — CSV spend export from admin UI | Per-user, per-model; daily refresh, 1-day lag | No API on Team plan; Analytics API is Enterprise-only |
-| ChatGPT Business ($25/seat) | **Manual** — no documented CSV export; member table visible in UI | Per-user usage in UI only | Entry via clipboard paste of member table, or hand-keyed fields |
+| Claude Team (tiered seats) | **Manual** — two surfaces: roster CSV (seats) + spend dashboard (overage) | Roster: per-user seat **tier**. Spend: per-user **MTD** spend, **email**-keyed | No API on Team plan; Analytics API is Enterprise-only. See addendum |
+| ChatGPT Business ($25/seat) | **Manual** — copy/paste the Workspace analytics table | Per-user **credits** + messages, **name only (no email, abbreviated)** | Identity via fuzzy name match + confirm queue. See addendum |
 | HiBob | **API** — People endpoint, service-user credentials | Employee → department, status, start/leave dates | Identity spine for all joins |
 
 Seat-based tools (ChatGPT Business, Claude Team) carry **two cost components**: allocated seat cost, plus overage/credit usage on top (ChatGPT Business: Codex/workspace credits, per-user credits visible in the member table; Claude Team: per-user per-model spend in the CSV export). Metered tools (Cursor overage, Anthropic, OpenAI): true usage cost. The dashboard must keep this distinction visible (`cost_type = seat | overage | metered`).
@@ -139,3 +139,13 @@ Designed as a product, not a template: custom typography, considered color syste
 | OpenAI `user_id` attribution only if apps pass it | Treat as bonus dimension; project-level attribution is the dependable grain |
 | Vendor API drift | Raw payload retention + replayable normalizers + loud failures |
 | HR-adjacent data exposure | Domain-locked SSO, role split, secrets in env vars only |
+
+## 12. Addendum — real source samples (2026-06-15)
+
+Validated against real exports in `reports/`; supersedes the §3/§5/§6 assumptions where they conflict. See `reports/`.
+
+- **Claude Team is two surfaces, not one.** (1) Member roster CSV (`Name, Email, Role, Status, Seat Tier`) — seats only, no spend; tiers **Premium / Standard / Unassigned** (not one flat $30). (2) Spend dashboard (`Name, Email, MTD spend`, **screenshot only**) — per-user overage, email-keyed. The original "CSV gives per-user per-model spend" was wrong: roster ≠ spend.
+  - Overage is **month-to-date (cumulative)** → store one monthly fact per user, **upsert/replace** (never sum) or repeated captures double-count.
+  - ⚠ A correct Claude-spend sample is still outstanding (the dropped file was a mislabeled copy of the ChatGPT table); `parseClaudeSpend` is stubbed against the assumed shape until pinned.
+- **ChatGPT Business has no email and abbreviated names.** Columns `Name, Seat type, Credits spent, Messages sent`. Copy/paste of the table text **does** work (paste-first path confirmed). Credits → USD overage via admin rate. Identity resolved by **fuzzy name match + confirm queue** (`matchByName`): exact → first+last-initial → first-only, with low-confidence matches surfaced on Data Health rather than auto-applied.
+- **Seat pricing is per-tier** (`seat_prices` keyed on `(vendor, seat_type)`); Claude tier prices are placeholders pending real negotiated values.

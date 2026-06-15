@@ -96,6 +96,9 @@ create table seat_assignments (
 );
 
 -- Small admin-maintained pricing config (vendors don't expose negotiated prices).
+-- Claude Team is priced PER TIER (roster CSV "Seat Tier": Premium/Standard/
+-- Unassigned); "unassigned" = a member holding a seat with no paid tier (0).
+-- Prices below are placeholders — set real negotiated values via admin/SQL.
 create table seat_prices (
   vendor             vendor not null,
   seat_type          text not null,
@@ -103,9 +106,11 @@ create table seat_prices (
   primary key (vendor, seat_type)
 );
 insert into seat_prices (vendor, seat_type, monthly_price_usd) values
-  ('chatgpt_business', 'business', 25.00),
-  ('claude_team',      'team',     30.00),
-  ('cursor',           'teams',    40.00);
+  ('chatgpt_business', 'chatgpt',    25.00),
+  ('claude_team',      'premium',    30.00),  -- TODO confirm real tier prices
+  ('claude_team',      'standard',   30.00),
+  ('claude_team',      'unassigned',  0.00),
+  ('cursor',           'teams',      40.00);
 
 -- ChatGPT Business credits -> USD conversion rate (admin-configured).
 create table credit_rates (

@@ -39,6 +39,10 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# Local source samples — real employee names/emails/spend (HR-adjacent PII).
+# Kept out of git; tests use inline fixtures, not these files.
+/reports/
+
 # Editor / OS
 .DS_Store
 *.pem
