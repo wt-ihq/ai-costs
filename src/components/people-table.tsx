@@ -3,8 +3,12 @@
 import { useMemo, useState } from "react";
 import type { PersonRow } from "@/lib/queries/people";
 import { VENDOR_LABEL, type Vendor } from "@/lib/types";
+import { VENDOR_COLORS } from "@/lib/colors";
 import { formatUsd } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { ColumnFilter, type FilterOption } from "@/components/column-filter";
+
+const NO_SEAT = "__none__";
 
 type SortKey = "name" | "department" | "seatCost" | "overage" | "metered" | "total";
 
@@ -17,28 +21,26 @@ const COLUMNS: { key: SortKey; label: string; numeric?: boolean }[] = [
   { key: "total", label: "Total", numeric: true },
 ];
 
-type SeatFilter = "all" | "none" | Vendor;
-
 export function PeopleTable({ rows }: { rows: PersonRow[] }) {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortKey>("total");
   const [asc, setAsc] = useState(false);
   const [zeroOnly, setZeroOnly] = useState(false);
-  const [seat, setSeat] = useState<SeatFilter>("all");
 
-  // Seat vendors actually present in the data, for the filter options.
-  const seatVendors = useMemo(() => {
-    const s = new Set<Vendor>();
-    rows.forEach((r) => r.seatVendors.forEach((v) => s.add(v)));
-    return [...s].sort();
-  }, [rows]);
+  // Seat filter options: vendors present in the data + "No seat".
+  const seatVendors = [...new Set(rows.flatMap((r) => r.seatVendors))].sort() as Vendor[];
+  const seatOptions: FilterOption[] = [
+    ...seatVendors.map((v) => ({ value: v, label: VENDOR_LABEL[v], color: VENDOR_COLORS[v] })),
+    { value: NO_SEAT, label: "No seat" },
+  ];
+  const [seats, setSeats] = useState<Set<string>>(() => new Set(seatOptions.map((o) => o.value)));
 
   const view = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const filtered = rows.filter((r) => {
       if (zeroOnly && !r.zeroActivity) return false;
-      if (seat === "none" && r.seatVendors.length > 0) return false;
-      if (seat !== "all" && seat !== "none" && !r.seatVendors.includes(seat)) return false;
+      const tokens = r.seatVendors.length ? r.seatVendors : [NO_SEAT];
+      if (!tokens.some((t) => seats.has(t))) return false;
       if (!needle) return true;
       return (
         r.name.toLowerCase().includes(needle) ||
@@ -52,7 +54,7 @@ export function PeopleTable({ rows }: { rows: PersonRow[] }) {
       if (typeof av === "string" && typeof bv === "string") return av.localeCompare(bv) * dir;
       return ((av as number) - (bv as number)) * dir;
     });
-  }, [rows, q, sort, asc, zeroOnly, seat]);
+  }, [rows, q, sort, asc, zeroOnly, seats]);
 
   const onSort = (k: SortKey) => {
     if (k === sort) setAsc((v) => !v);
@@ -73,17 +75,6 @@ export function PeopleTable({ rows }: { rows: PersonRow[] }) {
           placeholder="Search person or department…"
           className="w-64 rounded-md border border-border bg-surface-2 px-3 py-1.5 text-sm outline-none placeholder:text-muted focus:border-accent"
         />
-        <select
-          value={seat}
-          onChange={(e) => setSeat(e.target.value as SeatFilter)}
-          className="rounded-md border border-border bg-surface-2 px-3 py-1.5 text-sm outline-none focus:border-accent"
-        >
-          <option value="all">All seats</option>
-          {seatVendors.map((v) => (
-            <option key={v} value={v}>{VENDOR_LABEL[v]} seat</option>
-          ))}
-          <option value="none">No seat</option>
-        </select>
         <button
           onClick={() => setZeroOnly((v) => !v)}
           className={cn(
@@ -110,7 +101,9 @@ export function PeopleTable({ rows }: { rows: PersonRow[] }) {
                   {sort === c.key && <span className="ml-1">{asc ? "▲" : "▼"}</span>}
                 </th>
               ))}
-              <th className="px-4 py-3 font-medium">Seats</th>
+              <th className="px-4 py-3 font-medium">
+                <ColumnFilter label="Seats" options={seatOptions} selected={seats} onChange={setSeats} align="right" />
+              </th>
             </tr>
           </thead>
           <tbody>
