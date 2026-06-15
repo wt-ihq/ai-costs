@@ -1,0 +1,32 @@
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+/** shadcn-style className combiner. */
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+const usd = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumFractionDigits: 0,
+});
+
+const usdCents = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumFractionDigits: 2,
+});
+
+/** Format a USD amount. Cents shown only below $100 where they matter. */
+export function formatUsd(amount: number): string {
+  return Math.abs(amount) < 100 ? usdCents.format(amount) : usd.format(amount);
+}
+
+/** "34 days old" style staleness label from a "data as of" date. */
+export function staleness(asOf: Date, now: Date): string {
+  const days = Math.floor((now.getTime() - asOf.getTime()) / 86_400_000);
+  if (days <= 0) return "today";
+  if (days === 1) return "1 day old";
+  return `${days} days old`;
+}
