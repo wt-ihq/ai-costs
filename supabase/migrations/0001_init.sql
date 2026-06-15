@@ -73,7 +73,9 @@ create table spend_facts (
   employee_id   uuid references employees(id),
   api_key_id    uuid references api_keys(id),
   project_id    uuid references projects(id),
-  model         text,
+  -- NOT NULL '' (not nullable): a nullable column in the unique key would let
+  -- Postgres treat every NULL as distinct, defeating ON CONFLICT dedupe.
+  model         text not null default '',
   created_at    timestamptz not null default now(),
   -- idempotency: re-running a sync upserts instead of duplicating
   unique (source, day, cost_type, entity_key, model)
@@ -166,3 +168,18 @@ create table raw_payloads (
   fetched_at    timestamptz not null default now(),
   payload       jsonb not null
 );
+
+-- Access model (v1): all DB access is server-side via the service-role key,
+-- gated by Auth.js (Google SSO) at the app layer — we do NOT use Supabase Auth,
+-- so the public anon key must never read this HR-adjacent data. Enable RLS to
+-- deny the public roles by default (no policies) and grant only service_role.
+do $$
+declare t text;
+begin
+  for t in select tablename from pg_tables where schemaname = 'public'
+  loop
+    execute format('alter table public.%I enable row level security', t);
+    execute format('grant all on public.%I to service_role', t);
+  end loop;
+end $$;
+grant usage on schema public to service_role;
