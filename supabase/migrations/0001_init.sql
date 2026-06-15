@@ -134,10 +134,11 @@ create table fx_rates (
 insert into fx_rates (currency, usd_per_unit, effective_from) values
   ('GBP', 1.270000, '2026-01-01');     -- TODO set the rate the business uses
 
--- Audit: every automated pull.
+-- Audit: every automated pull. `source` is text (not the vendor enum) because
+-- pull sources include HiBob, which is the identity spine, not a spend vendor.
 create table sync_runs (
   id            uuid primary key default gen_random_uuid(),
-  source        vendor not null,
+  source        text not null,
   started_at    timestamptz not null default now(),
   finished_at   timestamptz,
   status        sync_status not null default 'running',
@@ -163,7 +164,7 @@ create table imports (
 -- replayed without re-fetching (spec §6).
 create table raw_payloads (
   id            uuid primary key default gen_random_uuid(),
-  source        vendor not null,
+  source        text not null,
   sync_run_id   uuid references sync_runs(id),
   fetched_at    timestamptz not null default now(),
   payload       jsonb not null

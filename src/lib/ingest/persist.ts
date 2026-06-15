@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { SpendFact, Vendor } from "@/lib/types";
+import type { SpendFact } from "@/lib/types";
 import { matchIdentity } from "@/lib/ingest/identity";
 
 export interface ResolvedFact extends SpendFact {
@@ -28,6 +28,31 @@ export async function loadEmployees(supabase: SupabaseClient) {
   const { data, error } = await supabase.from("employees").select("id, email");
   if (error) throw new Error(`loadEmployees: ${error.message}`);
   return data ?? [];
+}
+
+/** Attach employee_id to API-platform facts via the key/project owner map. */
+export function attachOwners(
+  facts: SpendFact[],
+  ownerByEntity: Map<string, string | null>,
+): { facts: ResolvedFact[]; unmatched: string[] } {
+  const unmatched = new Set<string>();
+  const resolved = facts.map((f) => {
+    const employeeId = ownerByEntity.get(f.entityKey) ?? null;
+    if (!employeeId) unmatched.add(f.entityKey);
+    return { ...f, employeeId };
+  });
+  return { facts: resolved, unmatched: [...unmatched] };
+}
+
+/** external id → owner employee (override wins over creator, spec §5 rule 3). */
+export async function loadApiKeyOwners(supabase: SupabaseClient): Promise<Map<string, string | null>> {
+  const { data } = await supabase.from("api_keys").select("external_key_id, owner_employee_id, owner_override");
+  return new Map((data ?? []).map((k) => [k.external_key_id as string, (k.owner_override ?? k.owner_employee_id) as string | null]));
+}
+
+export async function loadProjectOwners(supabase: SupabaseClient): Promise<Map<string, string | null>> {
+  const { data } = await supabase.from("projects").select("external_id, owner_employee_id, owner_override");
+  return new Map((data ?? []).map((p) => [p.external_id as string, (p.owner_override ?? p.owner_employee_id) as string | null]));
 }
 
 /** Employees with names, for ChatGPT's no-email fuzzy matching. */
@@ -74,7 +99,7 @@ export async function upsertSpendFacts(
 
 export async function startSyncRun(
   supabase: SupabaseClient,
-  source: Vendor,
+  source: string,
 ): Promise<string> {
   const { data, error } = await supabase
     .from("sync_runs")
@@ -103,7 +128,7 @@ export async function finishSyncRun(
 
 export async function saveRawPayload(
   supabase: SupabaseClient,
-  source: Vendor,
+  source: string,
   syncRunId: string,
   payload: unknown,
 ) {

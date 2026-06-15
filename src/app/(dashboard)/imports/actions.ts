@@ -1,6 +1,10 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
+import { recentWindow, runAllSyncs, type SyncOutcome } from "@/lib/ingest/run-all";
+import { syncCursor } from "@/lib/ingest/run-cursor";
+import { syncAnthropic, syncOpenAI } from "@/lib/ingest/run-platforms";
 import { parseChatGptMemberTable, normalizeName } from "@/lib/ingest/parsers/chatgpt-clipboard";
 import { parseClaudeSpend } from "@/lib/ingest/parsers/claude-spend";
 import { parseClaudeRoster } from "@/lib/ingest/parsers/claude-roster";
@@ -320,4 +324,51 @@ export async function commitClaudeRoster(
   });
 
   return { written, seats: rows.length, attributed: assignments.length };
+}
+
+// ---- Automated sync: manual trigger + backfill ------------------------------
+
+/** Run all sources now (the cron pipeline, on demand). */
+export async function triggerSync(): Promise<Record<string, SyncOutcome>> {
+  const supabase = getSupabaseAdminClient();
+  const results = await runAllSyncs(supabase, recentWindow(new Date()));
+  revalidatePath("/data-health");
+  revalidatePath("/");
+  return results;
+}
+
+export interface BackfillResult {
+  months: number;
+  written: number;
+  errors: string[];
+}
+
+/** Backfill the metered API sources over the past N monthly windows. */
+export async function backfillSync(months: number): Promise<BackfillResult> {
+  const supabase = getSupabaseAdminClient();
+  const n = Math.max(1, Math.min(24, Math.floor(months)));
+  const now = new Date();
+  let written = 0;
+  const errors: string[] = [];
+
+  for (let i = 0; i < n; i++) {
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i + 1, 1));
+    const window = { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10) };
+    for (const [name, fn] of [
+      ["cursor", () => syncCursor(supabase, window)],
+      ["anthropic", () => syncAnthropic(supabase, window)],
+      ["openai", () => syncOpenAI(supabase, window)],
+    ] as const) {
+      try {
+        written += (await fn()).rowsWritten;
+      } catch (err) {
+        errors.push(`${window.startDate} ${name}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+
+  revalidatePath("/data-health");
+  revalidatePath("/");
+  return { months: n, written, errors };
 }

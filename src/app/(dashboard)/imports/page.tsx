@@ -1,7 +1,8 @@
-import { AwaitingData, PageHeader, Panel } from "@/components/ui";
+import { PageHeader, Panel } from "@/components/ui";
 import { ChatGptImport } from "@/components/chatgpt-import";
 import { ClaudeSpendImport } from "@/components/claude-spend-import";
 import { ClaudeRosterImport } from "@/components/claude-roster-import";
+import { SyncControls } from "@/components/sync-controls";
 
 export default function ImportsPage() {
   return (
@@ -36,8 +37,11 @@ export default function ImportsPage() {
         </Panel>
 
         <Panel>
-          <h2 className="mb-4 text-sm font-medium">Automated sync &amp; backfill</h2>
-          <AwaitingData note="Manual sync trigger + historical backfill controls for the API sources (spec §4, §7.6)" />
+          <h2 className="mb-1 text-sm font-medium">Automated sync &amp; backfill</h2>
+          <p className="mb-4 text-xs text-muted">
+            On-demand trigger for the daily cron pipeline. Sources without API keys report an error and are skipped (the rest still run).
+          </p>
+          <SyncControls />
         </Panel>
       </div>
     </>
