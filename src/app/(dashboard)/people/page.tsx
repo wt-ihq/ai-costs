@@ -1,15 +1,20 @@
-import { AwaitingData, PageHeader, Panel } from "@/components/ui";
+import { getSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getPeopleData } from "@/lib/queries/people";
+import { PageHeader } from "@/components/ui";
+import { PeopleTable } from "@/components/people-table";
 
-export default function PeoplePage() {
+export const dynamic = "force-dynamic";
+
+export default async function PeoplePage() {
+  const { month, rows } = await getPeopleData(getSupabaseAdminClient(), new Date());
+
   return (
     <>
       <PageHeader
         title="People"
-        subtitle="Per-person seats, seat cost, overage, metered spend, and activity."
+        subtitle={`Per-person seat, overage and metered spend for ${month}. Filter to idle seats for the hygiene view.`}
       />
-      <Panel>
-        <AwaitingData note="Searchable, sortable table. Sort by 'seat cost with zero activity' for the seat-hygiene view; click a person → profile panel (spec §7.3)" />
-      </Panel>
+      <PeopleTable rows={rows} />
     </>
   );
 }
