@@ -120,6 +120,18 @@ create table credit_rates (
   primary key (vendor, effective_from)
 );
 
+-- Fixed, admin-configured FX rates (NOT live FX). Claude Team bills in GBP;
+-- amounts are converted to USD at ingest so spend_facts stays single-currency.
+-- Native amounts are retained in raw_payloads for audit.
+create table fx_rates (
+  currency           text not null,    -- ISO 4217, e.g. 'GBP'
+  usd_per_unit       numeric(12,6) not null,
+  effective_from     date not null,
+  primary key (currency, effective_from)
+);
+insert into fx_rates (currency, usd_per_unit, effective_from) values
+  ('GBP', 1.270000, '2026-01-01');     -- TODO set the rate the business uses
+
 -- Audit: every automated pull.
 create table sync_runs (
   id            uuid primary key default gen_random_uuid(),

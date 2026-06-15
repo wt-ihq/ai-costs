@@ -1,3 +1,4 @@
+import type { SpendFact } from "@/lib/types";
 import type { ClaudeSpendResult, ClaudeSpendRow } from "./types";
 
 /**
@@ -9,11 +10,11 @@ import type { ClaudeSpendResult, ClaudeSpendRow } from "./types";
  *     mark.bunn@intenthq.com
  *     –\t£0.00                 (or "Unavailable\t£0.00" for inactive seats)
  *
- * ⚠ CURRENCY: amounts are GBP (£), but the spec scopes v1 as USD-only / no FX
- * (§2, §10). This parser returns the NATIVE GBP value; converting to USD is a
- * pending product decision (fixed admin rate vs. native + currency column).
+ * CURRENCY: amounts are GBP (£). Decision: convert to USD at ingest via a
+ * fixed admin-configured rate (fx_rates.GBP), keeping spend_facts single-
+ * currency; native £ is retained in raw_payloads. See buildClaudeSpendFacts.
  * Identity is email-keyed (clean). MTD is cumulative → emit one monthly fact
- * per user downstream, upsert-REPLACE, never sum.
+ * per user, keyed to the month, upsert-REPLACE, never sum.
  */
 export function parseClaudeSpend(text: string): ClaudeSpendResult {
   const rows: ClaudeSpendRow[] = [];
@@ -46,4 +47,27 @@ export function parseClaudeSpend(text: string): ClaudeSpendResult {
   }
 
   return { rows, errors };
+}
+
+/**
+ * Convert parsed Claude rows to monthly overage facts in USD.
+ * `monthIso` is any date in the target month; the fact is keyed to the 1st so
+ * re-importing the same month upserts/replaces rather than accumulating.
+ * `usdPerGbp` comes from fx_rates.GBP.
+ */
+export function buildClaudeSpendFacts(
+  rows: ClaudeSpendRow[],
+  monthIso: string,
+  usdPerGbp: number,
+): SpendFact[] {
+  const day = monthIso.slice(0, 7) + "-01";
+  return rows
+    .filter((r) => r.mtdGbp > 0)
+    .map((r) => ({
+      source: "claude_team",
+      day,
+      costType: "overage",
+      entityKey: r.email,
+      costUsd: Math.round(r.mtdGbp * usdPerGbp * 100) / 100,
+    }));
 }
