@@ -66,7 +66,7 @@ export function ChatGptImport() {
 
       {result && (
         <p className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">
-          Imported {result.written} rows — {result.attributed} attributed, {result.queued} queued for review.
+          Imported {result.written} rows ({result.seats} seats) — {result.attributed} overage rows attributed, {result.queued} queued for review.
         </p>
       )}
 

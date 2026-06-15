@@ -3,8 +3,16 @@
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { parseChatGptMemberTable, normalizeName } from "@/lib/ingest/parsers/chatgpt-clipboard";
 import { parseClaudeSpend } from "@/lib/ingest/parsers/claude-spend";
+import { parseClaudeRoster } from "@/lib/ingest/parsers/claude-roster";
 import { matchByName } from "@/lib/ingest/identity";
 import { loadEmployeeNames, upsertSpendFacts, type ResolvedFact } from "@/lib/ingest/persist";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+/** seat_prices as a `${vendor}:${seat_type}` -> USD map. */
+async function loadSeatPrices(supabase: SupabaseClient): Promise<Record<string, number>> {
+  const { data } = await supabase.from("seat_prices").select("vendor, seat_type, monthly_price_usd");
+  return Object.fromEntries((data ?? []).map((p) => [`${p.vendor}:${p.seat_type}`, Number(p.monthly_price_usd)]));
+}
 
 export interface ChatGptPreviewRow {
   name: string;
@@ -51,6 +59,7 @@ export interface ChatGptCommitResult {
   written: number;
   attributed: number;
   queued: number;
+  seats?: number;
 }
 
 /** Commit reviewed rows: upsert overage facts, identities, and an import log. */
@@ -60,18 +69,33 @@ export async function commitChatGptImport(
 ): Promise<ChatGptCommitResult> {
   const supabase = getSupabaseAdminClient();
   const day = asOf.slice(0, 7) + "-01"; // monthly snapshot, upsert-replace
+  const seatPrice = (await loadSeatPrices(supabase))["chatgpt_business:chatgpt"] ?? 25;
+
+  // Snapshot semantics: clear this month's ChatGPT facts, then re-insert.
+  await supabase.from("spend_facts").delete().eq("source", "chatgpt_business").eq("day", day);
 
   const withSpend = rows.filter((r) => r.usd > 0);
-  const facts: ResolvedFact[] = withSpend.map((r) => ({
+  const empId = (r: ChatGptPreviewRow) => (r.confidence === "high" ? r.employeeId : null);
+
+  // Every listed member holds a seat; members with credits also incur overage.
+  const seatFacts: ResolvedFact[] = rows.map((r) => ({
+    source: "chatgpt_business",
+    day,
+    costType: "seat",
+    entityKey: normalizeName(r.name),
+    costUsd: seatPrice,
+    employeeId: empId(r),
+  }));
+  const overageFacts: ResolvedFact[] = withSpend.map((r) => ({
     source: "chatgpt_business",
     day,
     costType: "overage",
     entityKey: normalizeName(r.name),
     costUsd: r.usd,
-    employeeId: r.confidence === "high" ? r.employeeId : null,
+    employeeId: empId(r),
   }));
 
-  const written = await upsertSpendFacts(supabase, facts);
+  const written = await upsertSpendFacts(supabase, [...seatFacts, ...overageFacts]);
 
   // Record confirmed identity mappings (name -> employee).
   const identities = rows
@@ -86,16 +110,16 @@ export async function commitChatGptImport(
     await supabase.from("identities").upsert(identities, { onConflict: "vendor,external_id" });
   }
 
-  const attributed = facts.filter((f) => f.employeeId).length;
+  const attributed = overageFacts.filter((f) => f.employeeId).length;
   await supabase.from("imports").insert({
     source: "chatgpt_business",
     kind: "clipboard",
     data_as_of: asOf,
     status: "success",
-    row_counts: { members: rows.length, withSpend: withSpend.length, attributed, queued: withSpend.length - attributed },
+    row_counts: { members: rows.length, seats: rows.length, withSpend: withSpend.length, attributed, queued: withSpend.length - attributed },
   });
 
-  return { written, attributed, queued: withSpend.length - attributed };
+  return { written, attributed, queued: withSpend.length - attributed, seats: rows.length };
 }
 
 // ---- Claude Team MTD spend (paste) -----------------------------------------
@@ -197,4 +221,103 @@ export async function commitClaudeSpendImport(
   });
 
   return { written, attributed, queued: facts.length - attributed };
+}
+
+// ---- Claude Team roster CSV (seats) ----------------------------------------
+
+export interface RosterPreviewRow {
+  name: string;
+  email: string;
+  seatType: string;
+  priceUsd: number;
+  employeeId: string | null;
+  employeeName: string | null;
+  matched: boolean;
+}
+
+export interface RosterPreview {
+  rows: RosterPreviewRow[];
+  errors: { line: number; message: string }[];
+  totalUsd: number;
+  matchedCount: number;
+  byTier: Record<string, number>;
+}
+
+/** Parse the roster CSV, match seats to employees by email, price by tier. */
+export async function previewClaudeRoster(csv: string): Promise<RosterPreview> {
+  const supabase = getSupabaseAdminClient();
+  const [{ data: emps }, prices] = await Promise.all([
+    supabase.from("employees").select("id, email, full_name"),
+    loadSeatPrices(supabase),
+  ]);
+  const byEmail = new Map((emps ?? []).map((e) => [(e.email as string).toLowerCase(), e]));
+
+  const { seats, errors } = parseClaudeRoster(csv);
+  const byTier: Record<string, number> = {};
+  const rows: RosterPreviewRow[] = seats.map((s) => {
+    const e = byEmail.get(s.email);
+    byTier[s.seatType] = (byTier[s.seatType] ?? 0) + 1;
+    return {
+      name: s.fullName,
+      email: s.email,
+      seatType: s.seatType,
+      priceUsd: prices[`claude_team:${s.seatType}`] ?? 0,
+      employeeId: (e?.id as string) ?? null,
+      employeeName: (e?.full_name as string) ?? null,
+      matched: !!e,
+    };
+  });
+
+  return {
+    rows,
+    errors,
+    totalUsd: rows.reduce((s, r) => s + r.priceUsd, 0),
+    matchedCount: rows.filter((r) => r.matched).length,
+    byTier,
+  };
+}
+
+export async function commitClaudeRoster(
+  rows: RosterPreviewRow[],
+  asOf: string,
+): Promise<{ written: number; seats: number; attributed: number }> {
+  const supabase = getSupabaseAdminClient();
+  const day = asOf.slice(0, 7) + "-01";
+
+  // Snapshot semantics: clear this month's Claude seat facts, then re-insert.
+  await supabase.from("spend_facts").delete().eq("source", "claude_team").eq("cost_type", "seat").eq("day", day);
+
+  const facts: ResolvedFact[] = rows.map((r) => ({
+    source: "claude_team",
+    day,
+    costType: "seat",
+    entityKey: r.email,
+    costUsd: r.priceUsd,
+    employeeId: r.employeeId,
+  }));
+  const written = await upsertSpendFacts(supabase, facts);
+
+  // Seat assignments for matched employees.
+  const assignments = rows
+    .filter((r) => r.employeeId)
+    .map((r) => ({
+      vendor: "claude_team" as const,
+      employee_id: r.employeeId,
+      seat_type: r.seatType,
+      monthly_price_usd: r.priceUsd,
+      period_start: day,
+    }));
+  if (assignments.length) {
+    await supabase.from("seat_assignments").upsert(assignments, { onConflict: "vendor,employee_id,seat_type,period_start" });
+  }
+
+  await supabase.from("imports").insert({
+    source: "claude_team",
+    kind: "csv",
+    data_as_of: asOf,
+    status: "success",
+    row_counts: { seats: rows.length, attributed: assignments.length },
+  });
+
+  return { written, seats: rows.length, attributed: assignments.length };
 }
