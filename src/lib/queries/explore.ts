@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { lastNMonths } from "@/lib/rollup";
 import { fetchFactsInRange, type EnrichedFact } from "./common";
 import {
-  trendByDim, dailyByDim, treemapByDim, seriesKeys, scorecardFor,
+  trendByDim, dailyByDim, treemapByDim, scorecardFor,
   rankTeams, rankPeople, lineItems, UNATTRIBUTED, type ShapeFact,
 } from "@/lib/explore/shape";
 import type { Dim, ExploreData } from "@/lib/explore/types";
@@ -55,7 +55,6 @@ function assemble(rows: ShapeFact[], trendMonths: string[], month: string, base:
     scorecard: scorecardFor(rows, month, prevMonth(month)),
     trend: bothDims((d) => trendByDim(rows, trendMonths, d)),
     treemap: bothDims((d) => treemapByDim(cur, d)),
-    series: bothDims((d) => seriesKeys(cur, d)),
     ranked: base.ranked,
     ...(base.daily ? { daily: bothDims((d) => dailyByDim(rows, month, d)) } : {}),
   };

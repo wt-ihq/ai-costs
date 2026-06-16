@@ -47,3 +47,10 @@ export const VENDOR_LABEL: Record<Vendor, string> = {
   claude_team: "Claude Team",
   chatgpt_business: "ChatGPT Business",
 };
+
+/** "metered" = pay-as-you-go API usage; shown as "API" in the UI. */
+export const COST_TYPE_LABEL: Record<CostType, string> = {
+  seat: "Seat",
+  overage: "Overage",
+  metered: "API",
+};

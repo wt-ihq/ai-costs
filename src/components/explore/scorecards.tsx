@@ -36,7 +36,7 @@ export function Scorecards({ totalToDate, sc, month }: { totalToDate: number; sc
       <Card label={month} value={formatUsd(sc.total)} delay={0.04}><Delta current={sc.total} prev={sc.prevTotal} /></Card>
       <Card label="Seat" value={formatUsd(sc.seat)} delay={0.08} />
       <Card label="Overage" value={formatUsd(sc.overage)} delay={0.12} />
-      <Card label="Metered" value={formatUsd(sc.metered)} delay={0.16} />
+      <Card label="API" value={formatUsd(sc.metered)} delay={0.16} />
     </div>
   );
 }

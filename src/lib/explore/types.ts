@@ -37,7 +37,6 @@ export interface ExploreData {
   scorecard: Scorecard;
   trend: Record<Dim, TrendPoint[]>;
   treemap: Record<Dim, TreemapNode[]>;
-  series: Record<Dim, string[]>;
   ranked: { kind: "team" | "person" | "lineitem"; rows: RankRow[] };
   daily?: Record<Dim, TrendPoint[]>;
 }
