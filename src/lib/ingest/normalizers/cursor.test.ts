@@ -1,32 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { normalizeCursor, type CursorUsageResponse } from "./cursor";
+import { cursorUsageFixture } from "@/lib/ingest/fixtures/cursor-usage";
 import { SchemaDriftError } from "@/lib/ingest/types";
 
-const fixture: CursorUsageResponse = {
-  data: [
-    {
-      date: "2026-06-01",
-      email: "Alice@IntentHQ.com",
-      model: "claude-sonnet-4-6",
-      totalTokens: 12000,
-      requestCount: 8,
-      costCents: 250,
-    },
-  ],
-};
-
 describe("normalizeCursor", () => {
-  it("maps a usage row to a metered spend fact in USD, lowercasing email", () => {
-    const [fact] = normalizeCursor(fixture);
-    expect(fact).toMatchObject({
+  it("emits one monthly $40 seat fact per distinct user, keyed by email", () => {
+    const facts = normalizeCursor(cursorUsageFixture);
+    // gareth (deduped across two days), tom, contractor = 3
+    expect(facts).toHaveLength(3);
+    const gareth = facts.find((f) => f.entityKey === "gareth.jones@intenthq.com")!;
+    expect(gareth).toMatchObject({
       source: "cursor",
       day: "2026-06-01",
-      costType: "metered",
-      entityKey: "alice@intenthq.com",
-      costUsd: 2.5,
-      tokens: 12000,
-      requests: 8,
-      model: "claude-sonnet-4-6",
+      costType: "seat",
+      costUsd: 40,
     });
   });
 
