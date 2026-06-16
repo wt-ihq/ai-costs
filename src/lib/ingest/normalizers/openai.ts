@@ -26,7 +26,15 @@ export const normalizeOpenAI: Normalizer<OpenAICostResponse> = (raw) => {
   }
   const facts: SpendFact[] = [];
   for (const bucket of raw.data) {
-    const day = (bucket.start_time_iso ?? "").slice(0, 10);
+    // Prefer the ISO date; fall back to the unix start_time. Skip buckets we
+    // can't date (some ranges return undatable buckets) rather than emit an
+    // empty `day` that the DB rejects.
+    const day = bucket.start_time_iso
+      ? bucket.start_time_iso.slice(0, 10)
+      : typeof bucket.start_time === "number"
+        ? new Date(bucket.start_time * 1000).toISOString().slice(0, 10)
+        : "";
+    if (!day) continue;
     for (const r of bucket.results ?? []) {
       const cost = Number(r.amount?.value);
       if (!Number.isFinite(cost) || cost === 0) continue;
