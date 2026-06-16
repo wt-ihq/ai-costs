@@ -38,6 +38,22 @@ export const fetchAnthropicCost: AnthropicFetcher = async ({ startDate, endDate,
   return { data: all };
 };
 
+/**
+ * List org API keys (id, name, created_by user id). NOTE: the Cost Report
+ * cannot group_by api_key_id (only workspace_id / description), so per-KEY
+ * spend is not available — workspace is the finest cost grain. Kept for a
+ * possible future token-based approximation via the usage report.
+ */
+export async function fetchAnthropicApiKeys(): Promise<unknown> {
+  const key = process.env.ANTHROPIC_ADMIN_API_KEY;
+  if (!key) throw new Error("ANTHROPIC_ADMIN_API_KEY is not set");
+  const res = await fetch("https://api.anthropic.com/v1/organizations/api_keys?limit=100", {
+    headers: { "x-api-key": key, "anthropic-version": "2023-06-01" },
+  });
+  if (!res.ok) throw new Error(`Anthropic api_keys ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}
+
 /** List org workspaces (id → name) so opaque workspace IDs become readable. */
 export async function fetchAnthropicWorkspaces(): Promise<unknown> {
   const key = process.env.ANTHROPIC_ADMIN_API_KEY;
