@@ -28,3 +28,18 @@ export const fetchHibobPeople: HibobFetcher = async () => {
   if (!res.ok) throw new Error(`HiBob API ${res.status}: ${(await res.text()).slice(0, 200)}`);
   return (await res.json()) as HibobResponse;
 };
+
+/** Fetch a HiBob company named-list (metadata, e.g. department ID→name). */
+export async function fetchHibobNamedList(name: string): Promise<unknown> {
+  const user = process.env.HIBOB_SERVICE_USER;
+  const token = process.env.HIBOB_SERVICE_TOKEN;
+  if (!user || !token) throw new Error("HIBOB_SERVICE_USER / HIBOB_SERVICE_TOKEN not set");
+  const res = await fetch(`https://api.hibob.com/v1/company/named-lists/${name}`, {
+    headers: {
+      Accept: "application/json",
+      Authorization: `Basic ${Buffer.from(`${user}:${token}`).toString("base64")}`,
+    },
+  });
+  if (!res.ok) throw new Error(`HiBob named-lists ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}

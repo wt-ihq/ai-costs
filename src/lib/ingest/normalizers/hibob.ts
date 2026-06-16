@@ -29,6 +29,24 @@ export interface HibobResponse {
   }>;
 }
 
+/**
+ * Build an ID→name map from a HiBob named-list response
+ * (`{ values: [{ id, name|value }] }`), used to resolve department IDs that
+ * the people endpoint returns as list-item IDs rather than labels.
+ */
+export function buildNamedListMap(list: unknown): Map<string, string> {
+  const values = (list as { values?: Array<{ id: string | number; name?: string; value?: string }> })?.values ?? [];
+  return new Map(values.map((v) => [String(v.id), v.name ?? v.value ?? String(v.id)]));
+}
+
+/** Resolve employees' department IDs to names via the named-list map. */
+export function resolveDepartments(employees: EmployeeUpsert[], deptMap: Map<string, string>): EmployeeUpsert[] {
+  return employees.map((e) => ({
+    ...e,
+    department: e.department ? deptMap.get(String(e.department)) ?? e.department : e.department,
+  }));
+}
+
 export function normalizeHibob(raw: HibobResponse): EmployeeUpsert[] {
   if (!raw || !Array.isArray(raw.employees)) {
     throw new SchemaDriftError("hibob", "missing `employees` array");
