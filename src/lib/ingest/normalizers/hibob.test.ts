@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeHibob, type HibobResponse } from "./hibob";
+import { normalizeHibob, buildNamedListMap, resolveDepartments, type HibobResponse } from "./hibob";
 import { SchemaDriftError } from "@/lib/ingest/types";
 
 const raw: HibobResponse = {
@@ -47,5 +47,30 @@ describe("normalizeHibob", () => {
 
   it("throws on schema drift", () => {
     expect(() => normalizeHibob({} as never)).toThrow(SchemaDriftError);
+  });
+});
+
+describe("department resolution", () => {
+  const list = {
+    name: "department",
+    values: [
+      { id: "251690516", value: "Applied Data Science", name: "Applied Data Science" },
+      { id: "252235672", value: "Client Success", name: "Client Success" },
+    ],
+  };
+
+  it("builds an id→name map from a named-list", () => {
+    const map = buildNamedListMap(list);
+    expect(map.get("251690516")).toBe("Applied Data Science");
+  });
+
+  it("resolves department IDs to names, leaving already-named values alone", () => {
+    const emps = [
+      { hibob_id: "1", email: "a@x.com", full_name: "A", department: "251690516", site: null, employment_status: null, start_date: null, leave_date: null },
+      { hibob_id: "2", email: "b@x.com", full_name: "B", department: "Human Resources", site: null, employment_status: null, start_date: null, leave_date: null },
+    ];
+    const out = resolveDepartments(emps, buildNamedListMap(list));
+    expect(out[0].department).toBe("Applied Data Science");
+    expect(out[1].department).toBe("Human Resources"); // unknown id/name passes through
   });
 });
