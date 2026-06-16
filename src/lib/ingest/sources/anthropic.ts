@@ -18,6 +18,9 @@ export const fetchAnthropicCost: AnthropicFetcher = async ({ startDate, endDate 
   const url = new URL("https://api.anthropic.com/v1/organizations/cost_report");
   url.searchParams.set("starting_at", startDate);
   url.searchParams.set("ending_at", endDate);
+  // Break the org total down by workspace so spend is attributable (spec §5)
+  // rather than a single "org" bucket.
+  url.searchParams.append("group_by[]", "workspace_id");
   const res = await fetch(url, {
     headers: { "x-api-key": key, "anthropic-version": "2023-06-01" },
   });
