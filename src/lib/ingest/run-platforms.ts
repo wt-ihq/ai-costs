@@ -84,8 +84,14 @@ export async function syncAnthropic(
         return { source: "anthropic", day: e.day, costType: "metered", entityKey, costUsd: e.costUsd, model: e.model, employeeId };
       });
 
-    await supabase.from("spend_facts").delete().eq("source", "anthropic").gte("day", window.startDate).lte("day", window.endDate);
-    const rowsWritten = await upsertSpendFacts(supabase, facts);
+    // Snapshot-replace ONLY when we have facts. A transient empty usage
+    // response must not wipe the window's existing data (which is what blanked
+    // a month previously).
+    let rowsWritten = 0;
+    if (facts.length > 0) {
+      await supabase.from("spend_facts").delete().eq("source", "anthropic").gte("day", window.startDate).lte("day", window.endDate);
+      rowsWritten = await upsertSpendFacts(supabase, facts);
+    }
     await finishSyncRun(supabase, runId, { status: "success", rowsWritten });
     return { rowsWritten, unmatched: [...unmatched] };
   } catch (err) {
@@ -106,8 +112,12 @@ export async function syncOpenAI(
     await saveRawPayload(supabase, "openai", runId, raw);
     const owners = await loadProjectOwners(supabase);
     const { facts, unmatched } = attachOwners(normalizeOpenAI(raw), owners);
-    await supabase.from("spend_facts").delete().eq("source", "openai").gte("day", window.startDate).lte("day", window.endDate);
-    const rowsWritten = await upsertSpendFacts(supabase, facts);
+    // Snapshot-replace only when we have facts (don't wipe on a transient empty).
+    let rowsWritten = 0;
+    if (facts.length > 0) {
+      await supabase.from("spend_facts").delete().eq("source", "openai").gte("day", window.startDate).lte("day", window.endDate);
+      rowsWritten = await upsertSpendFacts(supabase, facts);
+    }
     await finishSyncRun(supabase, runId, { status: "success", rowsWritten });
     return { rowsWritten, unmatched };
   } catch (err) {
