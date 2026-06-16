@@ -33,6 +33,7 @@ export interface Scorecard {
 export interface ExploreData {
   title: string;
   month: string;
+  totalToDate: number;
   scorecard: Scorecard;
   trend: Record<Dim, TrendPoint[]>;
   treemap: Record<Dim, TreemapNode[]>;
