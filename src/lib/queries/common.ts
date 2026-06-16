@@ -3,10 +3,13 @@ import type { CostType, Vendor } from "@/lib/types";
 
 /** A spend fact enriched with the employee's name + department. */
 export interface EnrichedFact {
+  day: string;
   source: Vendor;
   costType: CostType;
   costUsd: number;
   requests: number | null;
+  entityKey: string;
+  model: string;
   employeeId: string | null;
   fullName: string | null;
   department: string | null;
@@ -43,7 +46,7 @@ export async function fetchMonthFacts(
 ): Promise<EnrichedFact[]> {
   const { data, error } = await supabase
     .from("spend_facts")
-    .select("source, cost_type, cost_usd, requests, employee_id, employees(full_name, department)")
+    .select("day, source, cost_type, cost_usd, requests, entity_key, model, employee_id, employees(full_name, department)")
     .gte("day", range.from)
     .lt("day", range.toExclusive);
   if (error) throw new Error(`fetchMonthFacts: ${error.message}`);
@@ -51,10 +54,43 @@ export async function fetchMonthFacts(
   return (data ?? []).map((r) => {
     const emp = employeeOf(r.employees);
     return {
+      day: r.day as string,
       source: r.source as Vendor,
       costType: r.cost_type as CostType,
       costUsd: Number(r.cost_usd),
       requests: r.requests == null ? null : Number(r.requests),
+      entityKey: (r.entity_key as string) ?? "",
+      model: (r.model as string) ?? "",
+      employeeId: (r.employee_id as string | null) ?? null,
+      fullName: emp?.full_name ?? null,
+      department: emp?.department ?? null,
+    };
+  });
+}
+
+/** Fetch facts from `fromMonth` (YYYY-MM-01) up to `toExclusive` (YYYY-MM-01). */
+export async function fetchFactsInRange(
+  supabase: SupabaseClient,
+  fromMonth: string,
+  toExclusive: string,
+): Promise<EnrichedFact[]> {
+  const { data, error } = await supabase
+    .from("spend_facts")
+    .select("day, source, cost_type, cost_usd, requests, entity_key, model, employee_id, employees(full_name, department)")
+    .gte("day", fromMonth)
+    .lt("day", toExclusive);
+  if (error) throw new Error(`fetchFactsInRange: ${error.message}`);
+  return (data ?? []).map((r) => {
+    const e = Array.isArray(r.employees) ? r.employees[0] : r.employees;
+    const emp = e as { full_name: string | null; department: string | null } | undefined;
+    return {
+      day: r.day as string,
+      source: r.source as EnrichedFact["source"],
+      costType: r.cost_type as EnrichedFact["costType"],
+      costUsd: Number(r.cost_usd),
+      requests: r.requests == null ? null : Number(r.requests),
+      entityKey: (r.entity_key as string) ?? "",
+      model: (r.model as string) ?? "",
       employeeId: (r.employee_id as string | null) ?? null,
       fullName: emp?.full_name ?? null,
       department: emp?.department ?? null,

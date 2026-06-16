@@ -5,9 +5,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 const PAGES = [
-  { href: "/overview", label: "Overview" },
-  { href: "/departments", label: "Departments" },
-  { href: "/people", label: "People" },
+  { href: "/explore", label: "Explore" },
   { href: "/api-platforms", label: "API Platforms" },
   { href: "/data-health", label: "Data Health" },
   { href: "/imports", label: "Imports", admin: true },
@@ -18,7 +16,7 @@ export function Nav({ isAdmin = false }: { isAdmin?: boolean }) {
   return (
     <nav className="flex flex-col gap-1">
       {PAGES.filter((p) => !p.admin || isAdmin).map((p) => {
-        const active = pathname === p.href;
+        const active = p.href === "/explore" ? pathname.startsWith("/explore") : pathname === p.href;
         return (
           <Link
             key={p.href}

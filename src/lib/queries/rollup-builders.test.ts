@@ -4,11 +4,11 @@ import { buildPeopleRows } from "./people";
 import type { EnrichedFact } from "./common";
 
 const facts: EnrichedFact[] = [
-  { source: "claude_team", costType: "seat", costUsd: 30, requests: null, employeeId: "a", fullName: "Alice A", department: "Engineering" },
-  { source: "cursor", costType: "metered", costUsd: 18.75, requests: 42, employeeId: "a", fullName: "Alice A", department: "Engineering" },
-  { source: "claude_team", costType: "seat", costUsd: 30, requests: null, employeeId: "b", fullName: "Bob B", department: "Engineering" },
-  { source: "claude_team", costType: "overage", costUsd: 246.78, requests: null, employeeId: "c", fullName: "Carol C", department: "Product" },
-  { source: "cursor", costType: "metered", costUsd: 0.9, requests: 3, employeeId: null, fullName: null, department: null },
+  { day: "2024-01-15", source: "claude_team", costType: "seat", costUsd: 30, requests: null, entityKey: "", model: "", employeeId: "a", fullName: "Alice A", department: "Engineering" },
+  { day: "2024-01-15", source: "cursor", costType: "metered", costUsd: 18.75, requests: 42, entityKey: "", model: "", employeeId: "a", fullName: "Alice A", department: "Engineering" },
+  { day: "2024-01-15", source: "claude_team", costType: "seat", costUsd: 30, requests: null, entityKey: "", model: "", employeeId: "b", fullName: "Bob B", department: "Engineering" },
+  { day: "2024-01-15", source: "claude_team", costType: "overage", costUsd: 246.78, requests: null, entityKey: "", model: "", employeeId: "c", fullName: "Carol C", department: "Product" },
+  { day: "2024-01-15", source: "cursor", costType: "metered", costUsd: 0.9, requests: 3, entityKey: "", model: "", employeeId: null, fullName: null, department: null },
 ];
 
 describe("buildDepartmentRows", () => {
