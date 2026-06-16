@@ -5,7 +5,7 @@ import type { Dim, ExploreData } from "@/lib/explore/types";
 import { cn } from "@/lib/utils";
 import { Scorecards } from "./scorecards";
 import { TrendChart } from "./trend-chart";
-import { SpendTreemap } from "./spend-treemap";
+import { CompositionBreakdown } from "./composition-breakdown";
 import { RankedList } from "./ranked-list";
 
 const RANK_TITLE: Record<ExploreData["ranked"]["kind"], string> = {
@@ -37,20 +37,21 @@ export function ExploreView({ data, initialDim }: { data: ExploreData; initialDi
   const [dim, setDim] = useState<Dim>(initialDim);
   return (
     <div className="space-y-6">
-      <Scorecards sc={data.scorecard} />
+      <div className="flex items-center justify-end">
+        <Toggle dim={dim} onChange={setDim} />
+      </div>
+
+      <Scorecards totalToDate={data.totalToDate} sc={data.scorecard} month={data.month} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="rounded-xl border border-border bg-surface p-5">
-          <header className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-medium">12-month trend</h2>
-            <Toggle dim={dim} onChange={setDim} />
-          </header>
+          <h2 className="mb-4 text-sm font-medium">12-month trend</h2>
           <TrendChart data={data.trend[dim]} series={data.series[dim]} dim={dim} />
         </section>
 
         <section className="rounded-xl border border-border bg-surface p-5">
           <h2 className="mb-4 text-sm font-medium">Where it&rsquo;s going · {data.month}</h2>
-          <SpendTreemap nodes={data.treemap[dim]} />
+          <CompositionBreakdown nodes={data.treemap[dim]} />
         </section>
       </div>
 
