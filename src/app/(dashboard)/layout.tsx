@@ -33,17 +33,10 @@ export default async function DashboardLayout({
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Global controls (spec §7): date range + department filter. */}
-        <div className="flex items-center gap-3 border-b border-border px-8 py-3 text-sm text-muted">
-          <span className="rounded-md border border-border px-3 py-1.5">
-            Last 30 days
-          </span>
-          <span className="rounded-md border border-border px-3 py-1.5">
-            All departments
-          </span>
-          <span className="ml-auto text-xs">
-            {role ? `Signed in · ${role}` : "Not signed in"}
-          </span>
+        {/* Slim status bar — date range / department filtering live in the
+            Explore views (period dropdown + drill-down), not here. */}
+        <div className="flex items-center justify-end border-b border-border px-8 py-3 text-xs text-muted">
+          <span>{role ? `Signed in · ${role}` : "Not signed in"}</span>
         </div>
         <main className="flex-1 px-8 py-8">{children}</main>
       </div>
