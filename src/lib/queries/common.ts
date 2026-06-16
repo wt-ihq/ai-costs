@@ -33,41 +33,6 @@ export function monthRange(now: Date): MonthRange {
   };
 }
 
-/** PostgREST embeds a FK as object or single-element array — normalize it. */
-function employeeOf(raw: unknown): { full_name: string | null; department: string | null } | undefined {
-  const e = Array.isArray(raw) ? raw[0] : raw;
-  return e as { full_name: string | null; department: string | null } | undefined;
-}
-
-/** Fetch one month of facts with the employee join, server-side (service role). */
-export async function fetchMonthFacts(
-  supabase: SupabaseClient,
-  range: MonthRange,
-): Promise<EnrichedFact[]> {
-  const { data, error } = await supabase
-    .from("spend_facts")
-    .select("day, source, cost_type, cost_usd, requests, entity_key, model, employee_id, employees(full_name, department)")
-    .gte("day", range.from)
-    .lt("day", range.toExclusive);
-  if (error) throw new Error(`fetchMonthFacts: ${error.message}`);
-
-  return (data ?? []).map((r) => {
-    const emp = employeeOf(r.employees);
-    return {
-      day: r.day as string,
-      source: r.source as Vendor,
-      costType: r.cost_type as CostType,
-      costUsd: Number(r.cost_usd),
-      requests: r.requests == null ? null : Number(r.requests),
-      entityKey: (r.entity_key as string) ?? "",
-      model: (r.model as string) ?? "",
-      employeeId: (r.employee_id as string | null) ?? null,
-      fullName: emp?.full_name ?? null,
-      department: emp?.department ?? null,
-    };
-  });
-}
-
 /** Fetch facts from `fromMonth` (YYYY-MM-01) up to `toExclusive` (YYYY-MM-01). */
 export async function fetchFactsInRange(
   supabase: SupabaseClient,
