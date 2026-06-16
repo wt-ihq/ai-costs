@@ -15,6 +15,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const results = await runAllSyncs(getSupabaseAdminClient(), recentWindow(new Date()));
-  return NextResponse.json({ ranAt: new Date().toISOString(), results });
+  // Optional ?from=YYYY-MM-DD&to=YYYY-MM-DD overrides the default 7-day window,
+  // for on-demand backfill of a fuller range (metered sources page by day).
+  const url = new URL(req.url);
+  const from = url.searchParams.get("from");
+  const to = url.searchParams.get("to");
+  const window = from && to ? { startDate: from, endDate: to } : recentWindow(new Date());
+
+  const results = await runAllSyncs(getSupabaseAdminClient(), window);
+  return NextResponse.json({ ranAt: new Date().toISOString(), window, results });
 }
