@@ -33,10 +33,23 @@ export async function runAllSyncs(
   return results;
 }
 
-/** Trailing-N-day window ending today (cron default). */
+/** Trailing-N-day window ending today. */
 export function recentWindow(now: Date, days = 7): DateWindow {
   return {
     startDate: new Date(now.getTime() - days * 86_400_000).toISOString().slice(0, 10),
     endDate: now.toISOString().slice(0, 10),
+  };
+}
+
+/**
+ * Current month-to-date window (1st of month → tomorrow, exclusive end). Used
+ * by the daily cron so each run reloads the whole current month — snapshot
+ * upserts make this self-healing: a missed day or restated vendor data can't
+ * leave a gap in "this month".
+ */
+export function monthToDate(now: Date): DateWindow {
+  return {
+    startDate: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10),
+    endDate: new Date(now.getTime() + 86_400_000).toISOString().slice(0, 10),
   };
 }
