@@ -30,6 +30,9 @@ export async function syncAnthropic(
     await saveRawPayload(supabase, "anthropic", runId, raw);
     const owners = await loadApiKeyOwners(supabase);
     const { facts, unmatched } = attachOwners(normalizeAnthropic(raw), owners);
+    // Snapshot: clear this window's facts first so a grouping change (e.g. org
+    // -> per-workspace) can't leave stale rows that double-count.
+    await supabase.from("spend_facts").delete().eq("source", "anthropic").gte("day", window.startDate).lte("day", window.endDate);
     const rowsWritten = await upsertSpendFacts(supabase, facts);
     await finishSyncRun(supabase, runId, { status: "success", rowsWritten });
     return { rowsWritten, unmatched };
@@ -51,6 +54,7 @@ export async function syncOpenAI(
     await saveRawPayload(supabase, "openai", runId, raw);
     const owners = await loadProjectOwners(supabase);
     const { facts, unmatched } = attachOwners(normalizeOpenAI(raw), owners);
+    await supabase.from("spend_facts").delete().eq("source", "openai").gte("day", window.startDate).lte("day", window.endDate);
     const rowsWritten = await upsertSpendFacts(supabase, facts);
     await finishSyncRun(supabase, runId, { status: "success", rowsWritten });
     return { rowsWritten, unmatched };

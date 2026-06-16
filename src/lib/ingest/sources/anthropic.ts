@@ -15,15 +15,24 @@ export const fetchAnthropicCost: AnthropicFetcher = async ({ startDate, endDate 
   const key = process.env.ANTHROPIC_ADMIN_API_KEY;
   if (!key) throw new Error("ANTHROPIC_ADMIN_API_KEY is not set");
 
-  const url = new URL("https://api.anthropic.com/v1/organizations/cost_report");
-  url.searchParams.set("starting_at", startDate);
-  url.searchParams.set("ending_at", endDate);
-  // Break the org total down by workspace so spend is attributable (spec §5)
-  // rather than a single "org" bucket.
-  url.searchParams.append("group_by[]", "workspace_id");
-  const res = await fetch(url, {
-    headers: { "x-api-key": key, "anthropic-version": "2023-06-01" },
-  });
-  if (!res.ok) throw new Error(`Anthropic API ${res.status}: ${await res.text()}`);
-  return (await res.json()) as AnthropicCostResponse;
+  // The Cost Report paginates daily buckets (~7/page by default), so a longer
+  // range needs limit + page-following or it silently returns only page 1.
+  // NOTE: group_by[]=workspace_id undercounts (returns only the
+  // workspace-attributed slice), so we keep the authoritative org-level total.
+  const all: AnthropicCostResponse["data"] = [];
+  let page: string | undefined;
+  for (let i = 0; i < 200; i++) {
+    const url = new URL("https://api.anthropic.com/v1/organizations/cost_report");
+    url.searchParams.set("starting_at", startDate);
+    url.searchParams.set("ending_at", endDate);
+    url.searchParams.set("limit", "31");
+    if (page) url.searchParams.set("page", page);
+    const res = await fetch(url, { headers: { "x-api-key": key, "anthropic-version": "2023-06-01" } });
+    if (!res.ok) throw new Error(`Anthropic API ${res.status}: ${await res.text()}`);
+    const json = (await res.json()) as AnthropicCostResponse & { has_more?: boolean; next_page?: string | null };
+    all.push(...(json.data ?? []));
+    if (!json.has_more || !json.next_page) break;
+    page = json.next_page;
+  }
+  return { data: all };
 };
