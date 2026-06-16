@@ -54,6 +54,45 @@ export async function fetchAnthropicApiKeys(): Promise<unknown> {
   return res.json();
 }
 
+/** List org members (user id → email/name) to resolve key creators. */
+export async function fetchAnthropicUsers(): Promise<unknown> {
+  const key = process.env.ANTHROPIC_ADMIN_API_KEY;
+  if (!key) throw new Error("ANTHROPIC_ADMIN_API_KEY is not set");
+  const res = await fetch("https://api.anthropic.com/v1/organizations/users?limit=100", {
+    headers: { "x-api-key": key, "anthropic-version": "2023-06-01" },
+  });
+  if (!res.ok) throw new Error(`Anthropic users ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}
+
+/**
+ * Usage report (messages) grouped by api_key_id (+ model / tier / context),
+ * returning token counts — priced downstream as a per-key cost proxy (the Cost
+ * API can't group by key). Paginated daily buckets.
+ */
+export async function fetchAnthropicUsage({ startDate, endDate }: DateWindow): Promise<{ data: unknown[] }> {
+  const key = process.env.ANTHROPIC_ADMIN_API_KEY;
+  if (!key) throw new Error("ANTHROPIC_ADMIN_API_KEY is not set");
+  const all: unknown[] = [];
+  let page: string | undefined;
+  for (let i = 0; i < 200; i++) {
+    const url = new URL("https://api.anthropic.com/v1/organizations/usage_report/messages");
+    url.searchParams.set("starting_at", startDate);
+    url.searchParams.set("ending_at", endDate);
+    url.searchParams.set("bucket_width", "1d");
+    url.searchParams.set("limit", "31");
+    for (const g of ["api_key_id", "model", "service_tier", "context_window"]) url.searchParams.append("group_by[]", g);
+    if (page) url.searchParams.set("page", page);
+    const res = await fetch(url, { headers: { "x-api-key": key, "anthropic-version": "2023-06-01" } });
+    if (!res.ok) throw new Error(`Anthropic usage ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const json = (await res.json()) as { data?: unknown[]; has_more?: boolean; next_page?: string | null };
+    all.push(...(json.data ?? []));
+    if (!json.has_more || !json.next_page) break;
+    page = json.next_page;
+  }
+  return { data: all };
+}
+
 /** List org workspaces (id → name) so opaque workspace IDs become readable. */
 export async function fetchAnthropicWorkspaces(): Promise<unknown> {
   const key = process.env.ANTHROPIC_ADMIN_API_KEY;
