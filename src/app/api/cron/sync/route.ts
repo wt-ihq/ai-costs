@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
-import { recentWindow, runAllSyncs } from "@/lib/ingest/run-all";
+import { monthToDate, runAllSyncs } from "@/lib/ingest/run-all";
 
 export const dynamic = "force-dynamic";
 
@@ -15,12 +15,12 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  // Optional ?from=YYYY-MM-DD&to=YYYY-MM-DD overrides the default 7-day window,
-  // for on-demand backfill of a fuller range (metered sources page by day).
+  // Default: refresh the whole current month (self-healing). Optional
+  // ?from=YYYY-MM-DD&to=YYYY-MM-DD overrides it for backfilling other months.
   const url = new URL(req.url);
   const from = url.searchParams.get("from");
   const to = url.searchParams.get("to");
-  const window = from && to ? { startDate: from, endDate: to } : recentWindow(new Date());
+  const window = from && to ? { startDate: from, endDate: to } : monthToDate(new Date());
 
   const results = await runAllSyncs(getSupabaseAdminClient(), window);
   return NextResponse.json({ ranAt: new Date().toISOString(), window, results });
