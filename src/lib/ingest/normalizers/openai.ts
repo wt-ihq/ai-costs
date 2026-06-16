@@ -2,20 +2,21 @@ import type { SpendFact } from "@/lib/types";
 import { SchemaDriftError, type Normalizer } from "@/lib/ingest/types";
 
 /**
- * OpenAI Developer Platform — /v1/organization/costs (+ usage). Grain:
- * per-project / per-model / daily; per-user only when apps pass user_id
- * (treated as a bonus, project is the dependable grain — spec §11).
- * entity_key = project id; attribution via the project's created_by → employee.
- *
- * ⚠ Shape is indicative and must be confirmed against the real costs/usage
- * endpoints (spec §11); the rest of the pipeline is fixture-tested.
+ * OpenAI Developer Platform — GET /v1/organization/costs.
+ * Real shape (confirmed against the org): daily buckets, each with `results[]`
+ * carrying `amount.value` (decimal string) and `project_id`/`project_name`.
+ * entity_key = project id; attribution flows via the project's owner (spec §5).
  */
 export interface OpenAICostResponse {
   data: Array<{
-    date: string;
-    project_id: string;
-    model?: string;
-    cost_usd: number;
+    start_time_iso?: string;
+    start_time?: number; // unix seconds (fallback)
+    results: Array<{
+      amount: { value: string; currency?: string };
+      project_id?: string | null;
+      project_name?: string | null;
+      model?: string | null;
+    }>;
   }>;
 }
 
@@ -23,17 +24,21 @@ export const normalizeOpenAI: Normalizer<OpenAICostResponse> = (raw) => {
   if (!raw || !Array.isArray(raw.data)) {
     throw new SchemaDriftError("openai", "missing `data` array");
   }
-  return raw.data.map((row): SpendFact => {
-    if (typeof row.cost_usd !== "number" || !row.project_id || !row.date) {
-      throw new SchemaDriftError("openai", `bad row: ${JSON.stringify(row)}`);
+  const facts: SpendFact[] = [];
+  for (const bucket of raw.data) {
+    const day = (bucket.start_time_iso ?? "").slice(0, 10);
+    for (const r of bucket.results ?? []) {
+      const cost = Number(r.amount?.value);
+      if (!Number.isFinite(cost) || cost === 0) continue;
+      facts.push({
+        source: "openai",
+        day,
+        costType: "metered",
+        entityKey: r.project_id ?? "org",
+        costUsd: cost,
+        model: r.model ?? "",
+      });
     }
-    return {
-      source: "openai",
-      day: row.date,
-      costType: "metered",
-      entityKey: row.project_id,
-      costUsd: row.cost_usd,
-      model: row.model ?? "",
-    };
-  });
+  }
+  return facts;
 };

@@ -1,10 +1,15 @@
 import type { OpenAICostResponse } from "@/lib/ingest/normalizers/openai";
 
-/** Recorded-shape OpenAI costs fixture: two projects, a few models. */
+/** Real-shape OpenAI costs fixture (bucketed; amount.value is a string). */
 export const openaiCostFixture: OpenAICostResponse = {
   data: [
-    { date: "2026-06-02", project_id: "proj_search", model: "gpt-5", cost_usd: 233.4 },
-    { date: "2026-06-06", project_id: "proj_search", model: "gpt-5-mini", cost_usd: 41.1 },
-    { date: "2026-06-08", project_id: "proj_assistant", model: "gpt-5", cost_usd: 97.8 },
+    {
+      start_time_iso: "2026-06-09T00:00:00",
+      start_time: 1780963200,
+      results: [
+        { amount: { value: "75.38441804", currency: "usd" }, project_id: "proj_iBVGlnR1msrsCUrmy5RARv3V", project_name: "Insights Explorer" },
+        { amount: { value: "0", currency: "usd" }, project_id: "proj_idle", project_name: "Idle" },
+      ],
+    },
   ],
 };

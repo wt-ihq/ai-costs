@@ -1,10 +1,15 @@
 import type { AnthropicCostResponse } from "@/lib/ingest/normalizers/anthropic";
 
-/** Recorded-shape Anthropic Cost Report fixture: two keys, a few models. */
+/** Real-shape Anthropic Cost Report fixture (bucketed; amount is a string). */
 export const anthropicCostFixture: AnthropicCostResponse = {
   data: [
-    { date: "2026-06-03", api_key_id: "ak_prod_ingest", model: "claude-opus-4-8", cost_usd: 412.5, input_tokens: 8_000_000, output_tokens: 900_000 },
-    { date: "2026-06-07", api_key_id: "ak_prod_ingest", model: "claude-sonnet-4-6", cost_usd: 88.2, input_tokens: 3_000_000, output_tokens: 400_000 },
-    { date: "2026-06-09", api_key_id: "ak_research", model: "claude-opus-4-8", cost_usd: 156.0, input_tokens: 2_500_000, output_tokens: 300_000 },
+    {
+      starting_at: "2026-06-09T00:00:00Z",
+      ending_at: "2026-06-10T00:00:00Z",
+      results: [
+        { currency: "USD", amount: "3265.70074222222222225", workspace_id: "wrkspc_prod", model: "claude-opus-4-8" },
+        { currency: "USD", amount: "0", workspace_id: "wrkspc_idle", model: null },
+      ],
+    },
   ],
 };

@@ -14,12 +14,17 @@ export const fetchHibobPeople: HibobFetcher = async () => {
   const token = process.env.HIBOB_SERVICE_TOKEN;
   if (!user || !token) throw new Error("HIBOB_SERVICE_USER / HIBOB_SERVICE_TOKEN not set");
 
-  const res = await fetch("https://api.hibob.com/v1/people", {
+  // POST /v1/people/search is the supported read endpoint; GET /v1/people is
+  // deprecated and returns HTML. humanReadable yields readable field values.
+  const res = await fetch("https://api.hibob.com/v1/people/search?humanReadable=true", {
+    method: "POST",
     headers: {
       Accept: "application/json",
+      "Content-Type": "application/json",
       Authorization: `Basic ${Buffer.from(`${user}:${token}`).toString("base64")}`,
     },
+    body: JSON.stringify({ showInactive: true }),
   });
-  if (!res.ok) throw new Error(`HiBob API ${res.status}: ${await res.text()}`);
+  if (!res.ok) throw new Error(`HiBob API ${res.status}: ${(await res.text()).slice(0, 200)}`);
   return (await res.json()) as HibobResponse;
 };
