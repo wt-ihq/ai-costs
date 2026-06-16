@@ -33,10 +33,17 @@ describe("buildDepartmentRows", () => {
   });
 });
 
+const employees = [
+  { id: "a", fullName: "Alice A", department: "Engineering" },
+  { id: "b", fullName: "Bob B", department: "Engineering" },
+  { id: "c", fullName: "Carol C", department: "Product" },
+  { id: "d", fullName: "Dana D", department: "Data" }, // no spend at all
+];
+
 describe("buildPeopleRows", () => {
-  it("collapses to one row per employee and flags zero-activity seats", () => {
-    const rows = buildPeopleRows(facts);
-    expect(rows).toHaveLength(3); // unmatched fact excluded
+  it("lists every employee (roster), left-joining this month's spend", () => {
+    const rows = buildPeopleRows(facts, employees);
+    expect(rows).toHaveLength(4); // all employees, incl. the one with no spend
 
     const alice = rows.find((r) => r.employeeId === "a")!;
     expect(alice.seatCost).toBe(30);
@@ -44,8 +51,10 @@ describe("buildPeopleRows", () => {
     expect(alice.zeroActivity).toBe(false);
 
     const bob = rows.find((r) => r.employeeId === "b")!;
-    expect(bob.seatCost).toBe(30);
-    expect(bob.activityUsd).toBe(0);
     expect(bob.zeroActivity).toBe(true); // paying for a seat, no usage
+
+    const dana = rows.find((r) => r.employeeId === "d")!;
+    expect(dana.total).toBe(0); // appears with zeros
+    expect(dana.zeroActivity).toBe(false); // no seat, so not an "idle seat"
   });
 });
