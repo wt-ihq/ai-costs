@@ -46,7 +46,7 @@ export function ExploreView({ data, initialDim }: { data: ExploreData; initialDi
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="rounded-xl border border-border bg-surface p-5">
           <h2 className="mb-4 text-sm font-medium">12-month trend</h2>
-          <TrendChart data={data.trend[dim]} series={data.series[dim]} dim={dim} />
+          <TrendChart data={data.trend[dim]} dim={dim} />
         </section>
 
         <section className="rounded-xl border border-border bg-surface p-5">
@@ -58,7 +58,7 @@ export function ExploreView({ data, initialDim }: { data: ExploreData; initialDi
       {data.daily && (
         <section className="rounded-xl border border-border bg-surface p-5">
           <h2 className="mb-4 text-sm font-medium">Daily · {data.month}</h2>
-          <TrendChart data={data.daily[dim]} series={data.series[dim]} dim={dim} height={200} />
+          <TrendChart data={data.daily[dim]} dim={dim} height={200} />
         </section>
       )}
 

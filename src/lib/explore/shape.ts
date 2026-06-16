@@ -1,6 +1,6 @@
 import type { Vendor, CostType } from "@/lib/types";
 import { VENDOR_COLORS, COST_TYPE_COLORS } from "@/lib/colors";
-import { VENDOR_LABEL } from "@/lib/types";
+import { VENDOR_LABEL, COST_TYPE_LABEL } from "@/lib/types";
 import type { Dim, TrendPoint, TreemapNode, RankRow, Scorecard } from "./types";
 
 export interface ShapeFact {
@@ -19,7 +19,8 @@ export const UNATTRIBUTED = "Unattributed";
 
 const dimKey = (r: ShapeFact, dim: Dim): string => (dim === "vendor" ? r.source : r.costType);
 const monthOf = (day: string) => day.slice(0, 7);
-const labelFor = (dim: Dim, key: string) => (dim === "vendor" ? VENDOR_LABEL[key as Vendor] ?? key : key);
+const labelFor = (dim: Dim, key: string) =>
+  dim === "vendor" ? VENDOR_LABEL[key as Vendor] ?? key : COST_TYPE_LABEL[key as CostType] ?? key;
 const colorFor = (dim: Dim, key: string) =>
   dim === "vendor" ? VENDOR_COLORS[key as Vendor] ?? "#6ea8fe" : COST_TYPE_COLORS[key as CostType] ?? "#6ea8fe";
 const teamSlug = (dept: string) => encodeURIComponent(dept);
