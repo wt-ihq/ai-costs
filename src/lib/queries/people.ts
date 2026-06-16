@@ -16,27 +16,41 @@ export interface PersonRow {
   zeroActivity: boolean;
 }
 
-/** Pure: collapse a month of facts into one row per employee. */
-export function buildPeopleRows(facts: EnrichedFact[]): PersonRow[] {
+export interface EmployeeLite {
+  id: string;
+  fullName: string | null;
+  department: string | null;
+}
+
+/**
+ * Pure: one row per EMPLOYEE (the roster), with this month's attributed spend
+ * left-joined (zeros if none). Employee-driven so the whole org shows even
+ * before any spend is attributed; unmatched spend lives on Data Health.
+ */
+export function buildPeopleRows(facts: EnrichedFact[], employees: EmployeeLite[]): PersonRow[] {
   const byEmp = new Map<string, PersonRow & { _seats: Set<Vendor> }>();
+
+  // Seed every employee so the roster is complete.
+  for (const e of employees) {
+    byEmp.set(e.id, {
+      employeeId: e.id,
+      name: e.fullName ?? "(unknown)",
+      department: e.department,
+      seatVendors: [],
+      seatCost: 0,
+      overage: 0,
+      metered: 0,
+      total: 0,
+      activityUsd: 0,
+      zeroActivity: false,
+      _seats: new Set<Vendor>(),
+    });
+  }
 
   for (const f of facts) {
     if (!f.employeeId) continue; // unmatched spend lives on Data Health
-    const row =
-      byEmp.get(f.employeeId) ??
-      ({
-        employeeId: f.employeeId,
-        name: f.fullName ?? "(unknown)",
-        department: f.department,
-        seatVendors: [],
-        seatCost: 0,
-        overage: 0,
-        metered: 0,
-        total: 0,
-        activityUsd: 0,
-        zeroActivity: false,
-        _seats: new Set<Vendor>(),
-      } as PersonRow & { _seats: Set<Vendor> });
+    const row = byEmp.get(f.employeeId);
+    if (!row) continue; // attributed to someone not in the roster
 
     if (f.costType === "seat") {
       row.seatCost += f.costUsd;
@@ -65,6 +79,15 @@ export function buildPeopleRows(facts: EnrichedFact[]): PersonRow[] {
 
 export async function getPeopleData(supabase: SupabaseClient, now: Date) {
   const range = monthRange(now);
-  const facts = await fetchMonthFacts(supabase, range);
-  return { month: range.month, rows: buildPeopleRows(facts) };
+  const [facts, { data: emps, error }] = await Promise.all([
+    fetchMonthFacts(supabase, range),
+    supabase.from("employees").select("id, full_name, department"),
+  ]);
+  if (error) throw new Error(`getPeopleData: ${error.message}`);
+  const employees: EmployeeLite[] = (emps ?? []).map((e) => ({
+    id: e.id as string,
+    fullName: e.full_name as string | null,
+    department: e.department as string | null,
+  }));
+  return { month: range.month, rows: buildPeopleRows(facts, employees) };
 }

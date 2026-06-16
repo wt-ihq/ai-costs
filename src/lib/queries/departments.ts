@@ -25,6 +25,11 @@ export function buildDepartmentRows(
   const vendors = [...new Set(facts.map((f) => f.source))].sort() as Vendor[];
   const byDept = new Map<string, DepartmentRow>();
 
+  // Seed every department from headcount so the org shows even with no spend.
+  for (const [dept, headcount] of headcounts) {
+    byDept.set(dept, { department: dept, perVendor: {}, total: 0, headcount, perHead: null });
+  }
+
   for (const f of facts) {
     const dept = f.department ?? UNATTRIBUTED;
     const row =
