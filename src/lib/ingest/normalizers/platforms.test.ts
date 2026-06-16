@@ -6,17 +6,17 @@ import { openaiCostFixture } from "@/lib/ingest/fixtures/openai-cost";
 import { SchemaDriftError } from "@/lib/ingest/types";
 
 describe("normalizeAnthropic", () => {
-  it("maps cost rows to metered facts keyed by api key id", () => {
+  it("flattens bucket results to metered facts, parsing string amounts; skips zero", () => {
     const facts = normalizeAnthropic(anthropicCostFixture);
-    expect(facts).toHaveLength(3);
+    expect(facts).toHaveLength(1); // the £0 workspace is skipped
     expect(facts[0]).toMatchObject({
       source: "anthropic",
+      day: "2026-06-09",
       costType: "metered",
-      entityKey: "ak_prod_ingest",
-      costUsd: 412.5,
+      entityKey: "wrkspc_prod",
       model: "claude-opus-4-8",
-      tokens: 8_900_000,
     });
+    expect(facts[0].costUsd).toBeCloseTo(3265.7, 1);
   });
   it("throws on schema drift", () => {
     expect(() => normalizeAnthropic({} as never)).toThrow(SchemaDriftError);
@@ -24,16 +24,16 @@ describe("normalizeAnthropic", () => {
 });
 
 describe("normalizeOpenAI", () => {
-  it("maps cost rows to metered facts keyed by project id", () => {
+  it("flattens bucket results to metered facts keyed by project id; skips zero", () => {
     const facts = normalizeOpenAI(openaiCostFixture);
-    expect(facts).toHaveLength(3);
+    expect(facts).toHaveLength(1);
     expect(facts[0]).toMatchObject({
       source: "openai",
+      day: "2026-06-09",
       costType: "metered",
-      entityKey: "proj_search",
-      costUsd: 233.4,
-      model: "gpt-5",
+      entityKey: "proj_iBVGlnR1msrsCUrmy5RARv3V",
     });
+    expect(facts[0].costUsd).toBeCloseTo(75.38, 2);
   });
   it("throws on schema drift", () => {
     expect(() => normalizeOpenAI({ data: "nope" } as never)).toThrow(SchemaDriftError);

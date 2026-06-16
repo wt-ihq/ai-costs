@@ -2,23 +2,22 @@ import type { SpendFact } from "@/lib/types";
 import { SchemaDriftError, type Normalizer } from "@/lib/ingest/types";
 
 /**
- * Anthropic Console — Cost Report (beta). Grain: per-API-key / per-workspace /
- * per-model / daily. No end-user dimension; attribution flows the key's
- * created_by → employee downstream (spec §3, §5). entity_key = api key id.
- *
- * ⚠ Shape is indicative and must be confirmed against the real Cost Report +
- * usage_report/messages responses (spec §11); the rest of the pipeline is
- * fixture-tested.
+ * Anthropic Console — Cost Report (GET /v1/organizations/cost_report).
+ * Real shape (confirmed against the org): time buckets, each with `results[]`.
+ * `amount` is a decimal string; `workspace_id`/`model` are populated when the
+ * request groups by them (null = org-aggregate). entity_key = workspace id (or
+ * "org"); attribution flows via the workspace's owner downstream (spec §5).
  */
 export interface AnthropicCostResponse {
   data: Array<{
-    date: string;
-    api_key_id: string;
-    workspace_id?: string;
-    model: string;
-    cost_usd: number;
-    input_tokens?: number;
-    output_tokens?: number;
+    starting_at: string; // ISO datetime
+    ending_at?: string;
+    results: Array<{
+      amount: string;
+      currency?: string;
+      workspace_id?: string | null;
+      model?: string | null;
+    }>;
   }>;
 }
 
@@ -26,18 +25,21 @@ export const normalizeAnthropic: Normalizer<AnthropicCostResponse> = (raw) => {
   if (!raw || !Array.isArray(raw.data)) {
     throw new SchemaDriftError("anthropic", "missing `data` array");
   }
-  return raw.data.map((row): SpendFact => {
-    if (typeof row.cost_usd !== "number" || !row.api_key_id || !row.date) {
-      throw new SchemaDriftError("anthropic", `bad row: ${JSON.stringify(row)}`);
+  const facts: SpendFact[] = [];
+  for (const bucket of raw.data) {
+    const day = (bucket.starting_at ?? "").slice(0, 10);
+    for (const r of bucket.results ?? []) {
+      const cost = Number(r.amount);
+      if (!Number.isFinite(cost) || cost === 0) continue;
+      facts.push({
+        source: "anthropic",
+        day,
+        costType: "metered",
+        entityKey: r.workspace_id ?? "org",
+        costUsd: cost,
+        model: r.model ?? "",
+      });
     }
-    return {
-      source: "anthropic",
-      day: row.date,
-      costType: "metered",
-      entityKey: row.api_key_id,
-      costUsd: row.cost_usd,
-      tokens: (row.input_tokens ?? 0) + (row.output_tokens ?? 0) || null,
-      model: row.model ?? "",
-    };
-  });
+  }
+  return facts;
 };
