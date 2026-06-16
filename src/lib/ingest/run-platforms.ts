@@ -1,12 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeAnthropic } from "@/lib/ingest/normalizers/anthropic";
 import { normalizeOpenAI } from "@/lib/ingest/normalizers/openai";
-import { fetchAnthropicCost, type AnthropicFetcher, type DateWindow } from "@/lib/ingest/sources/anthropic";
+import { fetchAnthropicCost, fetchAnthropicWorkspaces, type AnthropicFetcher, type DateWindow } from "@/lib/ingest/sources/anthropic";
 import { fetchOpenAICost, type OpenAIFetcher } from "@/lib/ingest/sources/openai";
 import {
   attachOwners,
   finishSyncRun,
-  loadApiKeyOwners,
   loadProjectOwners,
   saveRawPayload,
   startSyncRun,
@@ -26,12 +25,27 @@ export async function syncAnthropic(
 ): Promise<PlatformSyncResult> {
   const runId = await startSyncRun(supabase, "anthropic");
   try {
-    const raw = await fetcher(window);
+    // group_by workspace_id reconciles with the org total (verified) and makes
+    // spend attributable per workspace.
+    const raw = await fetcher({ ...window, groupBy: "workspace_id" });
     await saveRawPayload(supabase, "anthropic", runId, raw);
-    const owners = await loadApiKeyOwners(supabase);
+
+    // Register workspaces (id → name) into projects so spend is readable and
+    // attributable; existing owner assignments are preserved (name-only upsert).
+    try {
+      const ws = (await fetchAnthropicWorkspaces()) as { data?: Array<{ id?: string; name?: string }> };
+      const rows = (ws.data ?? [])
+        .filter((w) => w.id)
+        .map((w) => ({ vendor: "anthropic" as const, external_id: w.id!, name: w.name ?? w.id! }));
+      if (rows.length) await supabase.from("projects").upsert(rows, { onConflict: "vendor,external_id" });
+    } catch {
+      // names are best-effort
+    }
+
+    const owners = await loadProjectOwners(supabase);
     const { facts, unmatched } = attachOwners(normalizeAnthropic(raw), owners);
-    // Snapshot: clear this window's facts first so a grouping change (e.g. org
-    // -> per-workspace) can't leave stale rows that double-count.
+    // Snapshot: clear this window's facts first so a grouping change can't leave
+    // stale rows that double-count.
     await supabase.from("spend_facts").delete().eq("source", "anthropic").gte("day", window.startDate).lte("day", window.endDate);
     const rowsWritten = await upsertSpendFacts(supabase, facts);
     await finishSyncRun(supabase, runId, { status: "success", rowsWritten });
