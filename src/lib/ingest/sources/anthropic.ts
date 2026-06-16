@@ -4,21 +4,21 @@ export interface DateWindow {
   startDate: string;
   endDate: string;
 }
-export type AnthropicFetcher = (opts: DateWindow) => Promise<AnthropicCostResponse>;
+export type AnthropicFetcher = (opts: DateWindow & { groupBy?: string }) => Promise<AnthropicCostResponse>;
 
 /**
  * Live fetch from the Anthropic Cost Report (beta). Needs ANTHROPIC_ADMIN_API_KEY.
  * ⚠ Endpoint + response shape must be confirmed against the org (spec §3, §11);
  * the normalizer is fixture-tested. Only this piece needs the key.
  */
-export const fetchAnthropicCost: AnthropicFetcher = async ({ startDate, endDate }) => {
+export const fetchAnthropicCost: AnthropicFetcher = async ({ startDate, endDate, groupBy }) => {
   const key = process.env.ANTHROPIC_ADMIN_API_KEY;
   if (!key) throw new Error("ANTHROPIC_ADMIN_API_KEY is not set");
 
   // The Cost Report paginates daily buckets (~7/page by default), so a longer
   // range needs limit + page-following or it silently returns only page 1.
-  // NOTE: group_by[]=workspace_id undercounts (returns only the
-  // workspace-attributed slice), so we keep the authoritative org-level total.
+  // Optional groupBy (e.g. workspace_id) breaks the total down for attribution
+  // — only valid once verified to reconcile with the org total.
   const all: AnthropicCostResponse["data"] = [];
   let page: string | undefined;
   for (let i = 0; i < 200; i++) {
@@ -26,6 +26,7 @@ export const fetchAnthropicCost: AnthropicFetcher = async ({ startDate, endDate 
     url.searchParams.set("starting_at", startDate);
     url.searchParams.set("ending_at", endDate);
     url.searchParams.set("limit", "31");
+    if (groupBy) url.searchParams.append("group_by[]", groupBy);
     if (page) url.searchParams.set("page", page);
     const res = await fetch(url, { headers: { "x-api-key": key, "anthropic-version": "2023-06-01" } });
     if (!res.ok) throw new Error(`Anthropic API ${res.status}: ${await res.text()}`);
@@ -36,3 +37,14 @@ export const fetchAnthropicCost: AnthropicFetcher = async ({ startDate, endDate 
   }
   return { data: all };
 };
+
+/** List org workspaces (id → name) so opaque workspace IDs become readable. */
+export async function fetchAnthropicWorkspaces(): Promise<unknown> {
+  const key = process.env.ANTHROPIC_ADMIN_API_KEY;
+  if (!key) throw new Error("ANTHROPIC_ADMIN_API_KEY is not set");
+  const res = await fetch("https://api.anthropic.com/v1/organizations/workspaces?limit=100", {
+    headers: { "x-api-key": key, "anthropic-version": "2023-06-01" },
+  });
+  if (!res.ok) throw new Error(`Anthropic workspaces ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}
