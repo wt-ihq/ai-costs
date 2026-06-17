@@ -33,7 +33,7 @@ function Row({ r, max, i }: { r: RankRow; max: number; i: number }) {
 }
 
 export function RankedList({ rows }: { rows: RankRow[] }) {
-  if (!rows.length) return <p className="text-sm text-muted">No spend this month.</p>;
+  if (!rows.length) return <p className="text-sm text-muted">No spend in this period.</p>;
   const max = Math.max(...rows.map((r) => r.total), 0);
   return <div className="space-y-2">{rows.map((r, i) => <Row key={r.id} r={r} max={max} i={i} />)}</div>;
 }
