@@ -39,13 +39,25 @@ export async function fetchFactsInRange(
   fromMonth: string,
   toExclusive: string,
 ): Promise<EnrichedFact[]> {
-  const { data, error } = await supabase
-    .from("spend_facts")
-    .select("day, source, cost_type, cost_usd, requests, entity_key, model, employee_id, employees(full_name, department)")
-    .gte("day", fromMonth)
-    .lt("day", toExclusive);
-  if (error) throw new Error(`fetchFactsInRange: ${error.message}`);
-  return (data ?? []).map((r) => {
+  // PostgREST caps each request at 1000 rows; a multi-month range now holds
+  // thousands of facts (esp. Cursor per-event overage), so paginate until
+  // exhausted — otherwise the dashboard silently undercounts spend.
+  const PAGE = 1000;
+  const data: Record<string, unknown>[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data: page, error } = await supabase
+      .from("spend_facts")
+      .select("day, source, cost_type, cost_usd, requests, entity_key, model, employee_id, employees(full_name, department)")
+      .gte("day", fromMonth)
+      .lt("day", toExclusive)
+      .order("day")
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(`fetchFactsInRange: ${error.message}`);
+    if (!page || page.length === 0) break;
+    data.push(...(page as Record<string, unknown>[]));
+    if (page.length < PAGE) break;
+  }
+  return data.map((r) => {
     const e = Array.isArray(r.employees) ? r.employees[0] : r.employees;
     const emp = e as { full_name: string | null; department: string | null } | undefined;
     return {

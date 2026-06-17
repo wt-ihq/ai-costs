@@ -1,6 +1,26 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { VENDOR_LABEL, type Vendor } from "@/lib/types";
 
+interface HealthFact { source: string; day: string; entity_key: string; cost_usd: number; employee_id: string | null }
+
+/** Every spend fact (counts/unmatched), paging past PostgREST's 1000-row cap. */
+async function fetchAllSpendFacts(supabase: SupabaseClient): Promise<HealthFact[]> {
+  const PAGE = 1000;
+  const rows: HealthFact[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from("spend_facts")
+      .select("source, day, entity_key, cost_usd, employee_id")
+      .order("day")
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(`getDataHealth: ${error.message}`);
+    if (!data || data.length === 0) break;
+    rows.push(...(data as HealthFact[]));
+    if (data.length < PAGE) break;
+  }
+  return rows;
+}
+
 export interface SourceHealth {
   source: Vendor;
   factCount: number;
@@ -26,8 +46,8 @@ export interface DataHealth {
 const VENDORS = Object.keys(VENDOR_LABEL) as Vendor[];
 
 export async function getDataHealth(supabase: SupabaseClient): Promise<DataHealth> {
-  const [{ data: facts }, { data: syncs }, { data: imports }, { data: emps }] = await Promise.all([
-    supabase.from("spend_facts").select("source, day, entity_key, cost_usd, employee_id"),
+  const [facts, { data: syncs }, { data: imports }, { data: emps }] = await Promise.all([
+    fetchAllSpendFacts(supabase),
     supabase.from("sync_runs").select("source, finished_at, started_at, status").order("started_at", { ascending: false }),
     supabase.from("imports").select("source, data_as_of, created_at").order("created_at", { ascending: false }),
     supabase.from("employees").select("id, full_name").order("full_name"),
