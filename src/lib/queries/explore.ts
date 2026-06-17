@@ -2,33 +2,33 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { lastNMonths } from "@/lib/rollup";
 import { fetchFactsInRange, type EnrichedFact } from "./common";
 import {
-  trendByDim, dailyByDim, treemapByDim, scorecardFor,
-  rankTeams, rankPeople, lineItems, UNATTRIBUTED, type ShapeFact,
+  trendForPeriod, treemapByDim, scorecardFor,
+  rankTeams, rankPeople, rankAllStaff, lineItems, UNATTRIBUTED, type ShapeFact,
 } from "@/lib/explore/shape";
 import type { Dim, ExploreData } from "@/lib/explore/types";
+import type { Period } from "@/lib/explore/period";
 
-const FETCH_MONTHS = 24; // wide enough to cover all history -> "total to date"
-const TREND_MONTHS = 12; // rolling window shown in the trend chart
+const FETCH_MONTHS = 24; // baseline lookback for "total to date"
 const asShape = (f: EnrichedFact): ShapeFact => f as unknown as ShapeFact;
 const sumAll = (rows: ShapeFact[]) => Math.round(rows.reduce((s, r) => s + r.costUsd, 0) * 100) / 100;
+const inPeriod = (p: Period) => (r: ShapeFact) => r.day >= p.from && r.day < p.toExclusive;
 
 function nextMonth(m: string): string {
   const [y, mo] = m.split("-").map(Number);
   return new Date(Date.UTC(y, mo, 1)).toISOString().slice(0, 7) + "-01";
 }
-function prevMonth(m: string): string {
-  const [y, mo] = m.split("-").map(Number);
-  return new Date(Date.UTC(y, mo - 2, 1)).toISOString().slice(0, 7);
-}
 
-/** Fetch all facts to date (24-month lookback) + the trend window (last 12). */
-async function fetchScope(supabase: SupabaseClient) {
+/** Fetch all facts needed: max(24-month lookback, the selected period) → current month. */
+async function fetchScope(supabase: SupabaseClient, period: Period) {
   const now = new Date();
-  const fetchMonths = lastNMonths(now, FETCH_MONTHS);
-  const from = fetchMonths[0] + "-01";
+  const baseFrom = lastNMonths(now, FETCH_MONTHS)[0] + "-01";
+  const from = period.from < baseFrom ? period.from : baseFrom;
   const toExclusive = nextMonth(now.toISOString().slice(0, 7));
   const rows = (await fetchFactsInRange(supabase, from, toExclusive)).map(asShape);
-  return { rows, trendMonths: lastNMonths(now, TREND_MONTHS) };
+  const earliest = rows.length
+    ? rows.reduce((min, r) => (r.day < min ? r.day : min), rows[0].day).slice(0, 7)
+    : now.toISOString().slice(0, 7);
+  return { rows, earliest };
 }
 
 async function headcounts(supabase: SupabaseClient): Promise<Map<string, number>> {
@@ -45,40 +45,48 @@ function bothDims<T>(fn: (dim: Dim) => T): Record<Dim, T> {
   return { vendor: fn("vendor"), cost_type: fn("cost_type") };
 }
 
-/** Shared assembly: trend (all rows), month-scoped breakdowns, totals. */
-function assemble(rows: ShapeFact[], trendMonths: string[], month: string, base: Pick<ExploreData, "title" | "ranked"> & { daily?: boolean }): ExploreData {
-  const cur = rows.filter((r) => r.day.slice(0, 7) === month);
+function assemble(
+  rows: ShapeFact[],
+  cur: ShapeFact[],
+  period: Period,
+  base: { title: string; earliest: string; ranked: ExploreData["ranked"] },
+): ExploreData {
   return {
     title: base.title,
-    month,
+    period,
+    earliest: base.earliest,
     totalToDate: sumAll(rows),
-    scorecard: scorecardFor(rows, month, prevMonth(month)),
-    trend: bothDims((d) => trendByDim(rows, trendMonths, d)),
+    scorecard: scorecardFor(cur),
+    trend: bothDims((d) => trendForPeriod(rows, period, d)),
     treemap: bothDims((d) => treemapByDim(cur, d)),
     ranked: base.ranked,
-    ...(base.daily ? { daily: bothDims((d) => dailyByDim(rows, month, d)) } : {}),
   };
 }
 
-export async function getCompanyExplore(supabase: SupabaseClient, month: string): Promise<ExploreData> {
-  const { rows, trendMonths } = await fetchScope(supabase);
-  const cur = rows.filter((r) => r.day.slice(0, 7) === month);
-  return assemble(rows, trendMonths, month, { title: "Company", ranked: { kind: "team", rows: rankTeams(cur, await headcounts(supabase)) } });
+export async function getCompanyExplore(supabase: SupabaseClient, period: Period): Promise<ExploreData> {
+  const { rows, earliest } = await fetchScope(supabase, period);
+  const cur = rows.filter(inPeriod(period));
+  const { data: emps } = await supabase.from("employees").select("id, full_name, department");
+  const employees = (emps ?? []).map((e) => ({ id: e.id as string, fullName: e.full_name as string | null, department: e.department as string | null }));
+  return {
+    ...assemble(rows, cur, period, { title: "Company", earliest, ranked: { kind: "team", rows: rankTeams(cur, await headcounts(supabase)) } }),
+    allStaff: rankAllStaff(cur, employees),
+  };
 }
 
-export async function getTeamExplore(supabase: SupabaseClient, team: string, month: string): Promise<ExploreData> {
-  const { rows: all, trendMonths } = await fetchScope(supabase);
+export async function getTeamExplore(supabase: SupabaseClient, team: string, period: Period): Promise<ExploreData> {
+  const { rows: all, earliest } = await fetchScope(supabase, period);
   const rows = all.filter((r) => (r.department ?? UNATTRIBUTED) === team);
-  const cur = rows.filter((r) => r.day.slice(0, 7) === month);
+  const cur = rows.filter(inPeriod(period));
   const { data: emps } = await supabase.from("employees").select("id, full_name, department").eq("department", team);
   const employees = (emps ?? []).map((e) => ({ id: e.id as string, fullName: e.full_name as string | null }));
-  return assemble(rows, trendMonths, month, { title: team, ranked: { kind: "person", rows: rankPeople(cur, team, employees) } });
+  return assemble(rows, cur, period, { title: team, earliest, ranked: { kind: "person", rows: rankPeople(cur, team, employees) } });
 }
 
-export async function getPersonExplore(supabase: SupabaseClient, _team: string, employeeId: string, month: string): Promise<ExploreData> {
-  const { rows: all, trendMonths } = await fetchScope(supabase);
+export async function getPersonExplore(supabase: SupabaseClient, _team: string, employeeId: string, period: Period): Promise<ExploreData> {
+  const { rows: all, earliest } = await fetchScope(supabase, period);
   const rows = all.filter((r) => r.employeeId === employeeId);
-  const cur = rows.filter((r) => r.day.slice(0, 7) === month);
+  const cur = rows.filter(inPeriod(period));
   const { data: emp } = await supabase.from("employees").select("full_name").eq("id", employeeId).single();
-  return assemble(rows, trendMonths, month, { title: (emp?.full_name as string) ?? "Unknown", daily: true, ranked: { kind: "lineitem", rows: lineItems(cur) } });
+  return assemble(rows, cur, period, { title: (emp?.full_name as string) ?? "Unknown", earliest, ranked: { kind: "lineitem", rows: lineItems(cur) } });
 }

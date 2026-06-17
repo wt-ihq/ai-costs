@@ -7,6 +7,7 @@ import { Scorecards } from "./scorecards";
 import { TrendChart } from "./trend-chart";
 import { CompositionBreakdown } from "./composition-breakdown";
 import { RankedList } from "./ranked-list";
+import { PeriodControl } from "./period-control";
 
 const RANK_TITLE: Record<ExploreData["ranked"]["kind"], string> = {
   team: "Teams", person: "People", lineitem: "Line items",
@@ -37,35 +38,36 @@ export function ExploreView({ data, initialDim }: { data: ExploreData; initialDi
   const [dim, setDim] = useState<Dim>(initialDim);
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-between gap-4">
+        <PeriodControl period={data.period} earliest={data.earliest} />
         <Toggle dim={dim} onChange={setDim} />
       </div>
 
-      <Scorecards totalToDate={data.totalToDate} sc={data.scorecard} month={data.month} />
+      <Scorecards totalToDate={data.totalToDate} sc={data.scorecard} periodLabel={data.period.label} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="rounded-xl border border-border bg-surface p-5">
-          <h2 className="mb-4 text-sm font-medium">12-month trend</h2>
+          <h2 className="mb-4 text-sm font-medium">Trend · {data.period.label}</h2>
           <TrendChart data={data.trend[dim]} dim={dim} />
         </section>
 
         <section className="rounded-xl border border-border bg-surface p-5">
-          <h2 className="mb-4 text-sm font-medium">Where it&rsquo;s going · {data.month}</h2>
+          <h2 className="mb-4 text-sm font-medium">Where it&rsquo;s going · {data.period.label}</h2>
           <CompositionBreakdown nodes={data.treemap[dim]} />
         </section>
       </div>
-
-      {data.daily && (
-        <section className="rounded-xl border border-border bg-surface p-5">
-          <h2 className="mb-4 text-sm font-medium">Daily · {data.month}</h2>
-          <TrendChart data={data.daily[dim]} dim={dim} height={200} />
-        </section>
-      )}
 
       <section className="rounded-xl border border-border bg-surface p-5">
         <h2 className="mb-4 text-sm font-medium">{RANK_TITLE[data.ranked.kind]}</h2>
         <RankedList rows={data.ranked.rows} />
       </section>
+
+      {data.allStaff && (
+        <section className="rounded-xl border border-border bg-surface p-5">
+          <h2 className="mb-4 text-sm font-medium">All staff · {data.period.label}</h2>
+          <RankedList rows={data.allStaff} />
+        </section>
+      )}
     </div>
   );
 }

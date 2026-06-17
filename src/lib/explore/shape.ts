@@ -2,6 +2,7 @@ import type { Vendor, CostType } from "@/lib/types";
 import { VENDOR_COLORS, COST_TYPE_COLORS } from "@/lib/colors";
 import { VENDOR_LABEL, COST_TYPE_LABEL } from "@/lib/types";
 import type { Dim, TrendPoint, TreemapNode, RankRow, Scorecard } from "./types";
+import { enumerateBuckets, type Period, type Bucket } from "./period";
 
 export interface ShapeFact {
   day: string;
@@ -18,13 +19,11 @@ export interface ShapeFact {
 export const UNATTRIBUTED = "Unattributed";
 
 const dimKey = (r: ShapeFact, dim: Dim): string => (dim === "vendor" ? r.source : r.costType);
-const monthOf = (day: string) => day.slice(0, 7);
 const labelFor = (dim: Dim, key: string) =>
   dim === "vendor" ? VENDOR_LABEL[key as Vendor] ?? key : COST_TYPE_LABEL[key as CostType] ?? key;
 const colorFor = (dim: Dim, key: string) =>
   dim === "vendor" ? VENDOR_COLORS[key as Vendor] ?? "#6ea8fe" : COST_TYPE_COLORS[key as CostType] ?? "#6ea8fe";
 const teamSlug = (dept: string) => encodeURIComponent(dept);
-const inMonth = (rows: ShapeFact[], m: string) => rows.filter((r) => monthOf(r.day) === m);
 const sum = (rows: ShapeFact[]) => rows.reduce((s, r) => s + r.costUsd, 0);
 
 function totalsBy(rows: ShapeFact[], key: (r: ShapeFact) => string): Map<string, number> {
@@ -33,29 +32,26 @@ function totalsBy(rows: ShapeFact[], key: (r: ShapeFact) => string): Map<string,
   return m;
 }
 
-/** Stacked monthly trend: one point per month, a numeric field per dim value. */
-export function trendByDim(rows: ShapeFact[], months: string[], dim: Dim): TrendPoint[] {
-  const base = new Map<string, TrendPoint>(months.map((m) => [m, { label: m }]));
+/** Period-scoped trend, adaptively bucketed (month→day, quarter→week, year→month). */
+export function trendForPeriod(rows: ShapeFact[], period: Period, dim: Dim): TrendPoint[] {
+  const buckets = enumerateBuckets(period);
+  const points = new Map<string, TrendPoint>(buckets.map((b) => [b.key, { label: b.label }]));
   for (const r of rows) {
-    const pt = base.get(monthOf(r.day));
+    if (r.day < period.from || r.day >= period.toExclusive) continue;
+    const pt = points.get(bucketKey(r.day, period, buckets));
     if (!pt) continue;
     const k = dimKey(r, dim);
     pt[k] = ((pt[k] as number) ?? 0) + r.costUsd;
   }
-  return months.map((m) => base.get(m)!);
+  return buckets.map((b) => points.get(b.key)!);
 }
 
-/** Single-month daily trend, stacked by dim. */
-export function dailyByDim(rows: ShapeFact[], month: string, dim: Dim): TrendPoint[] {
-  const byDay = new Map<string, TrendPoint>();
-  for (const r of rows) {
-    if (monthOf(r.day) !== month) continue;
-    const pt = byDay.get(r.day) ?? { label: r.day };
-    const k = dimKey(r, dim);
-    pt[k] = ((pt[k] as number) ?? 0) + r.costUsd;
-    byDay.set(r.day, pt);
-  }
-  return [...byDay.values()].sort((a, b) => (a.label < b.label ? -1 : 1));
+function bucketKey(day: string, period: Period, buckets: Bucket[]): string {
+  if (period.granularity === "month") return day;          // bucket key === the day
+  if (period.granularity === "year") return day.slice(0, 7); // "YYYY-MM"
+  const DAY_MS = 86_400_000;
+  const idx = Math.floor((Date.parse(`${day}T00:00:00Z`) - Date.parse(`${period.from}T00:00:00Z`)) / (7 * DAY_MS));
+  return buckets[Math.min(idx, buckets.length - 1)].key; // clamp into the clipped final week
 }
 
 /** Treemap nodes for a dim (or model), top-N by spend + an "Other" bucket. */
@@ -74,16 +70,10 @@ export function treemapByDim(rows: ShapeFact[], dim: Dim | "model", topN = 12): 
   return nodes;
 }
 
-/** Dim values present, ordered by total desc (stack/legend order). */
-export function seriesKeys(rows: ShapeFact[], dim: Dim): string[] {
-  return [...totalsBy(rows, (r) => dimKey(r, dim)).entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k);
-}
-
-export function scorecardFor(rows: ShapeFact[], month: string, prevMonth: string): Scorecard {
-  const cur = inMonth(rows, month);
+export function scorecardFor(rows: ShapeFact[]): Scorecard {
   const split = { seat: 0, overage: 0, metered: 0 } as Record<CostType, number>;
-  for (const r of cur) split[r.costType] += r.costUsd;
-  return { total: sum(cur), prevTotal: sum(inMonth(rows, prevMonth)), ...split };
+  for (const r of rows) split[r.costType] += r.costUsd;
+  return { total: sum(rows), ...split };
 }
 
 /** Department rankings (rows already filtered to the period). */
@@ -133,6 +123,30 @@ export function rankPeople(
       sub: a.seat > 0 && a.activity === 0 ? "idle seat" : undefined,
       href: `/explore/${teamSlug(teamDept)}/${id}`,
     }))
+    .sort((a, b) => b.total - a.total);
+}
+
+/** Company-wide: every employee with their (period-scoped) spend, roster-driven. */
+export function rankAllStaff(
+  rows: ShapeFact[],
+  employees: { id: string; fullName: string | null; department: string | null }[],
+): RankRow[] {
+  const totals = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.employeeId) continue;
+    totals.set(r.employeeId, (totals.get(r.employeeId) ?? 0) + r.costUsd);
+  }
+  return employees
+    .map((e) => {
+      const dept = e.department ?? UNATTRIBUTED;
+      return {
+        id: e.id,
+        label: e.fullName ?? "(unknown)",
+        total: Math.round((totals.get(e.id) ?? 0) * 100) / 100,
+        sub: dept,
+        href: `/explore/${teamSlug(dept)}/${e.id}`,
+      };
+    })
     .sort((a, b) => b.total - a.total);
 }
 

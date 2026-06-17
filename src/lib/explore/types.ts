@@ -1,4 +1,5 @@
 import type { Vendor, CostType } from "@/lib/types";
+import type { Period, Granularity } from "./period";
 
 export type Dim = "vendor" | "cost_type";
 
@@ -24,7 +25,6 @@ export interface RankRow {
 
 export interface Scorecard {
   total: number;
-  prevTotal: number;
   seat: number;
   overage: number;
   metered: number;
@@ -32,13 +32,14 @@ export interface Scorecard {
 
 export interface ExploreData {
   title: string;
-  month: string;
+  period: Period;
+  earliest: string;
   totalToDate: number;
   scorecard: Scorecard;
   trend: Record<Dim, TrendPoint[]>;
   treemap: Record<Dim, TreemapNode[]>;
   ranked: { kind: "team" | "person" | "lineitem"; rows: RankRow[] };
-  daily?: Record<Dim, TrendPoint[]>;
+  allStaff?: RankRow[];
 }
 
-export type { Vendor, CostType };
+export type { Vendor, CostType, Period, Granularity };

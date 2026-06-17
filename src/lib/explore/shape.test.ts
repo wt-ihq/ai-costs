@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  trendByDim, dailyByDim, treemapByDim, seriesKeys,
-  scorecardFor, rankTeams, rankPeople, lineItems, type ShapeFact,
+  treemapByDim,
+  scorecardFor, rankTeams, rankPeople, rankAllStaff, lineItems, trendForPeriod, type ShapeFact,
 } from "./shape";
+import { parsePeriod } from "./period";
 import { VENDOR_LABEL } from "@/lib/types";
 
 const rows: ShapeFact[] = [
@@ -11,26 +12,6 @@ const rows: ShapeFact[] = [
   { day: "2026-06-09", source: "anthropic", costType: "metered", costUsd: 100, employeeId: "a", department: "Eng", fullName: "A", entityKey: "k1", model: "opus" },
 ];
 const june = rows.filter((r) => r.day.startsWith("2026-06"));
-
-describe("trendByDim", () => {
-  it("stacks monthly spend by vendor across the given months", () => {
-    const t = trendByDim(rows, ["2026-05", "2026-06"], "vendor");
-    expect(t[0]).toMatchObject({ label: "2026-05", cursor: 40 });
-    expect(t[1]).toMatchObject({ label: "2026-06", cursor: 40, anthropic: 100 });
-  });
-  it("stacks by cost type", () => {
-    const t = trendByDim(rows, ["2026-06"], "cost_type");
-    expect(t[0]).toMatchObject({ label: "2026-06", seat: 40, metered: 100 });
-  });
-});
-
-describe("dailyByDim", () => {
-  it("buckets a single month by day", () => {
-    const d = dailyByDim(rows, "2026-06", "vendor");
-    expect(d.find((p) => p.label === "2026-06-09")).toMatchObject({ anthropic: 100 });
-    expect(d.find((p) => p.label === "2026-06-01")).toMatchObject({ cursor: 40 });
-  });
-});
 
 describe("treemapByDim", () => {
   it("sizes nodes by spend, sorted desc, colored", () => {
@@ -49,16 +30,10 @@ describe("treemapByDim", () => {
   });
 });
 
-describe("seriesKeys", () => {
-  it("returns dim values present, ordered by total desc", () => {
-    expect(seriesKeys(june, "vendor")).toEqual(["anthropic", "cursor"]);
-  });
-});
-
 describe("scorecardFor", () => {
-  it("totals current vs previous month with cost-type split", () => {
-    const sc = scorecardFor(rows, "2026-06", "2026-05");
-    expect(sc).toMatchObject({ total: 140, prevTotal: 40, seat: 40, metered: 100, overage: 0 });
+  it("totals the given (period-scoped) rows with a cost-type split", () => {
+    const sc = scorecardFor(june); // 2026-06 rows: cursor seat 40 + anthropic metered 100
+    expect(sc).toMatchObject({ total: 140, seat: 40, metered: 100, overage: 0 });
   });
 });
 
@@ -86,5 +61,54 @@ describe("lineItems", () => {
     const li = lineItems(june);
     expect(li[0]).toMatchObject({ total: 100 });
     expect(li[0].label).toContain(VENDOR_LABEL.anthropic);
+  });
+});
+
+describe("rankAllStaff", () => {
+  it("lists every employee with period spend, $0 included, sorted desc, linked", () => {
+    const r = rankAllStaff(june, [
+      { id: "a", fullName: "A", department: "Eng" },
+      { id: "z", fullName: "Z", department: "Sales" },
+    ]);
+    expect(r).toHaveLength(2);
+    expect(r[0]).toMatchObject({ id: "a", label: "A", total: 140, sub: "Eng" });
+    expect(r[1]).toMatchObject({ id: "z", total: 0, sub: "Sales" }); // roster-driven: $0 kept
+    expect(r[0].href).toBe("/explore/Eng/a");
+  });
+  it("routes employees with no department under Unattributed", () => {
+    const r = rankAllStaff([], [{ id: "n", fullName: "N", department: null }]);
+    expect(r[0].href).toBe("/explore/Unattributed/n");
+  });
+});
+
+const NOW2 = new Date("2026-06-17T12:00:00Z");
+
+describe("trendForPeriod", () => {
+  it("month granularity buckets by day and zero-fills the month", () => {
+    const t = trendForPeriod(rows, parsePeriod("2026-06", NOW2), "vendor");
+    expect(t).toHaveLength(30);
+    expect(t.find((p) => p.label === "1")).toMatchObject({ cursor: 40 });
+    expect(t.find((p) => p.label === "9")).toMatchObject({ anthropic: 100 });
+    expect(t.find((p) => p.label === "2")).toEqual({ label: "2" }); // zero-filled, no series
+  });
+  it("year granularity buckets by month", () => {
+    const t = trendForPeriod(rows, parsePeriod("2026", NOW2), "vendor");
+    expect(t).toHaveLength(12);
+    expect(t.find((p) => p.label === "May")).toMatchObject({ cursor: 40 });
+    expect(t.find((p) => p.label === "Jun")).toMatchObject({ cursor: 40, anthropic: 100 });
+  });
+  it("quarter granularity buckets by 7-day window", () => {
+    const t = trendForPeriod(rows, parsePeriod("2026-Q2", NOW2), "vendor");
+    expect(t).toHaveLength(13); // Q2 2026: Apr 1 to Jun 30 = 91 days = 13 weekly buckets
+    const totalCursor = t.reduce((s, p) => s + ((p.cursor as number) ?? 0), 0);
+    const totalAnthropic = t.reduce((s, p) => s + ((p.anthropic as number) ?? 0), 0);
+    expect(totalCursor).toBe(80); // both May 3 and Jun 1 rows
+    expect(totalAnthropic).toBe(100); // Jun 9 row
+    expect(t.filter((p) => p.anthropic).length).toBe(1); // exactly one bucket has anthropic
+  });
+  it("excludes rows outside the period range", () => {
+    const t = trendForPeriod(rows, parsePeriod("2026-05", NOW2), "vendor"); // only the 2026-05-03 row
+    const total = t.reduce((s, p) => s + ((p.cursor as number) ?? 0) + ((p.anthropic as number) ?? 0), 0);
+    expect(total).toBe(40);
   });
 });
