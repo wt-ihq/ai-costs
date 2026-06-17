@@ -166,6 +166,10 @@ Pure units (vitest):
 
 The existing 55 tests stay green; update only those referencing `scorecardFor(rows, month, prevMonth)`, `trendByDim`, `dailyByDim`, or `ExploreData.month`/`daily`.
 
+## Addendum (2026-06-17): company-wide staff list
+
+The Company view also gains an **"All staff"** section: a complete roster of every employee with their spend for the selected period — roster-driven ($0 included), sorted high→low, each linking to that person's drill-down. This complements the Teams ranking (company) and people-in-team ranking (team) by letting users see per-person spend across the whole company without drilling team-by-team. Implemented via a new `rankAllStaff(rows, employees)` shaper and an optional `ExploreData.allStaff` field set by `getCompanyExplore`.
+
 ## Out of scope (YAGNI)
 
 - Custom/arbitrary date ranges.

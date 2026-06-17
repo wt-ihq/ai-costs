@@ -24,12 +24,12 @@
 |---|---|---|
 | `src/lib/explore/period.ts` (new) | `Period` type + pure helpers: parse, currentPeriod, stepPeriod, enumerateBuckets, canStepBack/Forward | 1 |
 | `src/lib/explore/period.test.ts` (new) | unit tests for the above | 1 |
-| `src/lib/explore/shape.ts` | add `trendForPeriod`; later simplify `scorecardFor`, remove dead shapers | 2, 3 |
-| `src/lib/explore/shape.test.ts` | tests for `trendForPeriod`; update `scorecardFor`, drop dead-shaper tests | 2, 3 |
-| `src/lib/explore/types.ts` | `ExploreData.month`→`period`, add `earliest`, drop `daily`; `Scorecard` drop `prevTotal` | 3 |
-| `src/lib/queries/explore.ts` | functions take `Period`; `fetchScope` widens + returns `earliest`; `assemble` uses `trendForPeriod`/`scorecardFor` | 3 |
+| `src/lib/explore/shape.ts` | add `trendForPeriod`; simplify `scorecardFor`, remove dead shapers; add `rankAllStaff` | 2, 3, 5 |
+| `src/lib/explore/shape.test.ts` | tests for `trendForPeriod`; update `scorecardFor`, drop dead-shaper tests; test `rankAllStaff` | 2, 3, 5 |
+| `src/lib/explore/types.ts` | `ExploreData.month`→`period`, add `earliest`, drop `daily`; `Scorecard` drop `prevTotal`; add `allStaff?` | 3, 5 |
+| `src/lib/queries/explore.ts` | functions take `Period`; `fetchScope` widens + returns `earliest`; `assemble` uses `trendForPeriod`/`scorecardFor`; company builds `allStaff` | 3, 5 |
 | `src/components/explore/scorecards.tsx` | drop delta; label by period | 3 |
-| `src/components/explore/explore-view.tsx` | use `period.label` in headings; drop `daily`; (Task 4) render `PeriodControl` | 3, 4 |
+| `src/components/explore/explore-view.tsx` | use `period.label` in headings; drop `daily`; (Task 4) render `PeriodControl`; (Task 5) render "All staff" | 3, 4, 5 |
 | `src/app/(dashboard)/explore/{page,[team]/page,[team]/[person]/page}.tsx` | parse `?period=`, pass `Period` | 3 |
 | `src/components/explore/period-control.tsx` | rewrite: segmented control + stepper | 4 |
 | `src/app/(dashboard)/explore/layout.tsx` | remove `PeriodControl` (moves to `ExploreView`) | 4 |
@@ -827,6 +827,143 @@ Run `npm run dev`, open `/explore`, and confirm:
 ```bash
 git add src/components/explore/period-control.tsx src/components/explore/explore-view.tsx "src/app/(dashboard)/explore/layout.tsx"
 git commit -m "explore: Month/Quarter/Year period selector + stepper (replaces month dropdown)
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+### Task 5: Company-level "All staff" list (complete roster + per-person spend)
+
+Add a company-wide list of **every** employee with their spend for the selected period — roster-driven ($0 included), sorted desc, each linking to that person's drill-down. This is distinct from the existing Teams ranking (company) and people-in-team ranking (team).
+
+**Files:**
+- Modify: `src/lib/explore/shape.ts` + `src/lib/explore/shape.test.ts`
+- Modify: `src/lib/explore/types.ts`
+- Modify: `src/lib/queries/explore.ts`
+- Modify: `src/components/explore/explore-view.tsx`
+
+**Interfaces:**
+- Consumes: `ShapeFact`, `RankRow`, `UNATTRIBUTED`, `ExploreData` (Task 3).
+- Produces: `rankAllStaff(rows: ShapeFact[], employees: { id: string; fullName: string | null; department: string | null }[]): RankRow[]`; `ExploreData.allStaff?: RankRow[]` (set only by `getCompanyExplore`).
+
+- [ ] **Step 1: Write the failing test**
+
+Append to `src/lib/explore/shape.test.ts` (add `rankAllStaff` to the existing `./shape` import):
+
+```ts
+describe("rankAllStaff", () => {
+  it("lists every employee with period spend, $0 included, sorted desc, linked", () => {
+    const r = rankAllStaff(june, [
+      { id: "a", fullName: "A", department: "Eng" },
+      { id: "z", fullName: "Z", department: "Sales" },
+    ]);
+    expect(r).toHaveLength(2);
+    expect(r[0]).toMatchObject({ id: "a", label: "A", total: 140, sub: "Eng" });
+    expect(r[1]).toMatchObject({ id: "z", total: 0, sub: "Sales" }); // roster-driven: $0 kept
+    expect(r[0].href).toBe("/explore/Eng/a");
+  });
+  it("routes employees with no department under Unattributed", () => {
+    const r = rankAllStaff([], [{ id: "n", fullName: "N", department: null }]);
+    expect(r[0].href).toBe("/explore/Unattributed/n");
+  });
+});
+```
+
+(`june` is the existing fixture subset where employee `a` has $140 of June spend.)
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `npx vitest run src/lib/explore/shape.test.ts -t rankAllStaff`
+Expected: FAIL — `rankAllStaff is not a function`.
+
+- [ ] **Step 3: Implement `rankAllStaff` in `shape.ts`**
+
+Add near `rankPeople` (it reuses the existing `teamSlug` and `UNATTRIBUTED`):
+
+```ts
+/** Company-wide: every employee with their (period-scoped) spend, roster-driven. */
+export function rankAllStaff(
+  rows: ShapeFact[],
+  employees: { id: string; fullName: string | null; department: string | null }[],
+): RankRow[] {
+  const totals = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.employeeId) continue;
+    totals.set(r.employeeId, (totals.get(r.employeeId) ?? 0) + r.costUsd);
+  }
+  return employees
+    .map((e) => {
+      const dept = e.department ?? UNATTRIBUTED;
+      return {
+        id: e.id,
+        label: e.fullName ?? "(unknown)",
+        total: Math.round((totals.get(e.id) ?? 0) * 100) / 100,
+        sub: dept,
+        href: `/explore/${teamSlug(dept)}/${e.id}`,
+      };
+    })
+    .sort((a, b) => b.total - a.total);
+}
+```
+
+- [ ] **Step 4: Run the test to verify it passes**
+
+Run: `npx vitest run src/lib/explore/shape.test.ts -t rankAllStaff`
+Expected: PASS.
+
+- [ ] **Step 5: Add `allStaff` to `ExploreData`**
+
+In `src/lib/explore/types.ts`, add the optional field to `ExploreData`:
+
+```ts
+  ranked: { kind: "team" | "person" | "lineitem"; rows: RankRow[] };
+  allStaff?: RankRow[];
+```
+
+- [ ] **Step 6: Populate it in `getCompanyExplore`**
+
+In `src/lib/queries/explore.ts`, import `rankAllStaff`, fetch the full roster, and attach it. Replace the `getCompanyExplore` body:
+
+```ts
+export async function getCompanyExplore(supabase: SupabaseClient, period: Period): Promise<ExploreData> {
+  const { rows, earliest } = await fetchScope(supabase, period);
+  const cur = rows.filter(inPeriod(period));
+  const { data: emps } = await supabase.from("employees").select("id, full_name, department");
+  const employees = (emps ?? []).map((e) => ({ id: e.id as string, fullName: e.full_name as string | null, department: e.department as string | null }));
+  return {
+    ...assemble(rows, period, { title: "Company", earliest, ranked: { kind: "team", rows: rankTeams(cur, await headcounts(supabase)) } }),
+    allStaff: rankAllStaff(cur, employees),
+  };
+}
+```
+
+Update the `shape` import line to include `rankAllStaff`.
+
+- [ ] **Step 7: Render the "All staff" section in `explore-view.tsx`**
+
+After the existing ranked `<section>` (the `{RANK_TITLE[data.ranked.kind]}` block), add:
+
+```tsx
+      {data.allStaff && (
+        <section className="rounded-xl border border-border bg-surface p-5">
+          <h2 className="mb-4 text-sm font-medium">All staff · {data.period.label}</h2>
+          <RankedList rows={data.allStaff} />
+        </section>
+      )}
+```
+
+- [ ] **Step 8: Tests + build + manual check**
+
+Run: `npm run test` → all pass. Run: `CI=true npm run build` → `✓ Compiled successfully`.
+Manual: at `/explore` (Company), an "All staff" section lists every employee with their period spend, sorted high→low, $0 for inactive staff, each row linking to that person's page; the list reflects the selected period.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add src/lib/explore/shape.ts src/lib/explore/shape.test.ts src/lib/explore/types.ts \
+  src/lib/queries/explore.ts src/components/explore/explore-view.tsx
+git commit -m "explore: company-level All-staff list with per-person period spend
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
