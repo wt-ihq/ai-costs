@@ -61,6 +61,13 @@ export function ExploreView({ data, initialDim }: { data: ExploreData; initialDi
         <h2 className="mb-4 text-sm font-medium">{RANK_TITLE[data.ranked.kind]}</h2>
         <RankedList rows={data.ranked.rows} />
       </section>
+
+      {data.allStaff && (
+        <section className="rounded-xl border border-border bg-surface p-5">
+          <h2 className="mb-4 text-sm font-medium">All staff · {data.period.label}</h2>
+          <RankedList rows={data.allStaff} />
+        </section>
+      )}
     </div>
   );
 }

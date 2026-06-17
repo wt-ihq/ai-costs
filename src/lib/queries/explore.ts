@@ -3,7 +3,7 @@ import { lastNMonths } from "@/lib/rollup";
 import { fetchFactsInRange, type EnrichedFact } from "./common";
 import {
   trendForPeriod, treemapByDim, scorecardFor,
-  rankTeams, rankPeople, lineItems, UNATTRIBUTED, type ShapeFact,
+  rankTeams, rankPeople, rankAllStaff, lineItems, UNATTRIBUTED, type ShapeFact,
 } from "@/lib/explore/shape";
 import type { Dim, ExploreData } from "@/lib/explore/types";
 import type { Period } from "@/lib/explore/period";
@@ -66,7 +66,12 @@ function assemble(
 export async function getCompanyExplore(supabase: SupabaseClient, period: Period): Promise<ExploreData> {
   const { rows, earliest } = await fetchScope(supabase, period);
   const cur = rows.filter(inPeriod(period));
-  return assemble(rows, cur, period, { title: "Company", earliest, ranked: { kind: "team", rows: rankTeams(cur, await headcounts(supabase)) } });
+  const { data: emps } = await supabase.from("employees").select("id, full_name, department");
+  const employees = (emps ?? []).map((e) => ({ id: e.id as string, fullName: e.full_name as string | null, department: e.department as string | null }));
+  return {
+    ...assemble(rows, cur, period, { title: "Company", earliest, ranked: { kind: "team", rows: rankTeams(cur, await headcounts(supabase)) } }),
+    allStaff: rankAllStaff(cur, employees),
+  };
 }
 
 export async function getTeamExplore(supabase: SupabaseClient, team: string, period: Period): Promise<ExploreData> {

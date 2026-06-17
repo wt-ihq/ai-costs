@@ -39,6 +39,7 @@ export interface ExploreData {
   trend: Record<Dim, TrendPoint[]>;
   treemap: Record<Dim, TreemapNode[]>;
   ranked: { kind: "team" | "person" | "lineitem"; rows: RankRow[] };
+  allStaff?: RankRow[];
 }
 
 export type { Vendor, CostType, Period, Granularity };

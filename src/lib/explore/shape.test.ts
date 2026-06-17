@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   treemapByDim,
-  scorecardFor, rankTeams, rankPeople, lineItems, trendForPeriod, type ShapeFact,
+  scorecardFor, rankTeams, rankPeople, rankAllStaff, lineItems, trendForPeriod, type ShapeFact,
 } from "./shape";
 import { parsePeriod } from "./period";
 import { VENDOR_LABEL } from "@/lib/types";
@@ -61,6 +61,23 @@ describe("lineItems", () => {
     const li = lineItems(june);
     expect(li[0]).toMatchObject({ total: 100 });
     expect(li[0].label).toContain(VENDOR_LABEL.anthropic);
+  });
+});
+
+describe("rankAllStaff", () => {
+  it("lists every employee with period spend, $0 included, sorted desc, linked", () => {
+    const r = rankAllStaff(june, [
+      { id: "a", fullName: "A", department: "Eng" },
+      { id: "z", fullName: "Z", department: "Sales" },
+    ]);
+    expect(r).toHaveLength(2);
+    expect(r[0]).toMatchObject({ id: "a", label: "A", total: 140, sub: "Eng" });
+    expect(r[1]).toMatchObject({ id: "z", total: 0, sub: "Sales" }); // roster-driven: $0 kept
+    expect(r[0].href).toBe("/explore/Eng/a");
+  });
+  it("routes employees with no department under Unattributed", () => {
+    const r = rankAllStaff([], [{ id: "n", fullName: "N", department: null }]);
+    expect(r[0].href).toBe("/explore/Unattributed/n");
   });
 });
 

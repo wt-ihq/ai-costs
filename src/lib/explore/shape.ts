@@ -126,6 +126,30 @@ export function rankPeople(
     .sort((a, b) => b.total - a.total);
 }
 
+/** Company-wide: every employee with their (period-scoped) spend, roster-driven. */
+export function rankAllStaff(
+  rows: ShapeFact[],
+  employees: { id: string; fullName: string | null; department: string | null }[],
+): RankRow[] {
+  const totals = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.employeeId) continue;
+    totals.set(r.employeeId, (totals.get(r.employeeId) ?? 0) + r.costUsd);
+  }
+  return employees
+    .map((e) => {
+      const dept = e.department ?? UNATTRIBUTED;
+      return {
+        id: e.id,
+        label: e.fullName ?? "(unknown)",
+        total: Math.round((totals.get(e.id) ?? 0) * 100) / 100,
+        sub: dept,
+        href: `/explore/${teamSlug(dept)}/${e.id}`,
+      };
+    })
+    .sort((a, b) => b.total - a.total);
+}
+
 /** Individual leaf line items: vendor · cost-type · model/entity. */
 export function lineItems(rows: ShapeFact[]): RankRow[] {
   const agg = new Map<string, number>();
