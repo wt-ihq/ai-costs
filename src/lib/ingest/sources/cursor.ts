@@ -58,15 +58,33 @@ export const fetchCursorUsageEvents: CursorEventsFetcher = async ({ startDate, e
   const usageEvents: CursorUsageEvent[] = [];
 
   for (let page = 1; ; page++) {
-    const res = await fetch("https://api.cursor.com/teams/filtered-usage-events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: basicAuth(key) },
-      body: JSON.stringify({ startDate: startMs, endDate: endMs, page, pageSize }),
-    });
-    if (!res.ok) throw new Error(`Cursor usage-events ${res.status}: ${await res.text()}`);
-    const json = (await res.json()) as CursorEventsResponse;
+    const json = await postEventsPage(key, { startDate: startMs, endDate: endMs, page, pageSize });
     usageEvents.push(...(json.usageEvents ?? []));
     if (!json.pagination?.hasNextPage) break;
   }
   return { usageEvents };
 };
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * POST one page, retrying on 429/5xx with exponential backoff. High-volume
+ * months are many pages; firing them back-to-back trips Cursor's rate limit,
+ * so we ride through transient 429s rather than failing the whole window.
+ */
+async function postEventsPage(key: string, body: Record<string, number>): Promise<CursorEventsResponse> {
+  const maxAttempts = 6;
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch("https://api.cursor.com/teams/filtered-usage-events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: basicAuth(key) },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) return (await res.json()) as CursorEventsResponse;
+    const retryable = res.status === 429 || res.status >= 500;
+    if (!retryable || attempt >= maxAttempts - 1) {
+      throw new Error(`Cursor usage-events ${res.status}: ${await res.text()}`);
+    }
+    await sleep(Math.min(1000 * 2 ** attempt, 16_000)); // 1s,2s,4s,8s,16s,16s
+  }
+}
