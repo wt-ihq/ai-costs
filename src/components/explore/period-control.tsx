@@ -31,7 +31,7 @@ export function PeriodControl({ period, earliest, onChange }: { period: Period; 
         ))}
       </div>
       {period.granularity === "all" ? (
-        <div className="rounded-md border border-border bg-surface-2 px-3 py-1.5 text-sm">All time</div>
+        <div className="rounded-md border border-border bg-surface-2 px-3 py-1 text-sm">All time</div>
       ) : (
         <div className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-2 px-1 py-0.5 text-sm">
           <button
