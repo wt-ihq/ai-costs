@@ -1,19 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { Dim, ExploreData } from "@/lib/explore/types";
+import type { Dim } from "@/lib/explore/types";
 import { parsePeriod, allTimePeriod, type Period } from "@/lib/explore/period";
 import { buildExploreData, type RawScope } from "@/lib/explore/build";
 import { cn } from "@/lib/utils";
 import { Scorecards } from "./scorecards";
 import { TrendChart } from "./trend-chart";
 import { CompositionBreakdown } from "./composition-breakdown";
-import { RankedList } from "./ranked-list";
+import { RankedPanel } from "./ranked-panel";
 import { PeriodControl } from "./period-control";
-
-const RANK_TITLE: Record<ExploreData["ranked"]["kind"], string> = {
-  team: "Teams", person: "People", lineitem: "Line items",
-};
 
 /** Mirror state into a query param without a navigation/refetch. */
 function syncParam(key: string, value: string) {
@@ -70,17 +66,7 @@ export function ExploreView({ scope, initialPeriodParam, initialDim }: { scope: 
         </section>
       </div>
 
-      <section className="rounded-xl border border-border bg-surface p-5">
-        <h2 className="mb-4 text-sm font-medium">{RANK_TITLE[data.ranked.kind]}</h2>
-        <RankedList rows={data.ranked.rows} />
-      </section>
-
-      {data.allStaff && (
-        <section className="rounded-xl border border-border bg-surface p-5">
-          <h2 className="mb-4 text-sm font-medium">All staff · {data.period.label}</h2>
-          <RankedList rows={data.allStaff} />
-        </section>
-      )}
+      <RankedPanel ranked={data.ranked} allStaff={data.allStaff} />
     </div>
   );
 }
