@@ -28,10 +28,14 @@ export function TrendChart({ data, dim, height = 280 }: { data: TrendPoint[]; di
   const color = (k: string) => (dim === "vendor" ? VENDOR_COLORS[k as Vendor] ?? "#6ea8fe" : COST_TYPE_COLORS[k as CostType] ?? "#6ea8fe");
   const label = (k: string) => (dim === "vendor" ? VENDOR_LABEL[k as Vendor] ?? k : COST_TYPE_LABEL[k as CostType] ?? k);
 
+  // Show every label when the bars are few (monthly/weekly views: ≤16); let
+  // Recharts thin them only for dense daily views (~30 bars) to avoid overlap.
+  const tickInterval = data.length <= 16 ? 0 : "preserveStartEnd";
+
   return (
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={data} margin={{ left: 8, right: 8, top: 8 }}>
-        <XAxis dataKey="label" tickLine={false} axisLine={false} {...AXIS} />
+        <XAxis dataKey="label" tickLine={false} axisLine={false} interval={tickInterval} {...AXIS} />
         <YAxis tickFormatter={(v) => `$${(Number(v) / 1000).toFixed(0)}k`} tickLine={false} axisLine={false} width={44} {...AXIS} />
         <Tooltip
           contentStyle={{ background: "#14171f", border: "1px solid #262b38", borderRadius: 8, fontSize: 12 }}
