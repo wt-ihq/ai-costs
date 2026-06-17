@@ -13,19 +13,20 @@ export interface EstimatedKeyCost {
 }
 
 /**
- * Price per-key token usage at Anthropic's public list rates, aggregated per
- * (day, key, model). We deliberately do NOT scale to the Cost Report API: for
- * this org that endpoint returns physically impossible totals (~1000x the
- * list-price ceiling for the actual token volume — verified June 2026), so it
- * can't be trusted. The token-priced estimate is bounded by real token counts
- * (which DO match Claude's usage dashboard exactly) × public prices, and is the
- * cost we record. Absolute level = list price (per the chargeback decision).
+ * Per-API-KEY cost: the Cost Report API gives the authoritative daily total but
+ * can't group by api_key_id, so we price Usage-report tokens per key as RELATIVE
+ * weights and scale each day's weights to the authoritative Cost API daily total
+ * — exact total, estimated allocation. `costByDay` is in DOLLARS (the caller
+ * converts the Cost API `amount`, which is in cents, via ÷100). If a day is
+ * absent from `costByDay`, that day falls back to the raw list-price estimate.
  */
-export function priceUsageByKey(
+export function estimateAndScale(
   buckets: UsageBucket[],
+  costByDay: Record<string, number>,
   price: (r: UsageResult) => number = priceUsageResult,
 ): EstimatedKeyCost[] {
   const agg = new Map<string, EstimatedKeyCost>();
+  const estByDay: Record<string, number> = {};
   for (const b of buckets) {
     const day = (b.starting_at ?? "").slice(0, 10);
     if (!day) continue;
@@ -38,7 +39,12 @@ export function priceUsageByKey(
       const cur = agg.get(k) ?? { day, apiKeyId, model, costUsd: 0 };
       cur.costUsd += est;
       agg.set(k, cur);
+      estByDay[day] = (estByDay[day] ?? 0) + est;
     }
   }
-  return [...agg.values()].map((v) => ({ ...v, costUsd: Math.round(v.costUsd * 100) / 100 }));
+  return [...agg.values()].map((v) => {
+    const dayCost = costByDay[v.day];
+    const scale = dayCost != null && estByDay[v.day] > 0 ? dayCost / estByDay[v.day] : 1;
+    return { ...v, costUsd: Math.round(v.costUsd * scale * 100) / 100 };
+  });
 }

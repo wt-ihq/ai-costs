@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { priceUsageResult } from "@/lib/ingest/pricing";
-import { priceUsageByKey, type UsageBucket } from "./anthropic-usage";
+import { estimateAndScale, type UsageBucket } from "./anthropic-usage";
 
 describe("priceUsageResult", () => {
   it("prices output tokens by model family", () => {
@@ -15,23 +15,28 @@ describe("priceUsageResult", () => {
   });
 });
 
-describe("priceUsageByKey", () => {
+describe("estimateAndScale", () => {
   const buckets: UsageBucket[] = [
     {
       starting_at: "2026-06-14T00:00:00Z",
       results: [
-        { api_key_id: "k1", model: "claude-opus-4-8", output_tokens: 1_000_000 }, // $75
-        { api_key_id: "k2", model: "claude-opus-4-8", output_tokens: 1_000_000 }, // $75
-        { api_key_id: null, model: "claude-sonnet-4-6", uncached_input_tokens: 1_000_000 }, // $3 (unkeyed)
+        { api_key_id: "k1", model: "claude-opus-4-8", output_tokens: 1_000_000 }, // raw $75
+        { api_key_id: "k2", model: "claude-opus-4-8", output_tokens: 1_000_000 }, // raw $75
+        { api_key_id: null, model: "claude-sonnet-4-6", uncached_input_tokens: 1_000_000 }, // raw $3 (unkeyed)
       ],
     },
   ];
 
-  it("prices per (day,key,model) at list rates, no Cost-API scaling", () => {
-    const rows = priceUsageByKey(buckets);
+  it("scales daily estimates to the authoritative Cost API total, split per key", () => {
+    const rows = estimateAndScale(buckets, { "2026-06-14": 306 }); // raw total 153 -> scale x2
     const total = rows.reduce((s, r) => s + r.costUsd, 0);
-    expect(total).toBeCloseTo(153, 1); // 75 + 75 + 3, exactly the list price
-    expect(rows.find((r) => r.apiKeyId === "k1")!.costUsd).toBeCloseTo(75, 1);
-    expect(rows.find((r) => r.apiKeyId === null)!.costUsd).toBeCloseTo(3, 1); // unkeyed bucket retained
+    expect(total).toBeCloseTo(306, 1); // reconciles to the exact Cost API day total
+    expect(rows.find((r) => r.apiKeyId === "k1")!.costUsd).toBeCloseTo(150, 1); // 75 * 2
+    expect(rows.find((r) => r.apiKeyId === null)!.costUsd).toBeCloseTo(6, 1); // unkeyed retained
+  });
+
+  it("falls back to raw list price when a day has no Cost API total", () => {
+    const rows = estimateAndScale(buckets, {}); // no costByDay -> scale 1
+    expect(rows.reduce((s, r) => s + r.costUsd, 0)).toBeCloseTo(153, 1);
   });
 });
