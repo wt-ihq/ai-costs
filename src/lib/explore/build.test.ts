@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildExploreData, type RawScope } from "./build";
-import { parsePeriod } from "./period";
+import { parsePeriod, allTimePeriod } from "./period";
 import type { ShapeFact } from "./shape";
 
 const NOW = new Date("2026-06-17T12:00:00Z");
@@ -29,6 +29,14 @@ describe("buildExploreData", () => {
     const data = buildExploreData(companyScope, parsePeriod("2026-05", NOW));
     expect(data.scorecard.total).toBe(40); // only the May seat fact
     expect(data.period.label).toBe("May 2026");
+  });
+
+  it("all-time view sums every fact and equals total-to-date", () => {
+    const data = buildExploreData(companyScope, allTimePeriod("2026-05", NOW));
+    expect(data.scorecard.total).toBe(180); // all three facts (May + June)
+    expect(data.scorecard.total).toBe(data.totalToDate);
+    expect(data.period.label).toBe("All time");
+    expect(data.trend.vendor.length).toBeGreaterThan(0); // monthly buckets across the span
   });
 
   it("includes the company All-staff roster ($0 staff kept)", () => {

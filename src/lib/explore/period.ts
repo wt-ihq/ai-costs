@@ -1,11 +1,11 @@
-export type Granularity = "month" | "quarter" | "year";
+export type Granularity = "month" | "quarter" | "year" | "all";
 
 export interface Period {
   granularity: Granularity;
-  anchor: string;       // "2026-06" | "2026-Q2" | "2026"
+  anchor: string;       // "2026-06" | "2026-Q2" | "2026" | "all"
   from: string;         // "YYYY-MM-DD" inclusive
   toExclusive: string;  // "YYYY-MM-DD" exclusive
-  label: string;        // "June 2026" | "Q2 2026" | "2026"
+  label: string;        // "June 2026" | "Q2 2026" | "2026" | "All time"
   isCurrent: boolean;
 }
 
@@ -78,6 +78,22 @@ export function currentPeriod(g: Granularity, now: Date): Period {
   return resolveYear(y, now);
 }
 
+/**
+ * All-time period: spans the full data range. `from` comes from `earliest`
+ * (the first month with data) so the trend doesn't enumerate empty months; no
+ * stepping (from === earliest → canStepBack false; isCurrent → canStepForward false).
+ */
+export function allTimePeriod(earliest: string, now: Date): Period {
+  return {
+    granularity: "all",
+    anchor: "all",
+    from: `${earliest}-01`,
+    toExclusive: iso(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
+    label: "All time",
+    isCurrent: true,
+  };
+}
+
 export function stepPeriod(p: Period, dir: -1 | 1, now: Date): Period {
   const y = Number(p.from.slice(0, 4));
   const m = Number(p.from.slice(5, 7)) - 1; // 0-indexed start month
@@ -108,6 +124,14 @@ export function enumerateBuckets(p: Period): Bucket[] {
       const next = Math.min(t + 7 * DAY_MS, endMs);
       const d = new Date(t);
       out.push({ key: from, label: `${SHORT[d.getUTCMonth()]} ${d.getUTCDate()}`, from, toExclusive: new Date(next).toISOString().slice(0, 10) });
+    }
+  } else if (p.granularity === "all") {
+    // monthly buckets across the whole data span; year-aware labels ("May 25")
+    let y = Number(p.from.slice(0, 4));
+    let mo = Number(p.from.slice(5, 7)) - 1;
+    for (let from = iso(y, mo, 1); from < p.toExclusive; from = iso(y, mo, 1)) {
+      out.push({ key: `${y}-${pad2(mo + 1)}`, label: `${SHORT[mo]} ${String(y).slice(2)}`, from, toExclusive: iso(y, mo + 1, 1) });
+      if (++mo > 11) { mo = 0; y++; }
     }
   } else {
     const y = Number(p.from.slice(0, 4));

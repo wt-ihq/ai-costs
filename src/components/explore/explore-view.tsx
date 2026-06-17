@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { Dim, ExploreData } from "@/lib/explore/types";
-import { parsePeriod, type Period } from "@/lib/explore/period";
+import { parsePeriod, allTimePeriod, type Period } from "@/lib/explore/period";
 import { buildExploreData, type RawScope } from "@/lib/explore/build";
 import { cn } from "@/lib/utils";
 import { Scorecards } from "./scorecards";
@@ -39,7 +39,9 @@ function Toggle({ dim, onChange }: { dim: Dim; onChange: (d: Dim) => void }) {
 }
 
 export function ExploreView({ scope, initialPeriodParam, initialDim }: { scope: RawScope; initialPeriodParam?: string; initialDim: Dim }) {
-  const [period, setPeriod] = useState<Period>(() => parsePeriod(initialPeriodParam, new Date()));
+  const [period, setPeriod] = useState<Period>(() =>
+    initialPeriodParam === "all" ? allTimePeriod(scope.earliest, new Date()) : parsePeriod(initialPeriodParam, new Date()),
+  );
   const [dim, setDim] = useState<Dim>(initialDim);
 
   // Pure, in-memory re-slice on every period change — no network round-trip.
