@@ -48,7 +48,7 @@ export function trendForPeriod(rows: ShapeFact[], period: Period, dim: Dim): Tre
 
 function bucketKey(day: string, period: Period, buckets: Bucket[]): string {
   if (period.granularity === "month") return day;          // bucket key === the day
-  if (period.granularity === "year") return day.slice(0, 7); // "YYYY-MM"
+  if (period.granularity === "year" || period.granularity === "all") return day.slice(0, 7); // "YYYY-MM"
   const DAY_MS = 86_400_000;
   const idx = Math.floor((Date.parse(`${day}T00:00:00Z`) - Date.parse(`${period.from}T00:00:00Z`)) / (7 * DAY_MS));
   return buckets[Math.min(idx, buckets.length - 1)].key; // clamp into the clipped final week

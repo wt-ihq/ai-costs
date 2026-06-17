@@ -1,10 +1,25 @@
 import { describe, expect, it } from "vitest";
 import {
-  parsePeriod, currentPeriod, stepPeriod, enumerateBuckets,
+  parsePeriod, currentPeriod, allTimePeriod, stepPeriod, enumerateBuckets,
   canStepForward, canStepBack,
 } from "./period";
 
 const NOW = new Date("2026-06-17T12:00:00Z"); // June 2026, Q2
+
+describe("allTimePeriod", () => {
+  it("spans from the earliest data month to the end of the current month, no stepping", () => {
+    const p = allTimePeriod("2025-05", NOW);
+    expect(p).toMatchObject({ granularity: "all", anchor: "all", from: "2025-05-01", toExclusive: "2026-07-01", label: "All time", isCurrent: true });
+    expect(canStepForward(p)).toBe(false);
+    expect(canStepBack(p, "2025-05")).toBe(false);
+  });
+  it("enumerates monthly buckets across the full span with year-aware labels", () => {
+    const b = enumerateBuckets(allTimePeriod("2025-05", NOW)); // May 2025 .. Jun 2026 = 14 months
+    expect(b).toHaveLength(14);
+    expect(b[0]).toMatchObject({ key: "2025-05", label: "May 25" });
+    expect(b[13]).toMatchObject({ key: "2026-06", label: "Jun 26" });
+  });
+});
 
 describe("parsePeriod", () => {
   it("parses a month and marks the current month to-date", () => {
