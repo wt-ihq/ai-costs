@@ -47,10 +47,10 @@ function bothDims<T>(fn: (dim: Dim) => T): Record<Dim, T> {
 
 function assemble(
   rows: ShapeFact[],
+  cur: ShapeFact[],
   period: Period,
   base: { title: string; earliest: string; ranked: ExploreData["ranked"] },
 ): ExploreData {
-  const cur = rows.filter(inPeriod(period));
   return {
     title: base.title,
     period,
@@ -66,7 +66,7 @@ function assemble(
 export async function getCompanyExplore(supabase: SupabaseClient, period: Period): Promise<ExploreData> {
   const { rows, earliest } = await fetchScope(supabase, period);
   const cur = rows.filter(inPeriod(period));
-  return assemble(rows, period, { title: "Company", earliest, ranked: { kind: "team", rows: rankTeams(cur, await headcounts(supabase)) } });
+  return assemble(rows, cur, period, { title: "Company", earliest, ranked: { kind: "team", rows: rankTeams(cur, await headcounts(supabase)) } });
 }
 
 export async function getTeamExplore(supabase: SupabaseClient, team: string, period: Period): Promise<ExploreData> {
@@ -75,7 +75,7 @@ export async function getTeamExplore(supabase: SupabaseClient, team: string, per
   const cur = rows.filter(inPeriod(period));
   const { data: emps } = await supabase.from("employees").select("id, full_name, department").eq("department", team);
   const employees = (emps ?? []).map((e) => ({ id: e.id as string, fullName: e.full_name as string | null }));
-  return assemble(rows, period, { title: team, earliest, ranked: { kind: "person", rows: rankPeople(cur, team, employees) } });
+  return assemble(rows, cur, period, { title: team, earliest, ranked: { kind: "person", rows: rankPeople(cur, team, employees) } });
 }
 
 export async function getPersonExplore(supabase: SupabaseClient, _team: string, employeeId: string, period: Period): Promise<ExploreData> {
@@ -83,5 +83,5 @@ export async function getPersonExplore(supabase: SupabaseClient, _team: string, 
   const rows = all.filter((r) => r.employeeId === employeeId);
   const cur = rows.filter(inPeriod(period));
   const { data: emp } = await supabase.from("employees").select("full_name").eq("id", employeeId).single();
-  return assemble(rows, period, { title: (emp?.full_name as string) ?? "Unknown", earliest, ranked: { kind: "lineitem", rows: lineItems(cur) } });
+  return assemble(rows, cur, period, { title: (emp?.full_name as string) ?? "Unknown", earliest, ranked: { kind: "lineitem", rows: lineItems(cur) } });
 }
