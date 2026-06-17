@@ -21,7 +21,10 @@ export async function GET(req: Request) {
   const from = url.searchParams.get("from");
   const to = url.searchParams.get("to");
   const window = from && to ? { startDate: from, endDate: to } : monthToDate(new Date());
+  // Optional ?source=cursor (comma-separated) to backfill a single source
+  // without disturbing the others.
+  const only = url.searchParams.get("source")?.split(",").map((s) => s.trim()).filter(Boolean);
 
-  const results = await runAllSyncs(getSupabaseAdminClient(), window);
+  const results = await runAllSyncs(getSupabaseAdminClient(), window, only);
   return NextResponse.json({ ranAt: new Date().toISOString(), window, results });
 }

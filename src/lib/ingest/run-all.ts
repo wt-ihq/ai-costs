@@ -14,9 +14,12 @@ export type SyncOutcome = { ok: true; rowsWritten: number } | { ok: false; error
 export async function runAllSyncs(
   supabase: SupabaseClient,
   window: DateWindow,
+  only?: string[],
 ): Promise<Record<string, SyncOutcome>> {
   const results: Record<string, SyncOutcome> = {};
+  const wants = only && only.length ? new Set(only) : null;
   const run = async (name: string, fn: () => Promise<{ rowsWritten: number }>) => {
+    if (wants && !wants.has(name)) return;
     try {
       results[name] = { ok: true, rowsWritten: (await fn()).rowsWritten };
     } catch (err) {
