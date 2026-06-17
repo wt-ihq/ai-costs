@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  trendByDim, dailyByDim, treemapByDim, seriesKeys,
+  treemapByDim,
   scorecardFor, rankTeams, rankPeople, lineItems, trendForPeriod, type ShapeFact,
 } from "./shape";
 import { parsePeriod } from "./period";
@@ -12,26 +12,6 @@ const rows: ShapeFact[] = [
   { day: "2026-06-09", source: "anthropic", costType: "metered", costUsd: 100, employeeId: "a", department: "Eng", fullName: "A", entityKey: "k1", model: "opus" },
 ];
 const june = rows.filter((r) => r.day.startsWith("2026-06"));
-
-describe("trendByDim", () => {
-  it("stacks monthly spend by vendor across the given months", () => {
-    const t = trendByDim(rows, ["2026-05", "2026-06"], "vendor");
-    expect(t[0]).toMatchObject({ label: "2026-05", cursor: 40 });
-    expect(t[1]).toMatchObject({ label: "2026-06", cursor: 40, anthropic: 100 });
-  });
-  it("stacks by cost type", () => {
-    const t = trendByDim(rows, ["2026-06"], "cost_type");
-    expect(t[0]).toMatchObject({ label: "2026-06", seat: 40, metered: 100 });
-  });
-});
-
-describe("dailyByDim", () => {
-  it("buckets a single month by day", () => {
-    const d = dailyByDim(rows, "2026-06", "vendor");
-    expect(d.find((p) => p.label === "2026-06-09")).toMatchObject({ anthropic: 100 });
-    expect(d.find((p) => p.label === "2026-06-01")).toMatchObject({ cursor: 40 });
-  });
-});
 
 describe("treemapByDim", () => {
   it("sizes nodes by spend, sorted desc, colored", () => {
@@ -50,16 +30,10 @@ describe("treemapByDim", () => {
   });
 });
 
-describe("seriesKeys", () => {
-  it("returns dim values present, ordered by total desc", () => {
-    expect(seriesKeys(june, "vendor")).toEqual(["anthropic", "cursor"]);
-  });
-});
-
 describe("scorecardFor", () => {
-  it("totals current vs previous month with cost-type split", () => {
-    const sc = scorecardFor(rows, "2026-06", "2026-05");
-    expect(sc).toMatchObject({ total: 140, prevTotal: 40, seat: 40, metered: 100, overage: 0 });
+  it("totals the given (period-scoped) rows with a cost-type split", () => {
+    const sc = scorecardFor(june); // 2026-06 rows: cursor seat 40 + anthropic metered 100
+    expect(sc).toMatchObject({ total: 140, seat: 40, metered: 100, overage: 0 });
   });
 });
 
