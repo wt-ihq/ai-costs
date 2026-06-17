@@ -2,6 +2,7 @@ import type { Vendor, CostType } from "@/lib/types";
 import { VENDOR_COLORS, COST_TYPE_COLORS } from "@/lib/colors";
 import { VENDOR_LABEL, COST_TYPE_LABEL } from "@/lib/types";
 import type { Dim, TrendPoint, TreemapNode, RankRow, Scorecard } from "./types";
+import { enumerateBuckets, type Period, type Bucket } from "./period";
 
 export interface ShapeFact {
   day: string;
@@ -43,6 +44,28 @@ export function trendByDim(rows: ShapeFact[], months: string[], dim: Dim): Trend
     pt[k] = ((pt[k] as number) ?? 0) + r.costUsd;
   }
   return months.map((m) => base.get(m)!);
+}
+
+/** Period-scoped trend, adaptively bucketed (month→day, quarter→week, year→month). */
+export function trendForPeriod(rows: ShapeFact[], period: Period, dim: Dim): TrendPoint[] {
+  const buckets = enumerateBuckets(period);
+  const points = new Map<string, TrendPoint>(buckets.map((b) => [b.key, { label: b.label }]));
+  for (const r of rows) {
+    if (r.day < period.from || r.day >= period.toExclusive) continue;
+    const pt = points.get(bucketKey(r.day, period, buckets));
+    if (!pt) continue;
+    const k = dimKey(r, dim);
+    pt[k] = ((pt[k] as number) ?? 0) + r.costUsd;
+  }
+  return buckets.map((b) => points.get(b.key)!);
+}
+
+function bucketKey(day: string, period: Period, buckets: Bucket[]): string {
+  if (period.granularity === "month") return day;          // bucket key === the day
+  if (period.granularity === "year") return day.slice(0, 7); // "YYYY-MM"
+  const DAY_MS = 86_400_000;
+  const idx = Math.floor((Date.parse(`${day}T00:00:00Z`) - Date.parse(`${period.from}T00:00:00Z`)) / (7 * DAY_MS));
+  return buckets[Math.min(idx, buckets.length - 1)].key; // clamp into the clipped final week
 }
 
 /** Single-month daily trend, stacked by dim. */

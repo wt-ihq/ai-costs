@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   trendByDim, dailyByDim, treemapByDim, seriesKeys,
-  scorecardFor, rankTeams, rankPeople, lineItems, type ShapeFact,
+  scorecardFor, rankTeams, rankPeople, lineItems, trendForPeriod, type ShapeFact,
 } from "./shape";
+import { parsePeriod } from "./period";
 import { VENDOR_LABEL } from "@/lib/types";
 
 const rows: ShapeFact[] = [
@@ -86,5 +87,28 @@ describe("lineItems", () => {
     const li = lineItems(june);
     expect(li[0]).toMatchObject({ total: 100 });
     expect(li[0].label).toContain(VENDOR_LABEL.anthropic);
+  });
+});
+
+const NOW2 = new Date("2026-06-17T12:00:00Z");
+
+describe("trendForPeriod", () => {
+  it("month granularity buckets by day and zero-fills the month", () => {
+    const t = trendForPeriod(rows, parsePeriod("2026-06", NOW2), "vendor");
+    expect(t).toHaveLength(30);
+    expect(t.find((p) => p.label === "1")).toMatchObject({ cursor: 40 });
+    expect(t.find((p) => p.label === "9")).toMatchObject({ anthropic: 100 });
+    expect(t.find((p) => p.label === "2")).toEqual({ label: "2" }); // zero-filled, no series
+  });
+  it("year granularity buckets by month", () => {
+    const t = trendForPeriod(rows, parsePeriod("2026", NOW2), "vendor");
+    expect(t).toHaveLength(12);
+    expect(t.find((p) => p.label === "May")).toMatchObject({ cursor: 40 });
+    expect(t.find((p) => p.label === "Jun")).toMatchObject({ cursor: 40, anthropic: 100 });
+  });
+  it("excludes rows outside the period range", () => {
+    const t = trendForPeriod(rows, parsePeriod("2026-05", NOW2), "vendor"); // only the 2026-05-03 row
+    const total = t.reduce((s, p) => s + ((p.cursor as number) ?? 0) + ((p.anthropic as number) ?? 0), 0);
+    expect(total).toBe(40);
   });
 });
