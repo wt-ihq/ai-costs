@@ -1,8 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeOpenAI } from "@/lib/ingest/normalizers/openai";
-import { estimateAndScale, type UsageBucket } from "@/lib/ingest/normalizers/anthropic-usage";
+import { priceUsageByKey, type UsageBucket } from "@/lib/ingest/normalizers/anthropic-usage";
 import {
-  fetchAnthropicCost,
   fetchAnthropicUsage,
   fetchAnthropicApiKeys,
   fetchAnthropicUsers,
@@ -27,9 +26,10 @@ export interface PlatformSyncResult {
 
 /**
  * Anthropic → per-API-KEY metered facts attributed to the key's creator.
- * The Cost API can't group by key, so we price Usage-report tokens per key and
- * SCALE each day to the authoritative Cost API total (exact total, estimated
- * allocation). Keys resolve to creators (created_by user → email → employee).
+ * Cost = Usage-report tokens priced at Anthropic's public LIST rates. We do NOT
+ * use the Cost Report API: for this org it returns physically impossible totals
+ * (~1000x — verified June 2026), whereas the Usage token counts match Claude's
+ * dashboard exactly. Keys resolve to creators (created_by user → email → employee).
  */
 export async function syncAnthropic(
   supabase: SupabaseClient,
@@ -37,18 +37,10 @@ export async function syncAnthropic(
 ): Promise<PlatformSyncResult> {
   const runId = await startSyncRun(supabase, "anthropic");
   try {
-    // 1. Authoritative daily cost totals (org-level, paginated).
-    const cost = await fetchAnthropicCost(window);
-    await saveRawPayload(supabase, "anthropic", runId, cost);
-    const costByDay: Record<string, number> = {};
-    for (const b of cost.data) {
-      const day = (b.starting_at ?? "").slice(0, 10);
-      costByDay[day] = (costByDay[day] ?? 0) + b.results.reduce((s, r) => s + Number(r.amount), 0);
-    }
-
-    // 2. Per-key token usage, priced and scaled to the cost total.
+    // Per-key token usage, priced at list rates (no Cost-API scaling).
     const usage = await fetchAnthropicUsage(window);
-    const estimates = estimateAndScale(usage.data as UsageBucket[], costByDay);
+    await saveRawPayload(supabase, "anthropic", runId, usage);
+    const estimates = priceUsageByKey(usage.data as UsageBucket[]);
 
     // 3. Resolve key → creator email → employee.
     const keysRaw = (await fetchAnthropicApiKeys()) as { data?: Array<{ id?: string; name?: string; created_by?: { id?: string } }> };
