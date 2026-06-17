@@ -7,6 +7,7 @@ import { Scorecards } from "./scorecards";
 import { TrendChart } from "./trend-chart";
 import { CompositionBreakdown } from "./composition-breakdown";
 import { RankedList } from "./ranked-list";
+import { PeriodControl } from "./period-control";
 
 const RANK_TITLE: Record<ExploreData["ranked"]["kind"], string> = {
   team: "Teams", person: "People", lineitem: "Line items",
@@ -37,7 +38,8 @@ export function ExploreView({ data, initialDim }: { data: ExploreData; initialDi
   const [dim, setDim] = useState<Dim>(initialDim);
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-between gap-4">
+        <PeriodControl period={data.period} earliest={data.earliest} />
         <Toggle dim={dim} onChange={setDim} />
       </div>
 
