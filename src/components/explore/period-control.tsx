@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { currentPeriod, stepPeriod, canStepBack, canStepForward, type Period, type Granularity } from "@/lib/explore/period";
 import { cn } from "@/lib/utils";
 
@@ -10,19 +9,9 @@ const GRANS: { g: Granularity; label: string }[] = [
   { g: "year", label: "Year" },
 ];
 
-/** Granularity segmented control + period stepper; navigates with ?period=. */
-export function PeriodControl({ period, earliest }: { period: Period; earliest: string }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const params = useSearchParams();
+/** Granularity segmented control + period stepper. Updates client state instantly (no navigation). */
+export function PeriodControl({ period, earliest, onChange }: { period: Period; earliest: string; onChange: (p: Period) => void }) {
   const now = new Date();
-
-  const go = (anchor: string) => {
-    const p = new URLSearchParams(params.toString());
-    p.set("period", anchor);
-    router.push(`${pathname}?${p.toString()}`);
-  };
-
   const back = canStepBack(period, earliest);
   const fwd = canStepForward(period);
 
@@ -32,7 +21,8 @@ export function PeriodControl({ period, earliest }: { period: Period; earliest: 
         {GRANS.map(({ g, label }) => (
           <button
             key={g}
-            onClick={() => go(currentPeriod(g, now).anchor)}
+            type="button"
+            onClick={() => onChange(currentPeriod(g, now))}
             className={cn("rounded px-2.5 py-1 transition-colors", period.granularity === g ? "bg-accent/20 text-accent" : "text-muted hover:text-foreground")}
           >
             {label}
@@ -41,9 +31,10 @@ export function PeriodControl({ period, earliest }: { period: Period; earliest: 
       </div>
       <div className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-2 px-1 py-0.5 text-sm">
         <button
+          type="button"
           disabled={!back}
           aria-label="Previous period"
-          onClick={() => go(stepPeriod(period, -1, now).anchor)}
+          onClick={() => onChange(stepPeriod(period, -1, now))}
           className={cn("rounded px-1.5 py-0.5 transition-colors", back ? "hover:text-accent" : "cursor-not-allowed text-muted/40")}
         >
           ‹
@@ -53,9 +44,10 @@ export function PeriodControl({ period, earliest }: { period: Period; earliest: 
           {period.isCurrent && <span className="ml-1 text-xs text-muted">· to date</span>}
         </span>
         <button
+          type="button"
           disabled={!fwd}
           aria-label="Next period"
-          onClick={() => go(stepPeriod(period, 1, now).anchor)}
+          onClick={() => onChange(stepPeriod(period, 1, now))}
           className={cn("rounded px-1.5 py-0.5 transition-colors", fwd ? "hover:text-accent" : "cursor-not-allowed text-muted/40")}
         >
           ›
