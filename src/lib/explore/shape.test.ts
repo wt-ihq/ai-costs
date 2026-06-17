@@ -106,6 +106,15 @@ describe("trendForPeriod", () => {
     expect(t.find((p) => p.label === "May")).toMatchObject({ cursor: 40 });
     expect(t.find((p) => p.label === "Jun")).toMatchObject({ cursor: 40, anthropic: 100 });
   });
+  it("quarter granularity buckets by 7-day window", () => {
+    const t = trendForPeriod(rows, parsePeriod("2026-Q2", NOW2), "vendor");
+    expect(t).toHaveLength(13); // Q2 2026: Apr 1 to Jun 30 = 91 days = 13 weekly buckets
+    const totalCursor = t.reduce((s, p) => s + ((p.cursor as number) ?? 0), 0);
+    const totalAnthropic = t.reduce((s, p) => s + ((p.anthropic as number) ?? 0), 0);
+    expect(totalCursor).toBe(80); // both May 3 and Jun 1 rows
+    expect(totalAnthropic).toBe(100); // Jun 9 row
+    expect(t.filter((p) => p.anthropic).length).toBe(1); // exactly one bucket has anthropic
+  });
   it("excludes rows outside the period range", () => {
     const t = trendForPeriod(rows, parsePeriod("2026-05", NOW2), "vendor"); // only the 2026-05-03 row
     const total = t.reduce((s, p) => s + ((p.cursor as number) ?? 0) + ((p.anthropic as number) ?? 0), 0);
