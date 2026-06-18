@@ -61,26 +61,31 @@ The roster import card shows the same single `GBP→USD` rate field as MTD spend
 ## Component B — Invoice backfill (authoritative history)
 
 ### Schema
-New table:
+New table — each row **freezes** the resolved cost at commit time, so committed invoices are immutable historical records:
 ```sql
 create table seat_invoices (
-  vendor      vendor not null,
-  month       text not null,            -- 'YYYY-MM'
-  seat_type   text not null,
-  quantity    integer not null,
+  vendor             vendor not null,
+  month              text not null,            -- 'YYYY-MM'
+  seat_type          text not null,
+  quantity           integer not null,
+  unit_price_native  numeric(10,2) not null,   -- tier price at commit (audit)
+  currency           text not null,            -- 'GBP' | 'USD' (audit)
+  fx_rate            numeric(12,6) not null,    -- rate applied at commit (1 for USD)
+  line_usd           numeric(12,2) not null,    -- FROZEN resolved USD = quantity × unit_price_native × fx_rate
   primary key (vendor, month, seat_type)
 );
 ```
-Editable/re-priceable: facts are *generated* from it, never the other way.
+The generated `seat` fact uses the **stored `line_usd`** — never a live recomputation. A later change to `seat_prices` or `fx_rates` **does not** alter committed invoices (they keep their frozen `line_usd`/`fx_rate`). The only way to change a committed invoice is to **re-enter it deliberately** (a correction), which re-freezes at the rate then in effect.
 
 ### Flow (Imports page → new "Invoice backfill" card)
-- Select **vendor** (Claude Team / ChatGPT Business) + **month** (`YYYY-MM`), enter **per-tier quantities** (Claude: Standard / Premium / Unassigned; ChatGPT: seats).
-- **Preview** (`previewInvoice`): for each tier, `lineUsd = quantity × seatPriceUsd(vendor, tier)`; show per-tier line + month total.
+- Select **vendor** (Claude Team / ChatGPT Business) + **month** (`YYYY-MM`), enter **per-tier quantities** (Claude: Standard / Premium / Unassigned; ChatGPT: seats). For GBP vendors (Claude) an **FX rate field** (default = current `fx_rates.GBP`) lets you set the rate that applied for that historical month; ChatGPT (USD) shows no FX field.
+- **Preview** (`previewInvoice`): for each tier, `lineUsd = quantity × nativePrice × (currency==='GBP' ? enteredFx : 1)`; show per-tier line + month total. (`nativePrice` from `seat_prices`.)
 - **Commit** (`commitInvoice`):
-  1. Upsert the `seat_invoices` rows for (vendor, month).
+  1. Upsert the `seat_invoices` rows for (vendor, month), storing `quantity, unit_price_native, currency, fx_rate, line_usd` — **freezing** the resolved cost.
   2. **Snapshot-replace** that vendor's seat facts for the month: `delete spend_facts where source=vendor and cost_type='seat' and day=month-01` (clears any prior invoice *and* any roster/carry-forward per-person facts → invoice owns the month), then insert **one aggregate fact per tier** with `quantity > 0`:
-     - `{ source: vendor, day: month-01, cost_type: 'seat', entity_key: seat_type, cost_usd: lineUsd, employee_id: null, model: '' }`
+     - `{ source: vendor, day: month-01, cost_type: 'seat', entity_key: seat_type, cost_usd: line_usd, employee_id: null, model: '' }`
   3. Record an `imports` row (`kind: 'invoice'`).
+- **Re-commit safety:** committed invoices are frozen — global FX/price changes never re-price them; only an explicit re-entry (with possibly a new rate/quantity) changes a month's invoice.
 
 ### Attribution / views
 Aggregate facts have `employee_id = null` → correct in company scorecards/trend/treemap (by vendor + tier), and shown as **Unattributed** in team/people/All-staff views. Re-pricing after an FX change = re-commit (quantities persist in `seat_invoices`).
@@ -121,12 +126,12 @@ Each writer `delete`s all of that vendor's `cost_type='seat'` facts for the mont
 - Empty/zero quantities → no fact for that tier (tier omitted, not $0 noise); a month with all-zero is a no-op delete.
 - Unknown tier (not in `seat_prices`) → `seatPriceUsd` returns 0; preview flags it so the user notices a missing price.
 - No roster yet → carry-forward is a no-op (no fabricated seats).
-- FX/price change → re-commit invoice (quantities stored) or let carry-forward re-price the current month next cron run; past invoiced months re-price only on re-commit (documented; the stored fact is USD at commit-time rate).
+- FX/price change → affects only the **current month** (carry-forward re-prices it on the next cron run) and any *future* commits. **Committed invoices are immutable** — they keep their frozen `line_usd`; a global rate change never rewrites settled history. To correct a past invoice you re-enter it deliberately.
 
 ## Testing (pure units, vitest)
 
 - `seatPriceUsd`: USD passes through; GBP × fx; unknown tier → 0; rounding.
-- Invoice fact generation: counts × price → per-tier aggregate facts; zero-qty omitted; ChatGPT (USD, no FX) vs Claude (GBP × fx).
+- Invoice fact generation: counts × price → per-tier aggregate facts using the **frozen** `line_usd`; zero-qty omitted; ChatGPT (USD, no FX) vs Claude (GBP × fx); a later fx/price change leaves a committed invoice's `line_usd` unchanged.
 - Carry-forward selection: picks max-`period_start` snapshot; skips when a `seat_invoices` row exists; no-op with no roster.
 - Existing roster/seat tests updated for the `monthly_price`→native rename and `seatPriceUsd`.
 
