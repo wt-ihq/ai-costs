@@ -11,6 +11,36 @@ import type { SeatParseResult, SeatRow } from "./types";
  * Tiers seen in real data: Premium, Standard, Unassigned. "Unassigned" = a
  * member with no paid tier (a seat-hygiene signal), priced at 0.
  */
+/**
+ * Split one CSV line, honouring double-quoted fields: strips surrounding quotes,
+ * keeps commas inside quotes, and unescapes "" → ". The real Claude export quotes
+ * every field (`"Name","Email",...`), so a naive split(",") leaves quote chars on
+ * the header and the column lookup fails.
+ */
+function splitCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; } // escaped quote
+        else inQuotes = false;
+      } else cur += ch;
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ",") {
+      out.push(cur);
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  out.push(cur);
+  return out.map((c) => c.trim());
+}
+
 export function parseClaudeRoster(csv: string): SeatParseResult {
   const seats: SeatRow[] = [];
   const errors: SeatParseResult["errors"] = [];
@@ -20,7 +50,7 @@ export function parseClaudeRoster(csv: string): SeatParseResult {
     return { seats, errors: [{ line: 0, message: "empty or header-only CSV" }] };
   }
 
-  const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
+  const header = splitCsvLine(lines[0]).map((h) => h.toLowerCase());
   const idx = (name: string) => header.indexOf(name);
   const cEmail = idx("email");
   const cName = idx("name");
@@ -37,7 +67,7 @@ export function parseClaudeRoster(csv: string): SeatParseResult {
 
   lines.slice(1).forEach((line, i) => {
     const lineNo = i + 2;
-    const cells = line.split(",").map((c) => c.trim());
+    const cells = splitCsvLine(line);
     const email = cells[cEmail]?.toLowerCase();
     if (!email || !email.includes("@")) {
       errors.push({ line: lineNo, message: `invalid email: "${cells[cEmail]}"` });
