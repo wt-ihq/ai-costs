@@ -48,6 +48,45 @@ export async function getTeamScope(supabase: SupabaseClient, team: string): Prom
   return { kind: "team", title: team, earliest, facts, team, employees };
 }
 
+export interface SearchItem {
+  kind: "team" | "person";
+  label: string;
+  sub?: string;
+  href: string;
+}
+
+/**
+ * Flat index of every team (department) and person, for the autocomplete search.
+ * Hrefs mirror the drill-down routes the ranked lists build in `shape.ts`.
+ */
+export async function getSearchIndex(supabase: SupabaseClient): Promise<SearchItem[]> {
+  const { data: emps } = await supabase.from("employees").select("id, full_name, department");
+  const employees = (emps ?? []).map((e) => ({
+    id: e.id as string,
+    fullName: (e.full_name as string | null) ?? "Unknown",
+    department: (e.department as string | null) ?? UNATTRIBUTED,
+  }));
+
+  const teams = [...new Set(employees.map((e) => e.department))].sort((a, b) => a.localeCompare(b));
+  const teamItems: SearchItem[] = teams.map((dept) => ({
+    kind: "team",
+    label: dept,
+    sub: "Team",
+    href: `/explore/${encodeURIComponent(dept)}`,
+  }));
+
+  const peopleItems: SearchItem[] = [...employees]
+    .sort((a, b) => a.fullName.localeCompare(b.fullName))
+    .map((e) => ({
+      kind: "person",
+      label: e.fullName,
+      sub: e.department,
+      href: `/explore/${encodeURIComponent(e.department)}/${e.id}`,
+    }));
+
+  return [...teamItems, ...peopleItems];
+}
+
 export async function getPersonScope(supabase: SupabaseClient, employeeId: string): Promise<RawScope> {
   const { rows: all, earliest } = await fetchScope(supabase);
   const facts = all.filter((r) => r.employeeId === employeeId);

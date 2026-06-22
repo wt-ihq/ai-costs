@@ -1,5 +1,8 @@
 import { redirect } from "next/navigation";
 import { Nav } from "@/components/nav";
+import { SearchBox } from "@/components/explore/search-box";
+import { getSearchIndex } from "@/lib/queries/explore";
+import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { auth } from "@/auth";
 
 /**
@@ -21,6 +24,7 @@ export default async function DashboardLayout({
 }) {
   const role = await requireRole();
   const isAdmin = role === "admin";
+  const searchIndex = await getSearchIndex(getSupabaseAdminClient());
 
   return (
     <div className="flex min-h-screen">
@@ -35,7 +39,8 @@ export default async function DashboardLayout({
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Slim status bar — date range / department filtering live in the
             Explore views (period dropdown + drill-down), not here. */}
-        <div className="flex items-center justify-end border-b border-border px-8 py-3 text-xs text-muted">
+        <div className="flex items-center justify-between gap-4 border-b border-border px-8 py-3 text-xs text-muted">
+          <SearchBox items={searchIndex} />
           <span>{role ? `Signed in · ${role}` : "Not signed in"}</span>
         </div>
         <main className="flex-1 px-8 py-8">{children}</main>
