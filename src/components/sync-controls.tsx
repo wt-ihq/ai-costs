@@ -33,7 +33,7 @@ export function SyncControls() {
         >
           {pending ? "Syncing…" : "Run sync now"}
         </button>
-        <span className="text-xs text-muted">Pulls all API sources (HiBob, Cursor, Anthropic, OpenAI) for the last 7 days.</span>
+        <span className="text-xs text-muted">Pulls all API sources (Okta, Cursor, Anthropic, OpenAI) for the last 7 days.</span>
       </div>
 
       {results && (

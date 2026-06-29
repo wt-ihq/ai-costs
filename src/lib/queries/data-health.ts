@@ -37,7 +37,16 @@ export interface UnmatchedEntity {
   rows: number;
 }
 
+/** The identity spine (Okta) — has no spend facts, but its own freshness. */
+export interface IdentityHealth {
+  label: string;
+  employeeCount: number;
+  lastSyncAt: string | null;
+  lastSyncStatus: string | null;
+}
+
 export interface DataHealth {
+  identity: IdentityHealth;
   sources: SourceHealth[];
   unmatched: UnmatchedEntity[];
   employees: { id: string; name: string }[];
@@ -75,6 +84,12 @@ export async function getDataHealth(supabase: SupabaseClient): Promise<DataHealt
   }
 
   return {
+    identity: {
+      label: "Okta",
+      employeeCount: (emps ?? []).length,
+      lastSyncAt: lastSync.get("okta")?.at ?? null,
+      lastSyncStatus: lastSync.get("okta")?.status ?? null,
+    },
     sources: VENDORS.map((source) => ({
       source,
       factCount: count.get(source) ?? 0,

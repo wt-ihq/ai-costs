@@ -3,14 +3,14 @@ import { syncCursor } from "@/lib/ingest/run-cursor";
 import { syncCursorModels } from "@/lib/ingest/run-cursor-models";
 import { CURSOR_ANALYTICS_ENABLED } from "@/lib/cursor-models/config";
 import { syncAnthropic, syncOpenAI } from "@/lib/ingest/run-platforms";
-import { syncHibob } from "@/lib/ingest/run-hibob";
+import { syncOkta } from "@/lib/ingest/run-okta";
 import type { DateWindow } from "@/lib/ingest/sources/anthropic";
 
 export type SyncOutcome = { ok: true; rowsWritten: number } | { ok: false; error: string };
 
 /**
  * Run every source for a date window, isolated so one vendor's failure (e.g. a
- * missing API key) never aborts the others (spec §8). HiBob runs first as the
+ * missing API key) never aborts the others (spec §8). Okta runs first as the
  * identity spine so freshly-synced employees are available for attribution.
  */
 export async function runAllSyncs(
@@ -34,7 +34,7 @@ export async function runAllSyncs(
     }
   };
 
-  await run("hibob", () => syncHibob(supabase));
+  await run("okta", () => syncOkta(supabase));
   await Promise.all([
     run("cursor", () => syncCursor(supabase, window)),
     run("cursor_models", () => syncCursorModels(supabase, window)),

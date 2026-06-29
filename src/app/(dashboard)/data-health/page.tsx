@@ -9,14 +9,14 @@ import { staleness } from "@/lib/utils";
 export const dynamic = "force-dynamic";
 
 export default async function DataHealthPage() {
-  const { sources, unmatched, employees } = await getDataHealth(getSupabaseAdminClient());
+  const { identity, sources, unmatched, employees } = await getDataHealth(getSupabaseAdminClient());
   const now = new Date();
 
   return (
     <>
       <PageHeader
         title="Data Health"
-        subtitle="Per-source freshness and last status, plus the unmatched-identity queue."
+        subtitle="Identity spine and per-source freshness and last status, plus the unmatched-identity queue."
       />
 
       <Panel className="overflow-x-auto p-0">
@@ -31,6 +31,31 @@ export default async function DataHealthPage() {
             </tr>
           </thead>
           <tbody>
+            {/* Identity spine (Okta) — its "facts" count is employees synced. */}
+            <tr className="border-b border-border/60 bg-surface-2/20">
+              <td className="px-4 py-2.5">
+                <span className="inline-flex items-center gap-1.5 font-medium">
+                  <span className="size-2 rounded-full" style={{ background: "#6366f1" }} />
+                  {identity.label}
+                  <span className="ml-1 rounded bg-surface-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">identity</span>
+                </span>
+              </td>
+              <td className="px-4 py-2.5 text-right tabular-nums text-muted">
+                {identity.employeeCount || "—"}
+                {identity.employeeCount ? <span className="ml-1 text-xs text-muted">people</span> : null}
+              </td>
+              <td className="px-4 py-2.5 text-muted">—</td>
+              <td className="px-4 py-2.5 text-muted">
+                {identity.lastSyncAt ? (
+                  <span className={identity.lastSyncStatus === "failed" ? "text-pink-300" : ""}>
+                    {staleness(new Date(identity.lastSyncAt), now)} · {identity.lastSyncStatus}
+                  </span>
+                ) : (
+                  "—"
+                )}
+              </td>
+              <td className="px-4 py-2.5 text-muted">—</td>
+            </tr>
             {sources.map((s) => (
               <tr key={s.source} className="border-b border-border/60 last:border-0">
                 <td className="px-4 py-2.5">
