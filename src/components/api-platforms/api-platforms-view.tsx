@@ -29,10 +29,7 @@ export function ApiPlatformsView({ scope, initialPeriodParam }: { scope: ApiPlat
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <PeriodControl period={period} earliest={scope.earliest} onChange={changePeriod} />
-        <span className="text-sm text-muted">{period.label}</span>
-      </div>
+      <PeriodControl period={period} earliest={scope.earliest} onChange={changePeriod} />
 
       {entities.length === 0 ? (
         <Panel>
