@@ -24,7 +24,7 @@ export default async function DataHealthPage() {
           <thead>
             <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
               <th className="px-4 py-3 font-medium">Source</th>
-              <th className="px-4 py-3 text-right font-medium">Facts</th>
+              <th className="px-4 py-3 text-right font-medium" title="Spend records ingested for this source (employees, for the Okta identity row)">Records</th>
               <th className="px-4 py-3 font-medium">Latest data</th>
               <th className="px-4 py-3 font-medium">Last sync</th>
               <th className="px-4 py-3 font-medium">Manual import</th>
