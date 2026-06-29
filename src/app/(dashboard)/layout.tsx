@@ -4,7 +4,6 @@ import { Nav } from "@/components/nav";
 import { SearchBox } from "@/components/explore/search-box";
 import { getSearchIndex } from "@/lib/queries/explore";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
-import { CURSOR_ANALYTICS_ENABLED } from "@/lib/cursor-models/config";
 import { auth } from "@/auth";
 
 /**
@@ -42,7 +41,7 @@ export default async function DashboardLayout({
           />
           <div className="text-sm font-semibold tracking-tight">AI Spend</div>
         </div>
-        <Nav isAdmin={isAdmin} cursorAnalyticsEnabled={CURSOR_ANALYTICS_ENABLED} />
+        <Nav isAdmin={isAdmin} />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">

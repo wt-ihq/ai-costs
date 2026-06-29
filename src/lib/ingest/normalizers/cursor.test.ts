@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeCursor, normalizeCursorEvents, normalizeCursorMembers, type CursorUsageResponse, type CursorEventsResponse, type CursorMembersResponse } from "./cursor";
+import { normalizeCursor, normalizeCursorEvents, normalizeCursorMembers, normalizeCursorTopModels, type CursorUsageResponse, type CursorEventsResponse, type CursorMembersResponse } from "./cursor";
 import { cursorUsageFixture } from "@/lib/ingest/fixtures/cursor-usage";
 import { cursorEventsFixture } from "@/lib/ingest/fixtures/cursor-events";
 import { cursorMembersFixture } from "@/lib/ingest/fixtures/cursor-members";
@@ -72,5 +72,19 @@ describe("normalizeCursorMembers", () => {
 
   it("fails loudly on schema drift", () => {
     expect(() => normalizeCursorMembers({} as CursorMembersResponse, "2026-06-01")).toThrow(SchemaDriftError);
+  });
+});
+
+describe("normalizeCursorTopModels", () => {
+  it("emits one (day, user, top-model) row per user/day with a mostUsedModel", () => {
+    const rows = normalizeCursorTopModels(cursorUsageFixture);
+    // Only gareth's 6/1 row has mostUsedModel in the fixture.
+    expect(rows).toEqual([
+      { day: "2026-06-01", entityKey: "gareth.jones@intenthq.com", model: "claude-sonnet-4-6" },
+    ]);
+  });
+
+  it("fails loudly on schema drift", () => {
+    expect(() => normalizeCursorTopModels({} as CursorUsageResponse)).toThrow(SchemaDriftError);
   });
 });

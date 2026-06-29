@@ -101,6 +101,18 @@ export interface ResolvedModelUsage extends ModelUsageFact {
   employeeId: string | null;
 }
 
+/** Idempotent upsert of Cursor per-user/day top-model rows on (day, entity_key). */
+export async function upsertCursorTopModels(
+  supabase: SupabaseClient,
+  rows: { day: string; entityKey: string; model: string; employeeId: string | null }[],
+): Promise<number> {
+  if (rows.length === 0) return 0;
+  const r = rows.map((x) => ({ day: x.day, entity_key: x.entityKey, model: x.model, employee_id: x.employeeId }));
+  const { error } = await supabase.from("cursor_top_model").upsert(r, { onConflict: "day,entity_key" });
+  if (error) throw new Error(`upsertCursorTopModels: ${error.message}`);
+  return r.length;
+}
+
 /**
  * Attach employee_id to Cursor model-usage facts via the same email→employee
  * resolution as spend facts. Unmatched rows keep employeeId null and their
