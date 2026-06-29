@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { ExploreData, RankRow } from "@/lib/explore/types";
+import type { Dim, ExploreData, RankRow } from "@/lib/explore/types";
 import { RankedList } from "./ranked-list";
 import { cn } from "@/lib/utils";
 
@@ -15,7 +15,7 @@ type Tab = "teams" | "people";
  * Ranked breakdown. At company level (team rollup + full staff list both
  * present) it shows a Teams/People tabbed view; otherwise a single titled list.
  */
-export function RankedPanel({ ranked, allStaff }: { ranked: ExploreData["ranked"]; allStaff?: RankRow[] }) {
+export function RankedPanel({ ranked, allStaff, dim }: { ranked: ExploreData["ranked"]; allStaff?: RankRow[]; dim: Dim }) {
   const [tab, setTab] = useState<Tab>("teams");
   const tabbed = ranked.kind === "team" && !!allStaff;
   const rows = tabbed && tab === "people" ? allStaff! : ranked.rows;
@@ -38,7 +38,7 @@ export function RankedPanel({ ranked, allStaff }: { ranked: ExploreData["ranked"
       ) : (
         <h2 className="mb-4 text-sm font-medium">{TITLE[ranked.kind]}</h2>
       )}
-      <RankedList rows={rows} />
+      <RankedList rows={rows} dim={dim} />
     </section>
   );
 }

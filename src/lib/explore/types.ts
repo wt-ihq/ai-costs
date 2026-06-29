@@ -13,6 +13,12 @@ export interface TreemapNode {
   color: string;
 }
 
+/** One slice of a row's spend, by the active dim (vendor or cost type). */
+export interface RankSegment {
+  key: string; // vendor or cost_type value
+  value: number; // USD
+}
+
 export interface RankRow {
   id: string;
   label: string;
@@ -21,6 +27,8 @@ export interface RankRow {
   href?: string;
   idle?: boolean;
   perHead?: number | null;
+  /** Spend split for the color-coded bar, precomputed for both dims. */
+  segments?: Record<Dim, RankSegment[]>;
 }
 
 export interface Scorecard {

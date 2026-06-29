@@ -43,6 +43,20 @@ describe("rankTeams", () => {
     expect(r[0]).toMatchObject({ id: "Eng", label: "Eng", total: 140, perHead: 70 });
     expect(r[0].href).toContain("/explore/");
   });
+
+  it("attaches a spend split for both dims, sorted desc", () => {
+    const r = rankTeams(june, new Map([["Eng", 2]]));
+    // vendor split: anthropic 100 > cursor 40
+    expect(r[0].segments?.vendor).toEqual([
+      { key: "anthropic", value: 100 },
+      { key: "cursor", value: 40 },
+    ]);
+    // cost_type split: metered 100 > seat 40
+    expect(r[0].segments?.cost_type).toEqual([
+      { key: "metered", value: 100 },
+      { key: "seat", value: 40 },
+    ]);
+  });
 });
 
 describe("rankPeople", () => {
