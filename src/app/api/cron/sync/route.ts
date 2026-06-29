@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { monthToDate, runAllSyncs } from "@/lib/ingest/run-all";
+import { reattributeUnmatched } from "@/lib/ingest/reattribute";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,19 @@ export async function GET(req: Request) {
   // without disturbing the others.
   const only = url.searchParams.get("source")?.split(",").map((s) => s.trim()).filter(Boolean);
 
-  const results = await runAllSyncs(getSupabaseAdminClient(), window, only);
-  return NextResponse.json({ ranAt: new Date().toISOString(), window, results });
+  const supabase = getSupabaseAdminClient();
+  const results = await runAllSyncs(supabase, window, only);
+
+  // After syncing the roster + spend, re-resolve any still-unmatched facts
+  // against the current employees (clears facts ingested before a person
+  // existed — e.g. people the Okta spine added). Isolated so a failure here
+  // never masks the sync results.
+  let reattribution: Awaited<ReturnType<typeof reattributeUnmatched>> | { error: string };
+  try {
+    reattribution = await reattributeUnmatched(supabase);
+  } catch (err) {
+    reattribution = { error: err instanceof Error ? err.message : String(err) };
+  }
+
+  return NextResponse.json({ ranAt: new Date().toISOString(), window, results, reattribution });
 }
