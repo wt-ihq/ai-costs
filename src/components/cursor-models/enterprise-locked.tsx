@@ -15,9 +15,9 @@ export function EnterpriseLocked() {
           Enterprise only
         </span>
         <p className="min-w-0 flex-1 text-sm text-muted">
-          Cursor model-usage analytics require a <span className="text-foreground">Cursor Enterprise</span> plan.
-          Intent HQ&apos;s team isn&apos;t on Enterprise yet, so this data isn&apos;t available. The dashboard is built and
-          ready — it populates automatically once the team is upgraded.
+          Cursor model-usage analytics require a <span className="text-foreground">Cursor Enterprise</span>{" "}
+          plan. Intent HQ&apos;s team isn&apos;t on Enterprise yet, so this data isn&apos;t available. The dashboard is
+          built and ready — it populates automatically once the team is upgraded.
         </p>
       </div>
 
