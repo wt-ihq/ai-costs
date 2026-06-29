@@ -1,4 +1,4 @@
-import type { CursorUsageResponse, CursorEventsResponse, CursorUsageEvent } from "@/lib/ingest/normalizers/cursor";
+import type { CursorUsageResponse, CursorEventsResponse, CursorUsageEvent, CursorMembersResponse } from "@/lib/ingest/normalizers/cursor";
 
 export interface CursorFetchOptions {
   /** ISO dates; the Admin API allows a 90-day window per request. */
@@ -9,6 +9,7 @@ export interface CursorFetchOptions {
 /** Injectable so the pipeline can run against fixtures without the network. */
 export type CursorFetcher = (opts: CursorFetchOptions) => Promise<CursorUsageResponse>;
 export type CursorEventsFetcher = (opts: CursorFetchOptions) => Promise<CursorEventsResponse>;
+export type CursorMembersFetcher = () => Promise<CursorMembersResponse>;
 
 const basicAuth = (key: string) => `Basic ${Buffer.from(`${key}:`).toString("base64")}`;
 
@@ -63,6 +64,20 @@ export const fetchCursorUsageEvents: CursorEventsFetcher = async ({ startDate, e
     if (!json.pagination?.hasNextPage) break;
   }
   return { usageEvents };
+};
+
+/**
+ * Live fetch of the team roster from GET /teams/members — the authoritative
+ * seat list (includes paid-but-idle members that daily-usage-data omits).
+ */
+export const fetchCursorMembers: CursorMembersFetcher = async () => {
+  const key = process.env.CURSOR_ADMIN_API_KEY;
+  if (!key) throw new Error("CURSOR_ADMIN_API_KEY is not set");
+  const res = await fetch("https://api.cursor.com/teams/members", {
+    headers: { Accept: "application/json", Authorization: basicAuth(key) },
+  });
+  if (!res.ok) throw new Error(`Cursor members ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return (await res.json()) as CursorMembersResponse;
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

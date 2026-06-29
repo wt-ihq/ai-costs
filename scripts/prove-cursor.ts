@@ -21,6 +21,7 @@ const supabase = createClient(
 
 const window = { startDate: "2026-06-01", endDate: "2026-06-02" };
 const fixtureFetcher = async () => cursorUsageFixture;
+const emptyMembers = async () => ({ teamMembers: [] }); // seat roster covered by the usage fixture here
 
 async function countCursorFacts() {
   const { count } = await supabase
@@ -47,12 +48,12 @@ async function main() {
   ]);
 
   console.log("Run 1 …");
-  const r1 = await syncCursor(supabase, window, fixtureFetcher);
+  const r1 = await syncCursor(supabase, window, fixtureFetcher, undefined, emptyMembers);
   const c1 = await countCursorFacts();
   console.log(`  rowsWritten=${r1.rowsWritten}  factsInDb=${c1}  unmatched=${JSON.stringify(r1.unmatched)}`);
 
   console.log("Run 2 (idempotency) …");
-  const r2 = await syncCursor(supabase, window, fixtureFetcher);
+  const r2 = await syncCursor(supabase, window, fixtureFetcher, undefined, emptyMembers);
   const c2 = await countCursorFacts();
   console.log(`  rowsWritten=${r2.rowsWritten}  factsInDb=${c2}`);
 
