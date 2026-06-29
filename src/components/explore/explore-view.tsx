@@ -66,7 +66,7 @@ export function ExploreView({ scope, initialPeriodParam, initialDim }: { scope: 
         </section>
       </div>
 
-      <RankedPanel ranked={data.ranked} allStaff={data.allStaff} />
+      <RankedPanel ranked={data.ranked} allStaff={data.allStaff} dim={dim} />
     </div>
   );
 }

@@ -2,10 +2,27 @@
 
 import Link from "next/link";
 import { motion, useReducedMotion } from "motion/react";
-import type { RankRow } from "@/lib/explore/types";
+import type { Dim, RankRow } from "@/lib/explore/types";
+import { dimColor } from "@/lib/explore/shape";
 import { formatUsd, cn } from "@/lib/utils";
 
-function Row({ r, max, i }: { r: RankRow; max: number; i: number }) {
+/** The color-coded spend split for one row, sized to total/max. */
+function SplitBar({ r, dim, pct }: { r: RankRow; dim: Dim; pct: number }) {
+  const segs = r.segments?.[dim] ?? [];
+  // No breakdown (e.g. $0 roster row) → fall back to the plain accent fill.
+  if (!segs.length || r.total <= 0) {
+    return <div className="absolute inset-y-0 left-0 bg-accent/10" style={{ width: `${pct}%` }} aria-hidden />;
+  }
+  return (
+    <div className="absolute inset-y-0 left-0 flex overflow-hidden opacity-30" style={{ width: `${pct}%` }} aria-hidden>
+      {segs.map((s) => (
+        <div key={s.key} style={{ width: `${(s.value / r.total) * 100}%`, background: dimColor(dim, s.key) }} />
+      ))}
+    </div>
+  );
+}
+
+function Row({ r, max, i, dim }: { r: RankRow; max: number; i: number; dim: Dim }) {
   const reduce = useReducedMotion();
   const pct = max > 0 ? (r.total / max) * 100 : 0;
   const body = (
@@ -15,7 +32,7 @@ function Row({ r, max, i }: { r: RankRow; max: number; i: number }) {
       transition={{ duration: 0.15, delay: Math.min(i, 20) * 0.015 }}
       className={cn("group relative flex items-center justify-between gap-4 overflow-hidden rounded-lg border border-border/60 bg-surface px-4 py-3 transition-colors", r.href && "hover:border-accent/60 hover:bg-surface-2")}
     >
-      <div className="absolute inset-y-0 left-0 bg-accent/10" style={{ width: `${pct}%` }} aria-hidden />
+      <SplitBar r={r} dim={dim} pct={pct} />
       <div className="relative min-w-0">
         <div className="truncate text-sm font-medium">
           {r.label}
@@ -32,8 +49,8 @@ function Row({ r, max, i }: { r: RankRow; max: number; i: number }) {
   return r.href ? <Link href={r.href} className="block">{body}</Link> : body;
 }
 
-export function RankedList({ rows }: { rows: RankRow[] }) {
+export function RankedList({ rows, dim }: { rows: RankRow[]; dim: Dim }) {
   if (!rows.length) return <p className="text-sm text-muted">No spend in this period.</p>;
   const max = Math.max(...rows.map((r) => r.total), 0);
-  return <div className="space-y-2">{rows.map((r, i) => <Row key={r.id} r={r} max={max} i={i} />)}</div>;
+  return <div className="space-y-2">{rows.map((r, i) => <Row key={r.id} r={r} max={max} i={i} dim={dim} />)}</div>;
 }

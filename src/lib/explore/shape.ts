@@ -1,7 +1,7 @@
 import type { Vendor, CostType } from "@/lib/types";
 import { VENDOR_COLORS, COST_TYPE_COLORS } from "@/lib/colors";
 import { VENDOR_LABEL, COST_TYPE_LABEL } from "@/lib/types";
-import type { Dim, TrendPoint, TreemapNode, RankRow, Scorecard } from "./types";
+import type { Dim, TrendPoint, TreemapNode, RankRow, RankSegment, Scorecard } from "./types";
 import { enumerateBuckets, type Period, type Bucket } from "./period";
 
 export interface ShapeFact {
@@ -23,12 +23,35 @@ const labelFor = (dim: Dim, key: string) =>
   dim === "vendor" ? VENDOR_LABEL[key as Vendor] ?? key : COST_TYPE_LABEL[key as CostType] ?? key;
 const colorFor = (dim: Dim, key: string) =>
   dim === "vendor" ? VENDOR_COLORS[key as Vendor] ?? "#6ea8fe" : COST_TYPE_COLORS[key as CostType] ?? "#6ea8fe";
+/** Color for a dim value — exported for the ranked-list segmented bars. */
+export const dimColor = colorFor;
 const teamSlug = (dept: string) => encodeURIComponent(dept);
 const sum = (rows: ShapeFact[]) => rows.reduce((s, r) => s + r.costUsd, 0);
 
 function totalsBy(rows: ShapeFact[], key: (r: ShapeFact) => string): Map<string, number> {
   const m = new Map<string, number>();
   for (const r of rows) m.set(key(r), (m.get(key(r)) ?? 0) + r.costUsd);
+  return m;
+}
+
+/** Per-row spend split for both dims, each sorted desc (for the color bars). */
+function segmentsByDim(rows: ShapeFact[]): Record<Dim, RankSegment[]> {
+  const build = (dim: Dim): RankSegment[] =>
+    [...totalsBy(rows, (r) => dimKey(r, dim)).entries()]
+      .filter(([, v]) => v > 0)
+      .map(([key, value]) => ({ key, value: Math.round(value * 100) / 100 }))
+      .sort((a, b) => b.value - a.value);
+  return { vendor: build("vendor"), cost_type: build("cost_type") };
+}
+
+/** Group period-scoped facts by an entity key (dept or employee id). */
+function groupBy(rows: ShapeFact[], key: (r: ShapeFact) => string | null): Map<string, ShapeFact[]> {
+  const m = new Map<string, ShapeFact[]>();
+  for (const r of rows) {
+    const k = key(r);
+    if (k == null) continue;
+    (m.get(k) ?? m.set(k, []).get(k)!).push(r);
+  }
   return m;
 }
 
@@ -78,13 +101,10 @@ export function scorecardFor(rows: ShapeFact[]): Scorecard {
 
 /** Department rankings (rows already filtered to the period). */
 export function rankTeams(rows: ShapeFact[], headcounts: Map<string, number>): RankRow[] {
-  const totals = new Map<string, number>();
-  for (const r of rows) {
-    const d = r.department ?? UNATTRIBUTED;
-    totals.set(d, (totals.get(d) ?? 0) + r.costUsd);
-  }
-  return [...totals.entries()]
-    .map(([dept, total]) => {
+  const byDept = groupBy(rows, (r) => r.department ?? UNATTRIBUTED);
+  return [...byDept.entries()]
+    .map(([dept, facts]) => {
+      const total = sum(facts);
       const head = headcounts.get(dept) ?? 0;
       return {
         id: dept,
@@ -93,6 +113,7 @@ export function rankTeams(rows: ShapeFact[], headcounts: Map<string, number>): R
         href: dept === UNATTRIBUTED ? undefined : `/explore/${teamSlug(dept)}`,
         perHead: dept === UNATTRIBUTED || head === 0 ? null : Math.round((total / head) * 100) / 100,
         sub: head ? `${head} people` : undefined,
+        segments: segmentsByDim(facts),
       };
     })
     .sort((a, b) => b.total - a.total);
@@ -113,6 +134,7 @@ export function rankPeople(
     else a.activity += r.costUsd;
     agg.set(r.employeeId, a);
   }
+  const byEmp = groupBy(rows, (r) => r.employeeId);
   const nameById = new Map(employees.map((e) => [e.id, e.fullName ?? "(unknown)"]));
   return [...agg.entries()]
     .map(([id, a]) => ({
@@ -122,6 +144,7 @@ export function rankPeople(
       idle: a.seat > 0 && a.activity === 0,
       sub: a.seat > 0 && a.activity === 0 ? "idle seat" : undefined,
       href: `/explore/${teamSlug(teamDept)}/${id}`,
+      segments: segmentsByDim(byEmp.get(id) ?? []),
     }))
     .sort((a, b) => b.total - a.total);
 }
@@ -131,20 +154,18 @@ export function rankAllStaff(
   rows: ShapeFact[],
   employees: { id: string; fullName: string | null; department: string | null }[],
 ): RankRow[] {
-  const totals = new Map<string, number>();
-  for (const r of rows) {
-    if (!r.employeeId) continue;
-    totals.set(r.employeeId, (totals.get(r.employeeId) ?? 0) + r.costUsd);
-  }
+  const byEmp = groupBy(rows, (r) => r.employeeId);
   return employees
     .map((e) => {
       const dept = e.department ?? UNATTRIBUTED;
+      const facts = byEmp.get(e.id) ?? [];
       return {
         id: e.id,
         label: e.fullName ?? "(unknown)",
-        total: Math.round((totals.get(e.id) ?? 0) * 100) / 100,
+        total: Math.round(sum(facts) * 100) / 100,
         sub: dept,
         href: `/explore/${teamSlug(dept)}/${e.id}`,
+        segments: segmentsByDim(facts),
       };
     })
     .sort((a, b) => b.total - a.total);
