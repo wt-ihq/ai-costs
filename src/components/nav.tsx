@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 
 const PAGES = [
   { href: "/explore", label: "Explore" },
+  { href: "/cursor-models", label: "Cursor Usage" },
   { href: "/api-platforms", label: "API Platforms" },
   { href: "/data-health", label: "Data Health" },
   { href: "/imports", label: "Imports", admin: true },
