@@ -99,3 +99,43 @@ export const normalizeCursorEvents: Normalizer<CursorEventsResponse> = (raw) => 
     return { source: "cursor", day: m.day, costType: "overage", entityKey: m.email, costUsd: c / 100, model: m.model };
   });
 };
+
+/**
+ * Cursor Admin API — GET /teams/members. The authoritative seat roster: every
+ * member, including paid-but-idle ones that daily-usage-data (active-only)
+ * misses. We emit one $40 seat per non-removed member for the given month,
+ * keyed by email. The members endpoint is date-less (it's the *current*
+ * roster), so the caller only applies it to the current month; historical
+ * months keep their usage-derived seats. Upserts on (cursor, month, seat,
+ * email) so it unions cleanly with any active-user seat for the same month.
+ */
+export interface CursorMember {
+  id?: string;
+  email?: string;
+  name?: string;
+  role?: string;
+  isRemoved?: boolean;
+}
+export interface CursorMembersResponse {
+  teamMembers?: CursorMember[];
+}
+
+export function normalizeCursorMembers(
+  raw: CursorMembersResponse | CursorMember[],
+  month: string,
+): SpendFact[] {
+  const list = Array.isArray(raw) ? raw : raw?.teamMembers;
+  if (!Array.isArray(list)) {
+    throw new SchemaDriftError("cursor", "members: expected an array (or { teamMembers: [] })");
+  }
+  const seen = new Set<string>();
+  const facts: SpendFact[] = [];
+  for (const m of list) {
+    if (m.isRemoved) continue; // no longer holds a seat
+    const email = (m.email ?? "").toString().toLowerCase();
+    if (!email || seen.has(email)) continue;
+    seen.add(email);
+    facts.push({ source: "cursor", day: month, costType: "seat", entityKey: email, costUsd: CURSOR_SEAT_USD });
+  }
+  return facts;
+}

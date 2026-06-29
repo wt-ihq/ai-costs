@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { normalizeCursor, normalizeCursorEvents, type CursorUsageResponse, type CursorEventsResponse } from "./cursor";
+import { normalizeCursor, normalizeCursorEvents, normalizeCursorMembers, type CursorUsageResponse, type CursorEventsResponse, type CursorMembersResponse } from "./cursor";
 import { cursorUsageFixture } from "@/lib/ingest/fixtures/cursor-usage";
 import { cursorEventsFixture } from "@/lib/ingest/fixtures/cursor-events";
+import { cursorMembersFixture } from "@/lib/ingest/fixtures/cursor-members";
 import { SchemaDriftError } from "@/lib/ingest/types";
 
 describe("normalizeCursor", () => {
@@ -50,5 +51,26 @@ describe("normalizeCursorEvents", () => {
 
   it("fails loudly on schema drift rather than writing garbage", () => {
     expect(() => normalizeCursorEvents({} as CursorEventsResponse)).toThrow(SchemaDriftError);
+  });
+});
+
+describe("normalizeCursorMembers", () => {
+  it("emits one $40 seat per non-removed member for the given month, keyed by lowercased email", () => {
+    const facts = normalizeCursorMembers(cursorMembersFixture, "2026-06-01");
+    // gareth + idle.seat; the removed member is skipped.
+    expect(facts).toHaveLength(2);
+    expect(facts).toContainEqual({ source: "cursor", day: "2026-06-01", costType: "seat", entityKey: "gareth.jones@intenthq.com", costUsd: 40 });
+    // The idle seat (no usage) is exactly what daily-usage-data would miss.
+    expect(facts.some((f) => f.entityKey === "idle.seat@intenthq.com")).toBe(true);
+    expect(facts.some((f) => f.entityKey === "left@intenthq.com")).toBe(false);
+  });
+
+  it("accepts a bare array as well as { teamMembers }", () => {
+    const facts = normalizeCursorMembers([{ email: "a@intenthq.com", isRemoved: false }], "2026-06-01");
+    expect(facts).toHaveLength(1);
+  });
+
+  it("fails loudly on schema drift", () => {
+    expect(() => normalizeCursorMembers({} as CursorMembersResponse, "2026-06-01")).toThrow(SchemaDriftError);
   });
 });
