@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { syncCursor } from "@/lib/ingest/run-cursor";
 import { syncCursorModels } from "@/lib/ingest/run-cursor-models";
+import { CURSOR_ANALYTICS_ENABLED } from "@/lib/cursor-models/config";
 import { syncAnthropic, syncOpenAI } from "@/lib/ingest/run-platforms";
 import { syncHibob } from "@/lib/ingest/run-hibob";
 import type { DateWindow } from "@/lib/ingest/sources/anthropic";
@@ -19,8 +20,13 @@ export async function runAllSyncs(
 ): Promise<Record<string, SyncOutcome>> {
   const results: Record<string, SyncOutcome> = {};
   const wants = only && only.length ? new Set(only) : null;
+  // Sources skipped in the default daily run (no entitlement yet) but still
+  // runnable on demand via ?source=<name>. cursor_models needs Cursor
+  // Enterprise; see CURSOR_ANALYTICS_ENABLED.
+  const optInOnly = new Set(CURSOR_ANALYTICS_ENABLED ? [] : ["cursor_models"]);
   const run = async (name: string, fn: () => Promise<{ rowsWritten: number }>) => {
     if (wants && !wants.has(name)) return;
+    if (!wants && optInOnly.has(name)) return; // not explicitly requested → skip in default run
     try {
       results[name] = { ok: true, rowsWritten: (await fn()).rowsWritten };
     } catch (err) {
