@@ -23,6 +23,19 @@ export function formatUsd(amount: number): string {
   return Math.abs(amount) < 100 ? usdCents.format(amount) : usd.format(amount);
 }
 
+const countFull = new Intl.NumberFormat("en-US");
+const countCompact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
+
+/** Full count with thousands separators, e.g. "12,480". */
+export function formatCount(n: number): string {
+  return countFull.format(n);
+}
+
+/** Compact count for tight spaces (axes), e.g. "12.5k". */
+export function formatCountCompact(n: number): string {
+  return countCompact.format(n);
+}
+
 /** "34 days old" style staleness label from a "data as of" date. */
 export function staleness(asOf: Date, now: Date): string {
   const days = Math.floor((now.getTime() - asOf.getTime()) / 86_400_000);

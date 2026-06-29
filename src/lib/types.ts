@@ -40,6 +40,19 @@ export interface SpendFact {
   model?: string | null;
 }
 
+/**
+ * One row of Cursor model-adoption usage per (day, user, model). This is
+ * message volume from the Analytics API — NOT spend — so it has its own shape
+ * and table (cursor_model_usage), kept out of SpendFact / spend_facts.
+ */
+export interface ModelUsageFact {
+  day: string; // ISO date
+  entityKey: string; // user email, lowercased
+  model: string;
+  messages: number;
+  employeeId?: string | null;
+}
+
 export const VENDOR_LABEL: Record<Vendor, string> = {
   cursor: "Cursor",
   anthropic: "Anthropic",

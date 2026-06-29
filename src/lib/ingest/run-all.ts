@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { syncCursor } from "@/lib/ingest/run-cursor";
+import { syncCursorModels } from "@/lib/ingest/run-cursor-models";
 import { syncAnthropic, syncOpenAI } from "@/lib/ingest/run-platforms";
 import { syncHibob } from "@/lib/ingest/run-hibob";
 import type { DateWindow } from "@/lib/ingest/sources/anthropic";
@@ -30,6 +31,7 @@ export async function runAllSyncs(
   await run("hibob", () => syncHibob(supabase));
   await Promise.all([
     run("cursor", () => syncCursor(supabase, window)),
+    run("cursor_models", () => syncCursorModels(supabase, window)),
     run("anthropic", () => syncAnthropic(supabase, window)),
     run("openai", () => syncOpenAI(supabase, window)),
   ]);

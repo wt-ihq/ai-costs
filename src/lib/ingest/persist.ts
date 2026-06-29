@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { SpendFact } from "@/lib/types";
+import type { SpendFact, ModelUsageFact } from "@/lib/types";
 import { matchIdentity } from "@/lib/ingest/identity";
 
 export interface ResolvedFact extends SpendFact {
@@ -94,6 +94,52 @@ export async function upsertSpendFacts(
     .from("spend_facts")
     .upsert(rows, { onConflict: "source,day,cost_type,entity_key,model" });
   if (error) throw new Error(`upsertSpendFacts: ${error.message}`);
+  return rows.length;
+}
+
+export interface ResolvedModelUsage extends ModelUsageFact {
+  employeeId: string | null;
+}
+
+/**
+ * Attach employee_id to Cursor model-usage facts via the same email→employee
+ * resolution as spend facts. Unmatched rows keep employeeId null and their
+ * email is collected for the "Unmatched" queue (never dropped).
+ */
+export function attachModelUsageEmployees(
+  facts: ModelUsageFact[],
+  employees: { id: string; email: string }[],
+): { facts: ResolvedModelUsage[]; unmatched: string[] } {
+  const unmatched = new Set<string>();
+  const resolved = facts.map((f) => {
+    const { employeeId } = matchIdentity(f.entityKey, employees);
+    if (!employeeId) unmatched.add(f.entityKey);
+    return { ...f, employeeId };
+  });
+  return { facts: resolved, unmatched: [...unmatched] };
+}
+
+/**
+ * Idempotent upsert on the (day, entity_key, model) key. Upsert-only (never
+ * delete-then-insert): an empty/partial API response can update or add but can
+ * never wipe a day's adoption history.
+ */
+export async function upsertModelUsage(
+  supabase: SupabaseClient,
+  facts: ResolvedModelUsage[],
+): Promise<number> {
+  if (facts.length === 0) return 0;
+  const rows = facts.map((f) => ({
+    day: f.day,
+    entity_key: f.entityKey,
+    model: f.model,
+    messages: f.messages,
+    employee_id: f.employeeId,
+  }));
+  const { error } = await supabase
+    .from("cursor_model_usage")
+    .upsert(rows, { onConflict: "day,entity_key,model" });
+  if (error) throw new Error(`upsertModelUsage: ${error.message}`);
   return rows.length;
 }
 
