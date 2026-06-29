@@ -34,8 +34,8 @@ export default async function DashboardLayout({
           <Image
             src="/intenthq-logo.png"
             alt="Intent HQ — Customer Intelligence Lab"
-            width={2447}
-            height={641}
+            width={2248}
+            height={544}
             priority
             className="mb-3 h-auto w-36"
           />
