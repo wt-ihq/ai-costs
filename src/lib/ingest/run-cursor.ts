@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SpendFact } from "@/lib/types";
-import { normalizeCursor, normalizeCursorEvents, normalizeCursorMembers } from "@/lib/ingest/normalizers/cursor";
+import { matchIdentity } from "@/lib/ingest/identity";
+import { normalizeCursor, normalizeCursorEvents, normalizeCursorMembers, normalizeCursorTopModels } from "@/lib/ingest/normalizers/cursor";
 import {
   fetchCursorUsage,
   fetchCursorUsageEvents,
@@ -16,6 +17,7 @@ import {
   saveRawPayload,
   startSyncRun,
   upsertSpendFacts,
+  upsertCursorTopModels,
 } from "@/lib/ingest/persist";
 
 export interface CursorSyncResult {
@@ -62,6 +64,21 @@ export async function syncCursor(
     const { facts: resolved, unmatched } = attachEmployees([...seatFacts, ...overageFacts, ...memberSeatFacts], employees);
 
     const rowsWritten = await upsertSpendFacts(supabase, resolved);
+
+    // Teams-plan model signal: capture each user's daily most-used model from
+    // the same daily-usage payload. Best-effort — a failure here (e.g. the
+    // cursor_top_model table not yet migrated) must not fail the seat/overage
+    // sync, which is the source of truth for spend.
+    try {
+      const topModels = normalizeCursorTopModels(raw).map((t) => ({
+        ...t,
+        employeeId: matchIdentity(t.entityKey, employees).employeeId,
+      }));
+      await upsertCursorTopModels(supabase, topModels);
+    } catch {
+      // ignore — model signal is non-critical
+    }
+
     await finishSyncRun(supabase, runId, { status: "success", rowsWritten });
     return { rowsWritten, unmatched };
   } catch (err) {

@@ -120,6 +120,37 @@ export interface CursorMembersResponse {
   teamMembers?: CursorMember[];
 }
 
+/**
+ * Teams-plan model signal from daily-usage-data: one (day, user, top-model) row
+ * per active user/day, taken from `mostUsedModel`. Powers the Cursor Usage page
+ * on the Teams plan (no Enterprise model-usage analytics). Deduped per
+ * (day, email); rows without a model are skipped.
+ */
+export interface CursorTopModelRow {
+  day: string;
+  entityKey: string;
+  model: string;
+}
+
+export function normalizeCursorTopModels(raw: CursorUsageResponse): CursorTopModelRow[] {
+  if (!raw || !Array.isArray(raw.data)) {
+    throw new SchemaDriftError("cursor", "missing `data` array");
+  }
+  const seen = new Set<string>();
+  const out: CursorTopModelRow[] = [];
+  for (const row of raw.data) {
+    const email = (row.email ?? "").toString().toLowerCase();
+    const day = typeof row.day === "string" ? row.day : "";
+    const model = (row.mostUsedModel ?? "").toString();
+    if (!email || !day || !model) continue;
+    const key = `${day}|${email}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ day, entityKey: email, model });
+  }
+  return out;
+}
+
 export function normalizeCursorMembers(
   raw: CursorMembersResponse | CursorMember[],
   month: string,
