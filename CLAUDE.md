@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Internal dashboard for Intent HQ that tracks AI-tool spend (Anthropic, OpenAI, Cursor) by company → team → person, attributing usage to employees via HiBob.
+Internal dashboard for Intent HQ that tracks AI-tool spend (Anthropic, OpenAI, Cursor) by company → team → person, attributing usage to employees via Okta.
 
 ## Commands
 
@@ -36,14 +36,14 @@ Next.js 16 (App Router) · TypeScript · Tailwind v4 · Supabase (Postgres) · A
 Single `spend_facts` table. Unique key: **`(source, day, cost_type, entity_key, model)`** — `upsertSpendFacts` upserts on this.
 - `cost_type`: `seat` | `overage` | `metered`. **`metered` is labelled "API"** in the UI (`COST_TYPE_LABEL` in `src/lib/types.ts`). `overage` = usage-based spend beyond the plan.
 - Idempotent: re-running a window upserts the same keys. Metered/snapshot syncs **only** snapshot-delete a window when they have facts to write (`if (facts.length > 0)`), so a transient empty API response can't wipe a month.
-- Employees (from HiBob) are the identity spine; facts attribute via `entity_key` (email or owner) → `employee_id`. Roster pages show all employees/departments ($0 if no spend).
+- Employees (from Okta) are the identity spine; facts attribute via `entity_key` (email or owner) → `employee_id`. Roster pages show all employees/departments ($0 if no spend).
 
 ## Source-specific notes
 
 - **Anthropic** — cost = Usage-report tokens priced at **public list rates** (`pricing.ts` → `priceUsageByKey`). **Do NOT use the Cost Report API** — for this org it returns physically impossible totals (~1000× too high). Usage token counts are correct (match Claude's dashboard). Per-key → creator (`created_by` user → email → employee).
 - **Cursor** — two endpoints: `daily-usage-data` → $40/seat facts; `filtered-usage-events` → per-event `chargedCents` (filtered to `> 0`) aggregated into `overage` facts per (email, day, model). Events self-date, so backfill in 28-day windows (under Cursor's 30-day cap). Fetcher retries 429/5xx with backoff.
 - **OpenAI** — costs endpoint; attributed via project owners.
-- **HiBob** — `POST /v1/people/search?humanReadable=true`; departments resolved via `GET /v1/company/named-lists/department`.
+- **Okta** (identity spine) — `GET /api/v1/users?search=status pr` (all statuses incl. DEPROVISIONED leavers), SSWS-token auth (`OKTA_ORG_URL` / `OKTA_API_TOKEN`), paginated via `Link` header. Team = the user-profile `department` field. Deprovisioned/suspended → leaver with `leave_date` (row retained). Replaced HiBob; attribution still joins on email.
 
 ## Critical gotchas (learned the hard way)
 

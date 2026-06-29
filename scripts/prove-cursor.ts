@@ -42,8 +42,8 @@ async function main() {
 
   // Seed employees so attribution resolves.
   await supabase.from("employees").insert([
-    { hibob_id: "h1", email: "gareth.jones@intenthq.com", full_name: "Gareth Jones", department: "Engineering" },
-    { hibob_id: "h2", email: "tom.reeve@intenthq.com", full_name: "Tom Reeve", department: "Product" },
+    { okta_id: "00u1", email: "gareth.jones@intenthq.com", full_name: "Gareth Jones", department: "Engineering" },
+    { okta_id: "00u2", email: "tom.reeve@intenthq.com", full_name: "Tom Reeve", department: "Product" },
   ]);
 
   console.log("Run 1 …");

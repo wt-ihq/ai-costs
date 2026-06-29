@@ -62,7 +62,7 @@ export async function loadEmployeeNames(supabase: SupabaseClient) {
   return (data ?? []) as { id: string; fullName: string }[];
 }
 
-/** Upsert employees from HiBob (the identity spine). Keyed on email. */
+/** Upsert employees from Okta (the identity spine). Keyed on email. */
 export async function upsertEmployees(
   supabase: SupabaseClient,
   rows: Record<string, unknown>[],

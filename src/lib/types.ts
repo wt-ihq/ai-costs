@@ -15,7 +15,7 @@ export type SyncStatus = "running" | "success" | "failed";
 
 export interface Employee {
   id: string;
-  hibobId: string;
+  oktaId: string | null;
   email: string;
   fullName: string;
   department: string | null;

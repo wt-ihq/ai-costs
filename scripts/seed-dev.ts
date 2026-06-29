@@ -16,7 +16,7 @@ import { normalizeOpenAI } from "@/lib/ingest/normalizers/openai";
 import { cursorUsageFixture } from "@/lib/ingest/fixtures/cursor-usage";
 import { anthropicCostFixture } from "@/lib/ingest/fixtures/anthropic-cost";
 import { openaiCostFixture } from "@/lib/ingest/fixtures/openai-cost";
-import { normalizeHibob } from "@/lib/ingest/normalizers/hibob";
+import { normalizeOkta } from "@/lib/ingest/normalizers/okta";
 import { attachEmployees, upsertSpendFacts, loadEmployees, upsertEmployees, type ResolvedFact } from "@/lib/ingest/persist";
 import type { SpendFact } from "@/lib/types";
 
@@ -45,21 +45,19 @@ async function main() {
   const roster = parseClaudeRoster(readFileSync("reports/claude team.csv", "utf8"));
   console.log(`roster: ${roster.seats.length} seats, ${roster.errors.length} errors`);
 
-  // Employees flow through the HiBob normalizer (the identity spine). In dev we
-  // synthesise a HiBob payload from the roster with dev-assigned departments;
-  // the real HiBob fetch (sources/hibob.ts) needs service-user creds.
-  const hibobPayload = {
-    employees: roster.seats.map((s) => ({
-      id: `hibob-${s.email}`,
-      email: s.email,
-      displayName: s.fullName,
-      work: { department: deptFor(s.email), site: "London" },
-      employmentStatus: "Active",
+  // Employees flow through the Okta normalizer (the identity spine). In dev we
+  // synthesise an Okta Users payload from the roster with dev-assigned
+  // departments; the real Okta fetch (sources/okta.ts) needs an API token.
+  const oktaPayload = {
+    users: roster.seats.map((s) => ({
+      id: `okta-${s.email}`,
+      status: "ACTIVE",
+      profile: { displayName: s.fullName, email: s.email, login: s.email, department: deptFor(s.email) },
     })),
   };
   await upsertEmployees(
     supabase,
-    normalizeHibob(hibobPayload) as unknown as Record<string, unknown>[],
+    normalizeOkta(oktaPayload) as unknown as Record<string, unknown>[],
   );
   const employees = await loadEmployees(supabase);
   const idByEmail = new Map(employees.map((e) => [e.email, e.id]));
