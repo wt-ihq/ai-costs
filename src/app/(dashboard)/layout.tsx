@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Image from "next/image";
 import { Nav } from "@/components/nav";
 import { SearchBox } from "@/components/explore/search-box";
 import { getSearchIndex } from "@/lib/queries/explore";
@@ -31,8 +32,15 @@ export default async function DashboardLayout({
     <div className="flex min-h-screen">
       <aside className="flex w-60 shrink-0 flex-col gap-6 border-r border-border bg-surface px-4 py-6">
         <div className="px-3">
+          <Image
+            src="/intenthq-logo.png"
+            alt="Intent HQ — Customer Intelligence Lab"
+            width={2447}
+            height={641}
+            priority
+            className="mb-3 h-auto w-36"
+          />
           <div className="text-sm font-semibold tracking-tight">AI Spend</div>
-          <div className="text-xs text-muted">Intent HQ</div>
         </div>
         <Nav isAdmin={isAdmin} cursorAnalyticsEnabled={CURSOR_ANALYTICS_ENABLED} />
       </aside>
