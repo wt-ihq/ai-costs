@@ -79,7 +79,12 @@ export async function upsertSpendFacts(
   facts: ResolvedFact[],
 ): Promise<number> {
   if (facts.length === 0) return 0;
-  const rows = facts.map((f) => ({
+  // Collapse duplicate conflict keys within this batch (last wins). Postgres
+  // ON CONFLICT cannot update the same row twice in one statement, and the same
+  // (source, day, cost_type, entity_key, model) can legitimately arrive twice —
+  // e.g. a Cursor user counted as both an active-user seat and a member seat.
+  const byKey = new Map<string, ReturnType<typeof toRow>>();
+  const toRow = (f: ResolvedFact) => ({
     source: f.source,
     day: f.day,
     cost_type: f.costType,
@@ -89,7 +94,12 @@ export async function upsertSpendFacts(
     requests: f.requests ?? null,
     employee_id: f.employeeId,
     model: f.model ?? "",
-  }));
+  });
+  for (const f of facts) {
+    const r = toRow(f);
+    byKey.set(`${r.source}|${r.day}|${r.cost_type}|${r.entity_key}|${r.model}`, r);
+  }
+  const rows = [...byKey.values()];
   const { error } = await supabase
     .from("spend_facts")
     .upsert(rows, { onConflict: "source,day,cost_type,entity_key,model" });
