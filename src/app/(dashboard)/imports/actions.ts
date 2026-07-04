@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { requireAdmin } from "@/lib/auth-guard";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { recentWindow, runAllSyncs, type SyncOutcome } from "@/lib/ingest/run-all";
 import { syncCursor } from "@/lib/ingest/run-cursor";
@@ -38,6 +39,7 @@ export async function previewChatGptImport(
   text: string,
   usdPerCredit: number,
 ): Promise<ChatGptPreview> {
+  await requireAdmin();
   const supabase = getSupabaseAdminClient();
   const employees = await loadEmployeeNames(supabase);
   const byId = new Map(employees.map((e) => [e.id, e.fullName]));
@@ -71,6 +73,7 @@ export async function commitChatGptImport(
   rows: ChatGptPreviewRow[],
   asOf: string,
 ): Promise<ChatGptCommitResult> {
+  await requireAdmin();
   const supabase = getSupabaseAdminClient();
   const day = asOf.slice(0, 7) + "-01"; // monthly snapshot, upsert-replace
   const seatPrice = (await loadSeatPrices(supabase))["chatgpt_business:chatgpt"] ?? 25;
@@ -152,6 +155,7 @@ export async function previewClaudeSpendImport(
   text: string,
   gbpToUsd: number,
 ): Promise<ClaudePreview> {
+  await requireAdmin();
   const supabase = getSupabaseAdminClient();
   const { data: emps } = await supabase.from("employees").select("id, email, full_name");
   const byEmail = new Map((emps ?? []).map((e) => [(e.email as string).toLowerCase(), e]));
@@ -188,6 +192,7 @@ export async function commitClaudeSpendImport(
   rows: ClaudePreviewRow[],
   asOf: string,
 ): Promise<ChatGptCommitResult> {
+  await requireAdmin();
   const supabase = getSupabaseAdminClient();
   const day = asOf.slice(0, 7) + "-01"; // monthly MTD snapshot, upsert-replace
 
@@ -249,6 +254,7 @@ export interface RosterPreview {
 
 /** Parse the roster CSV, match seats to employees by email, price by tier. */
 export async function previewClaudeRoster(csv: string): Promise<RosterPreview> {
+  await requireAdmin();
   const supabase = getSupabaseAdminClient();
   const [{ data: emps }, prices] = await Promise.all([
     supabase.from("employees").select("id, email, full_name"),
@@ -285,6 +291,7 @@ export async function commitClaudeRoster(
   rows: RosterPreviewRow[],
   asOf: string,
 ): Promise<{ written: number; seats: number; attributed: number }> {
+  await requireAdmin();
   const supabase = getSupabaseAdminClient();
   const day = asOf.slice(0, 7) + "-01";
 
@@ -330,6 +337,7 @@ export async function commitClaudeRoster(
 
 /** Run all sources now (the cron pipeline, on demand). */
 export async function triggerSync(): Promise<Record<string, SyncOutcome>> {
+  await requireAdmin();
   const supabase = getSupabaseAdminClient();
   const results = await runAllSyncs(supabase, recentWindow(new Date()));
   revalidatePath("/data-health");
@@ -345,6 +353,7 @@ export interface BackfillResult {
 
 /** Backfill the metered API sources over the past N monthly windows. */
 export async function backfillSync(months: number): Promise<BackfillResult> {
+  await requireAdmin();
   const supabase = getSupabaseAdminClient();
   const n = Math.max(1, Math.min(24, Math.floor(months)));
   const now = new Date();

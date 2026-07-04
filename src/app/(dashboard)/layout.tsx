@@ -1,22 +1,9 @@
-import { redirect } from "next/navigation";
 import Image from "next/image";
 import { Nav } from "@/components/nav";
 import { SearchBox } from "@/components/explore/search-box";
 import { getSearchIndex } from "@/lib/queries/explore";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
-import { auth } from "@/auth";
-
-/**
- * Authoritative auth gate for the whole dashboard (every page nests here).
- * Verifies the real session server-side and redirects signed-out users.
- * AUTH_DISABLED is a local-dev-only bypass (never set in production).
- */
-async function requireRole(): Promise<string> {
-  if (process.env.AUTH_DISABLED === "true") return "admin";
-  const session = await auth().catch(() => null);
-  if (!session?.user) redirect("/api/auth/signin");
-  return (session.user as { role?: string }).role ?? "viewer";
-}
+import { requireRole } from "@/lib/auth-guard";
 
 export default async function DashboardLayout({
   children,

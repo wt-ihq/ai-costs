@@ -1,10 +1,14 @@
+import { notFound } from "next/navigation";
 import { PageHeader, Panel } from "@/components/ui";
 import { ChatGptImport } from "@/components/chatgpt-import";
 import { ClaudeSpendImport } from "@/components/claude-spend-import";
 import { ClaudeRosterImport } from "@/components/claude-roster-import";
 import { SyncControls } from "@/components/sync-controls";
+import { getRole } from "@/lib/auth-guard";
 
-export default function ImportsPage() {
+export default async function ImportsPage() {
+  // The nav only hides the link for viewers; the page itself must enforce it.
+  if ((await getRole()) !== "admin") notFound();
   return (
     <>
       <PageHeader

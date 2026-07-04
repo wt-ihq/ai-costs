@@ -1,18 +1,22 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
+import { isCronAuthorized } from "@/lib/cron-auth";
 import { monthToDate, runAllSyncs } from "@/lib/ingest/run-all";
 import { reattributeUnmatched } from "@/lib/ingest/reattribute";
 
 export const dynamic = "force-dynamic";
+// Backfills fan out over many vendor calls with retry backoff — give the
+// function the full window rather than the platform default.
+export const maxDuration = 300;
 
 /**
  * Daily sync orchestrator (Vercel Cron, see vercel.json). Each source is
  * isolated (spec §8): one vendor's API failure never aborts the others.
- * Authenticated by CRON_SECRET (Vercel sets the Authorization header).
+ * Authenticated by CRON_SECRET (Vercel sets the Authorization header);
+ * fails closed when the secret is unset.
  */
 export async function GET(req: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) {
+  if (!isCronAuthorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

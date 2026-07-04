@@ -21,7 +21,7 @@ export const authConfig = {
   callbacks: {
     signIn({ profile }) {
       const email = profile?.email?.toLowerCase() ?? "";
-      return email.endsWith(`@${ALLOWED_DOMAIN}`);
+      return profile?.email_verified === true && email.endsWith(`@${ALLOWED_DOMAIN}`);
     },
     jwt({ token }) {
       const email = (token.email ?? "").toLowerCase();

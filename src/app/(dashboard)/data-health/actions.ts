@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { requireAdmin } from "@/lib/auth-guard";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { Vendor } from "@/lib/types";
 
@@ -14,6 +15,7 @@ export async function assignUnmatched(
   entityKey: string,
   employeeId: string,
 ): Promise<{ updated: number }> {
+  await requireAdmin();
   const supabase = getSupabaseAdminClient();
 
   const { data, error } = await supabase
