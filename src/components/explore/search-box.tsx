@@ -32,9 +32,6 @@ export function SearchBox({ items }: { items: SearchItem[] }) {
 
   const results = useMemo(() => rank(items, query), [items, query]);
 
-  // Reset highlight when the result set changes.
-  useEffect(() => setActive(0), [query]);
-
   // Close on outside click.
   useEffect(() => {
     if (!open) return;
@@ -74,22 +71,28 @@ export function SearchBox({ items }: { items: SearchItem[] }) {
       <input
         type="text"
         value={query}
-        onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+        // Reset the highlight in the event handler (not an effect) — the
+        // result set only changes when the query does.
+        onChange={(e) => { setQuery(e.target.value); setActive(0); setOpen(true); }}
         onFocus={() => setOpen(true)}
         onKeyDown={onKeyDown}
         placeholder="Search teams & people…"
+        aria-label="Search teams and people"
         role="combobox"
         aria-expanded={showList}
+        aria-controls="search-results"
+        aria-activedescendant={showList ? `search-option-${active}` : undefined}
         aria-autocomplete="list"
         className="w-full rounded-md border border-border bg-surface-2 px-3 py-1.5 text-sm text-foreground placeholder:text-muted focus:border-accent/60 focus:outline-none"
       />
       {showList && (
         <ul
+          id="search-results"
           role="listbox"
           className="absolute z-50 mt-1 w-full overflow-hidden rounded-md border border-border bg-surface shadow-lg"
         >
           {results.map((item, i) => (
-            <li key={`${item.kind}:${item.href}`} role="option" aria-selected={i === active}>
+            <li key={`${item.kind}:${item.href}`} id={`search-option-${i}`} role="option" aria-selected={i === active}>
               <button
                 type="button"
                 onMouseEnter={() => setActive(i)}

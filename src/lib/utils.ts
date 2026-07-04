@@ -36,6 +36,27 @@ export function formatCountCompact(n: number): string {
   return countCompact.format(n);
 }
 
+/**
+ * decodeURIComponent that survives malformed input (e.g. a hand-typed
+ * `/explore/50%` URL) instead of throwing URIError → 500.
+ */
+export function safeDecodeURIComponent(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
+/**
+ * Today's date in the LOCAL timezone as YYYY-MM-DD. For user-facing "as of"
+ * defaults — `toISOString()` is UTC, which rolls to tomorrow during a US
+ * evening and, on a month boundary, snapshots an import into the wrong month.
+ */
+export function localDateISO(d = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 /** "34 days old" style staleness label from a "data as of" date. */
 export function staleness(asOf: Date, now: Date): string {
   const days = Math.floor((now.getTime() - asOf.getTime()) / 86_400_000);

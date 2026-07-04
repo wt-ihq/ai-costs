@@ -7,7 +7,7 @@ import {
   type ChatGptPreview,
   type ChatGptCommitResult,
 } from "@/app/(dashboard)/imports/actions";
-import { formatUsd, cn } from "@/lib/utils";
+import { formatUsd, cn, localDateISO } from "@/lib/utils";
 
 const CONFIDENCE_STYLE = {
   high: "bg-emerald-500/15 text-emerald-300",
@@ -18,19 +18,30 @@ const CONFIDENCE_STYLE = {
 export function ChatGptImport() {
   const [text, setText] = useState("");
   const [rate, setRate] = useState("0.01");
-  const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
+  const [asOf, setAsOf] = useState(() => localDateISO());
   const [preview, setPreview] = useState<ChatGptPreview | null>(null);
   const [result, setResult] = useState<ChatGptCommitResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
-  const onPreview = () =>
+  const run = (fn: () => Promise<void>) =>
     start(async () => {
+      setError(null);
+      try {
+        await fn();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    });
+
+  const onPreview = () =>
+    run(async () => {
       setResult(null);
       setPreview(await previewChatGptImport(text, Number(rate) || 0));
     });
 
   const onCommit = () =>
-    start(async () => {
+    run(async () => {
       if (!preview) return;
       setResult(await commitChatGptImport(preview.rows, asOf));
       setPreview(null);
@@ -53,7 +64,8 @@ export function ChatGptImport() {
         </label>
         <label className="flex items-center gap-2 text-muted">
           Data as of
-          <input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} className="rounded-md border border-border bg-surface-2 px-2 py-1 text-foreground outline-none focus:border-accent" />
+          {/* Default is the client's local date; the server-rendered value can differ by a day. */}
+          <input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} suppressHydrationWarning className="rounded-md border border-border bg-surface-2 px-2 py-1 text-foreground outline-none focus:border-accent" />
         </label>
         <button
           onClick={onPreview}
@@ -63,6 +75,12 @@ export function ChatGptImport() {
           {pending ? "Parsing…" : "Preview"}
         </button>
       </div>
+
+      {error && (
+        <p className="rounded-md border border-pink-500/30 bg-pink-500/10 px-3 py-2 text-sm text-pink-300">
+          Failed: {error}
+        </p>
+      )}
 
       {result && (
         <p className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">

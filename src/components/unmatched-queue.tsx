@@ -19,6 +19,7 @@ export function UnmatchedQueue({
   const [pending, start] = useTransition();
   const [selected, setSelected] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   if (rows.length === 0) {
     return <p className="text-sm text-muted">Nothing unmatched — every spend row is attributed. 🎉</p>;
@@ -29,15 +30,27 @@ export function UnmatchedQueue({
     const employeeId = selected[key];
     if (!employeeId) return;
     setBusy(key);
+    setError(null);
     start(async () => {
-      await assignUnmatched(r.source, r.entityKey, employeeId);
-      setBusy(null);
-      router.refresh();
+      try {
+        await assignUnmatched(r.source, r.entityKey, employeeId);
+        router.refresh();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        // try/finally: a failed action must not leave the button stuck on "…".
+        setBusy(null);
+      }
     });
   };
 
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
+      {error && (
+        <p className="border-b border-border bg-pink-500/10 px-3 py-2 text-sm text-pink-300">
+          Assignment failed: {error}
+        </p>
+      )}
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">

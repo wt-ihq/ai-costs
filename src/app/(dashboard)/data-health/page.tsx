@@ -49,8 +49,9 @@ export default async function DataHealthPage() {
                 </span>
               </td>
               <td className="px-4 py-2.5 text-right tabular-nums text-muted">
-                {identity.employeeCount || "—"}
-                {identity.employeeCount ? <span className="ml-1 text-xs text-muted">people</span> : null}
+                {/* Real 0 must render as 0 — this page exists to spot empty sources. */}
+                {identity.employeeCount}
+                <span className="ml-1 text-xs text-muted">people</span>
               </td>
               <td className="px-4 py-2.5 text-muted">—</td>
               <td className="px-4 py-2.5 text-muted">
@@ -72,7 +73,7 @@ export default async function DataHealthPage() {
                     {VENDOR_LABEL[s.source]}
                   </span>
                 </td>
-                <td className="px-4 py-2.5 text-right tabular-nums text-muted">{s.factCount || "—"}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums text-muted">{s.factCount}</td>
                 <td className="px-4 py-2.5 text-muted">{s.latestDay ?? "—"}</td>
                 <td className="px-4 py-2.5 text-muted">
                   {s.lastSyncAt ? (

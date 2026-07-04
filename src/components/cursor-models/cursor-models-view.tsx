@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { motion } from "motion/react";
 import { buildModelUsage, type ModelUsageRow } from "@/lib/cursor-models/shape";
 import { allTimePeriod, parsePeriod, type Period } from "@/lib/explore/period";
 import { PeriodControl } from "@/components/explore/period-control";
@@ -47,17 +46,14 @@ export function CursorModelsView({ scope, initialPeriodParam }: { scope: Scope; 
         <PeriodControl period={period} earliest={scope.earliest} onChange={changePeriod} />
       </div>
 
-      <motion.div
-        className="grid grid-cols-2 gap-4 lg:grid-cols-4"
-        initial="hidden"
-        animate="show"
-        variants={{ show: { transition: { staggerChildren: 0.04 } } }}
-      >
+      {/* Plain grid: the StatCards are not motion components, so the previous
+          staggerChildren variants were a silent no-op. */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="Messages" value={formatCount(summary.messages)} hint={`${data.period.label}`} />
         <StatCard label="Active users" value={formatCount(summary.activeUsers)} hint="with Cursor usage" />
         <StatCard label="Models used" value={formatCount(summary.modelCount)} />
         <StatCard label="Top model" value={summary.topModel ?? "—"} hint="by messages" />
-      </motion.div>
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <section>

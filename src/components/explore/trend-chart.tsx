@@ -11,6 +11,16 @@ import { formatUsd } from "@/lib/utils";
 const AXIS = { stroke: "#8b92a5", fontSize: 11 };
 const usd = (v: unknown) => formatUsd(Number(v));
 
+/**
+ * Y-axis tick: adaptive units. Person pages chart tens of dollars, where a
+ * fixed `$Xk` formatter rendered every tick as "$0k".
+ */
+const usdTick = (v: unknown) => {
+  const n = Number(v);
+  if (Math.abs(n) >= 1000) return `$${(n / 1000).toFixed(Math.abs(n) < 10_000 ? 1 : 0)}k`;
+  return `$${Math.round(n)}`;
+};
+
 export function TrendChart({ data, dim, height = 280 }: { data: TrendPoint[]; dim: Dim; height?: number }) {
   // Derive the stacked series from ALL the data points (every dim value that
   // appears in any month), ordered by total desc — not just the current month.
@@ -36,7 +46,7 @@ export function TrendChart({ data, dim, height = 280 }: { data: TrendPoint[]; di
             minTickGap small so short labels (e.g. "Jan") all show on wide
             charts; long ones (e.g. "Jun 25") still thin on narrow screens. */}
         <XAxis dataKey="label" tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={5} {...AXIS} />
-        <YAxis tickFormatter={(v) => `$${(Number(v) / 1000).toFixed(0)}k`} tickLine={false} axisLine={false} width={44} {...AXIS} />
+        <YAxis tickFormatter={usdTick} tickLine={false} axisLine={false} width={44} {...AXIS} />
         <Tooltip
           contentStyle={{ background: "#14171f", border: "1px solid #262b38", borderRadius: 8, fontSize: 12 }}
           labelStyle={{ color: "#e6e8ee" }}

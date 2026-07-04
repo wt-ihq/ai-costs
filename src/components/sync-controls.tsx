@@ -9,22 +9,42 @@ export function SyncControls() {
   const [results, setResults] = useState<Record<string, SyncOutcome> | null>(null);
   const [backfill, setBackfill] = useState<BackfillResult | null>(null);
   const [months, setMonths] = useState("3");
+  const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
+  // Catch action rejections: a dropped connection during a backfill must
+  // report something, not silently leave the user guessing whether it ran.
   const onSync = () =>
     start(async () => {
       setBackfill(null);
-      setResults(await triggerSync());
+      setError(null);
+      try {
+        setResults(await triggerSync());
+      } catch (err) {
+        setResults(null);
+        setError(err instanceof Error ? err.message : String(err));
+      }
     });
 
   const onBackfill = () =>
     start(async () => {
       setResults(null);
-      setBackfill(await backfillSync(Number(months) || 1));
+      setError(null);
+      try {
+        setBackfill(await backfillSync(Number(months) || 1));
+      } catch (err) {
+        setBackfill(null);
+        setError(err instanceof Error ? err.message : String(err));
+      }
     });
 
   return (
     <div className="space-y-4">
+      {error && (
+        <p className="rounded-md border border-pink-500/30 bg-pink-500/10 px-3 py-2 text-sm text-pink-300">
+          Failed: {error}
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <button
           onClick={onSync}

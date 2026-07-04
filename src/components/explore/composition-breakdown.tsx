@@ -11,7 +11,7 @@ import { formatUsd } from "@/lib/utils";
  */
 export function CompositionBreakdown({ nodes }: { nodes: TreemapNode[] }) {
   const reduce = useReducedMotion();
-  if (!nodes.length) return <div className="flex h-40 items-center justify-center text-sm text-muted">No spend this month.</div>;
+  if (!nodes.length) return <div className="flex h-40 items-center justify-center text-sm text-muted">No spend in this period.</div>;
   const total = nodes.reduce((s, n) => s + n.value, 0);
   const max = Math.max(...nodes.map((n) => n.value), 0);
   return (

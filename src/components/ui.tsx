@@ -36,30 +36,3 @@ export function Panel({
   );
 }
 
-/** A KPI scorecard (Overview). */
-export function Scorecard({
-  label,
-  value,
-  delta,
-}: {
-  label: string;
-  value: string;
-  delta?: string;
-}) {
-  return (
-    <Panel className="flex flex-col gap-2">
-      <span className="text-xs uppercase tracking-wide text-muted">{label}</span>
-      <span className="text-2xl font-semibold tabular-nums">{value}</span>
-      {delta && <span className="text-xs text-muted">{delta}</span>}
-    </Panel>
-  );
-}
-
-/** Placeholder for a panel whose data wiring is not built yet. */
-export function AwaitingData({ note }: { note: string }) {
-  return (
-    <div className="flex min-h-32 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted">
-      {note}
-    </div>
-  );
-}
