@@ -1,12 +1,14 @@
-import type { SpendFact } from "@/lib/types";
-import { SchemaDriftError, type Normalizer } from "@/lib/ingest/types";
-
 /**
  * Anthropic Console — Cost Report (GET /v1/organizations/cost_report).
  * Real shape (confirmed against the org): time buckets, each with `results[]`.
- * `amount` is a decimal string; `workspace_id`/`model` are populated when the
- * request groups by them (null = org-aggregate). entity_key = workspace id (or
- * "org"); attribution flows via the workspace's owner downstream (spec §5).
+ * ⚠ `amount` is a decimal string in CENTS — the live pipeline divides by 100
+ * (see run-platforms.ts:syncAnthropic). `workspace_id`/`model` are populated
+ * when the request groups by them (null = org-aggregate).
+ *
+ * NOTE: a `normalizeAnthropic` fact normalizer used to live here, reading
+ * `amount` as DOLLARS — it was dead code (production goes through
+ * estimateAndScale) and disagreed with the live pipeline by 100×, so it was
+ * removed. Only the response type remains.
  */
 export interface AnthropicCostResponse {
   data: Array<{
@@ -20,26 +22,3 @@ export interface AnthropicCostResponse {
     }>;
   }>;
 }
-
-export const normalizeAnthropic: Normalizer<AnthropicCostResponse> = (raw) => {
-  if (!raw || !Array.isArray(raw.data)) {
-    throw new SchemaDriftError("anthropic", "missing `data` array");
-  }
-  const facts: SpendFact[] = [];
-  for (const bucket of raw.data) {
-    const day = (bucket.starting_at ?? "").slice(0, 10);
-    for (const r of bucket.results ?? []) {
-      const cost = Number(r.amount);
-      if (!Number.isFinite(cost) || cost === 0) continue;
-      facts.push({
-        source: "anthropic",
-        day,
-        costType: "metered",
-        entityKey: r.workspace_id ?? "org",
-        costUsd: cost,
-        model: r.model ?? "",
-      });
-    }
-  }
-  return facts;
-};

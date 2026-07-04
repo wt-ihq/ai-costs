@@ -57,10 +57,16 @@ export function recentWindow(now: Date, days = 7): DateWindow {
  * by the daily cron so each run reloads the whole current month — snapshot
  * upserts make this self-healing: a missed day or restated vendor data can't
  * leave a gap in "this month".
+ *
+ * For the first 3 days of a month the window extends back to the PREVIOUS
+ * month's 1st: vendors restate late-arriving data for the 30th/31st after the
+ * month rolls, and without the grace period the prior month froze at the
+ * 06:00 UTC run on the 1st.
  */
 export function monthToDate(now: Date): DateWindow {
+  const monthsBack = now.getUTCDate() <= 3 ? 1 : 0;
   return {
-    startDate: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10),
+    startDate: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - monthsBack, 1)).toISOString().slice(0, 10),
     endDate: new Date(now.getTime() + 86_400_000).toISOString().slice(0, 10),
   };
 }

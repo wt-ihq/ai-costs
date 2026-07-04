@@ -14,9 +14,9 @@ import {
   finishSyncRun,
   loadEmployees,
   loadProjectOwners,
+  replaceWindowFacts,
   saveRawPayload,
   startSyncRun,
-  upsertSpendFacts,
   type ResolvedFact,
 } from "@/lib/ingest/persist";
 
@@ -75,7 +75,10 @@ export async function syncAnthropic(
       created_by_email: m.email,
       owner_employee_id: m.email ? empByEmail.get(m.email) ?? null : null,
     }));
-    if (keyRows.length) await supabase.from("api_keys").upsert(keyRows, { onConflict: "vendor,external_key_id" });
+    if (keyRows.length) {
+      const { error } = await supabase.from("api_keys").upsert(keyRows, { onConflict: "vendor,external_key_id" });
+      if (error) console.warn(`syncAnthropic api_keys upsert: ${error.message}`);
+    }
 
     // 4. Build facts (entity = api key id, or "unkeyed" for Workbench usage).
     const unmatched = new Set<string>();
@@ -88,14 +91,22 @@ export async function syncAnthropic(
         return { source: "anthropic", day: e.day, costType: "metered", entityKey, costUsd: e.costUsd, model: e.model, employeeId };
       });
 
-    // Snapshot-replace ONLY when we have facts. A transient empty usage
-    // response must not wipe the window's existing data (which is what blanked
-    // a month previously).
-    let rowsWritten = 0;
-    if (facts.length > 0) {
-      await supabase.from("spend_facts").delete().eq("source", "anthropic").gte("day", window.startDate).lte("day", window.endDate);
-      rowsWritten = await upsertSpendFacts(supabase, facts);
+    // Days the Cost API reports but the usage report doesn't cover (e.g.
+    // non-token costs, or an empty usage response for one day) would otherwise
+    // be silently dropped — keep the authoritative daily total by writing the
+    // remainder as an unkeyed fact.
+    const coveredDays = new Set(facts.map((f) => f.day));
+    for (const [day, usd] of Object.entries(costByDay)) {
+      if (usd > 0.005 && !coveredDays.has(day)) {
+        unmatched.add("unkeyed");
+        facts.push({ source: "anthropic", day, costType: "metered", entityKey: "unkeyed", costUsd: Math.round(usd * 100) / 100, model: "", employeeId: null });
+      }
     }
+
+    // Snapshot-replace (upsert first, then prune stale keys) ONLY when we have
+    // facts. A transient empty usage response must not wipe the window's
+    // existing data (which is what blanked a month previously).
+    const rowsWritten = await replaceWindowFacts(supabase, "anthropic", window, facts);
     await finishSyncRun(supabase, runId, { status: "success", rowsWritten });
     return { rowsWritten, unmatched: [...unmatched] };
   } catch (err) {
@@ -116,12 +127,9 @@ export async function syncOpenAI(
     await saveRawPayload(supabase, "openai", runId, raw);
     const owners = await loadProjectOwners(supabase);
     const { facts, unmatched } = attachOwners(normalizeOpenAI(raw), owners);
-    // Snapshot-replace only when we have facts (don't wipe on a transient empty).
-    let rowsWritten = 0;
-    if (facts.length > 0) {
-      await supabase.from("spend_facts").delete().eq("source", "openai").gte("day", window.startDate).lte("day", window.endDate);
-      rowsWritten = await upsertSpendFacts(supabase, facts);
-    }
+    // Snapshot-replace (upsert first, then prune stale keys) only when we have
+    // facts (don't wipe on a transient empty).
+    const rowsWritten = await replaceWindowFacts(supabase, "openai", window, facts);
     await finishSyncRun(supabase, runId, { status: "success", rowsWritten });
     return { rowsWritten, unmatched };
   } catch (err) {

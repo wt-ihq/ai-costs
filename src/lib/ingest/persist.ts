@@ -24,10 +24,35 @@ export function attachEmployees(
   return { facts: resolved, unmatched: [...unmatched] };
 }
 
+/**
+ * Read every row of a table, paging past PostgREST's 1000-row cap (gotcha #1 —
+ * employees only ever grows because Okta leavers are retained, so a bare
+ * .select() would silently truncate attribution past 1000 rows). Ordered by the
+ * unique id so pages can't overlap or skip.
+ */
+async function selectAllRows<T>(
+  supabase: SupabaseClient,
+  table: string,
+  columns: string,
+  label: string,
+): Promise<T[]> {
+  const PAGE = 1000;
+  const all: T[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from(table)
+      .select(columns)
+      .order("id")
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(`${label}: ${error.message}`);
+    all.push(...((data ?? []) as T[]));
+    if (!data || data.length < PAGE) break;
+  }
+  return all;
+}
+
 export async function loadEmployees(supabase: SupabaseClient) {
-  const { data, error } = await supabase.from("employees").select("id, email");
-  if (error) throw new Error(`loadEmployees: ${error.message}`);
-  return data ?? [];
+  return selectAllRows<{ id: string; email: string }>(supabase, "employees", "id, email", "loadEmployees");
 }
 
 /** Attach employee_id to API-platform facts via the key/project owner map. */
@@ -44,22 +69,28 @@ export function attachOwners(
   return { facts: resolved, unmatched: [...unmatched] };
 }
 
-/** external id → owner employee (override wins over creator, spec §5 rule 3). */
+/**
+ * external id → owner employee (override wins over creator, spec §5 rule 3).
+ * Throws on read errors: a swallowed error here would write a whole window
+ * unattributed and report success.
+ */
 export async function loadApiKeyOwners(supabase: SupabaseClient): Promise<Map<string, string | null>> {
-  const { data } = await supabase.from("api_keys").select("external_key_id, owner_employee_id, owner_override");
-  return new Map((data ?? []).map((k) => [k.external_key_id as string, (k.owner_override ?? k.owner_employee_id) as string | null]));
+  const rows = await selectAllRows<{ external_key_id: string; owner_employee_id: string | null; owner_override: string | null }>(
+    supabase, "api_keys", "id, external_key_id, owner_employee_id, owner_override", "loadApiKeyOwners",
+  );
+  return new Map(rows.map((k) => [k.external_key_id, k.owner_override ?? k.owner_employee_id]));
 }
 
 export async function loadProjectOwners(supabase: SupabaseClient): Promise<Map<string, string | null>> {
-  const { data } = await supabase.from("projects").select("external_id, owner_employee_id, owner_override");
-  return new Map((data ?? []).map((p) => [p.external_id as string, (p.owner_override ?? p.owner_employee_id) as string | null]));
+  const rows = await selectAllRows<{ external_id: string; owner_employee_id: string | null; owner_override: string | null }>(
+    supabase, "projects", "id, external_id, owner_employee_id, owner_override", "loadProjectOwners",
+  );
+  return new Map(rows.map((p) => [p.external_id, p.owner_override ?? p.owner_employee_id]));
 }
 
 /** Employees with names, for ChatGPT's no-email fuzzy matching. */
 export async function loadEmployeeNames(supabase: SupabaseClient) {
-  const { data, error } = await supabase.from("employees").select("id, fullName:full_name");
-  if (error) throw new Error(`loadEmployeeNames: ${error.message}`);
-  return (data ?? []) as { id: string; fullName: string }[];
+  return selectAllRows<{ id: string; fullName: string }>(supabase, "employees", "id, fullName:full_name", "loadEmployeeNames");
 }
 
 /** Upsert employees from Okta (the identity spine). Keyed on email. */
@@ -105,6 +136,50 @@ export async function upsertSpendFacts(
     .upsert(rows, { onConflict: "source,day,cost_type,entity_key,model" });
   if (error) throw new Error(`upsertSpendFacts: ${error.message}`);
   return rows.length;
+}
+
+/**
+ * Snapshot-replace a source's facts for a [startDate, endDate) window without
+ * a delete-then-insert hole: upsert the new facts FIRST, then delete only rows
+ * whose conflict key is absent from the new snapshot. A crash between the two
+ * steps leaves stale rows (healed by the next run) instead of a blank window.
+ * No-ops on an empty snapshot — a transient empty vendor response must never
+ * wipe existing data (gotcha #4). The window is exclusive-end, matching every
+ * fetch window in this repo (deleting `.lte` endDate wiped a day the fetch
+ * never covered — e.g. Aug 1 on a July backfill with ?to=2026-08-01).
+ */
+export async function replaceWindowFacts(
+  supabase: SupabaseClient,
+  source: string,
+  window: { startDate: string; endDate: string },
+  facts: ResolvedFact[],
+): Promise<number> {
+  if (facts.length === 0) return 0;
+  const written = await upsertSpendFacts(supabase, facts);
+
+  const keep = new Set(facts.map((f) => `${f.day}|${f.costType}|${f.entityKey}|${f.model ?? ""}`));
+  const stale: string[] = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from("spend_facts")
+      .select("id, day, cost_type, entity_key, model")
+      .eq("source", source)
+      .gte("day", window.startDate)
+      .lt("day", window.endDate)
+      .order("id")
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(`replaceWindowFacts(${source}): ${error.message}`);
+    for (const r of data ?? []) {
+      if (!keep.has(`${r.day}|${r.cost_type}|${r.entity_key}|${r.model ?? ""}`)) stale.push(r.id as string);
+    }
+    if (!data || data.length < PAGE) break;
+  }
+  for (let i = 0; i < stale.length; i += 500) {
+    const { error } = await supabase.from("spend_facts").delete().in("id", stale.slice(i, i + 500));
+    if (error) throw new Error(`replaceWindowFacts(${source}) delete: ${error.message}`);
+  }
+  return written;
 }
 
 export interface ResolvedModelUsage extends ModelUsageFact {
@@ -183,7 +258,7 @@ export async function finishSyncRun(
   id: string,
   result: { status: "success" | "failed"; rowsWritten?: number; error?: string },
 ) {
-  await supabase
+  const { error } = await supabase
     .from("sync_runs")
     .update({
       finished_at: new Date().toISOString(),
@@ -192,6 +267,9 @@ export async function finishSyncRun(
       error_detail: result.error ?? null,
     })
     .eq("id", id);
+  // Non-fatal (the sync itself succeeded/failed independently) but never silent
+  // — a stuck "running" row misleads the Data Health page.
+  if (error) console.warn(`finishSyncRun(${id}): ${error.message}`);
 }
 
 export async function saveRawPayload(
@@ -200,7 +278,10 @@ export async function saveRawPayload(
   syncRunId: string,
   payload: unknown,
 ) {
-  await supabase
+  const { error } = await supabase
     .from("raw_payloads")
     .insert({ source, sync_run_id: syncRunId, payload });
+  // Non-fatal, but the "raw payloads can be replayed" guarantee shouldn't fail
+  // silently.
+  if (error) console.warn(`saveRawPayload(${source}): ${error.message}`);
 }

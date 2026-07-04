@@ -44,7 +44,10 @@ export async function reattributeUnmatched(supabase: SupabaseClient): Promise<Re
       .from("spend_facts")
       .select("entity_key")
       .is("employee_id", null)
+      // entity_key is non-unique — the id tiebreaker keeps page boundaries
+      // stable (equal keys can otherwise shuffle between queries).
       .order("entity_key")
+      .order("id")
       .range(from, from + PAGE - 1);
     if (error) throw new Error(`reattributeUnmatched (scan): ${error.message}`);
     if (!data || data.length === 0) break;

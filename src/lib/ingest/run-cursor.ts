@@ -91,9 +91,11 @@ export async function syncCursor(
 }
 
 /**
- * Seat facts from the current roster, but only when the sync window includes
+ * Seat facts from the current roster, but only when the sync window overlaps
  * the current month (the roster is date-less / "now"). Returns [] otherwise so
- * historical backfills aren't polluted with present-day seats.
+ * historical backfills aren't polluted with present-day seats. Overlap (rather
+ * than "window contains the 1st") means a mid-month manual run like
+ * ?from=2026-07-03&to=2026-07-05 still refreshes the roster seats.
  */
 async function currentMonthMemberSeats(
   supabase: SupabaseClient,
@@ -103,7 +105,9 @@ async function currentMonthMemberSeats(
 ): Promise<SpendFact[]> {
   const now = new Date();
   const month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
-  if (!(month >= opts.startDate && month < opts.endDate)) return [];
+  const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString().slice(0, 10);
+  // [startDate, endDate) must intersect [month, nextMonth).
+  if (!(opts.endDate > month && opts.startDate < nextMonth)) return [];
 
   const rawMembers = await membersFetcher();
   await saveRawPayload(supabase, "cursor", runId, rawMembers);

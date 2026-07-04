@@ -11,7 +11,7 @@ import { parseClaudeRoster } from "@/lib/ingest/parsers/claude-roster";
 import { parseClaudeSpend, buildClaudeSpendFacts } from "@/lib/ingest/parsers/claude-spend";
 import { buildSeatFacts, type SeatAssignment } from "@/lib/ingest/seats";
 import { normalizeCursor } from "@/lib/ingest/normalizers/cursor";
-import { normalizeAnthropic } from "@/lib/ingest/normalizers/anthropic";
+import type { AnthropicCostResponse } from "@/lib/ingest/normalizers/anthropic";
 import { normalizeOpenAI } from "@/lib/ingest/normalizers/openai";
 import { cursorUsageFixture } from "@/lib/ingest/fixtures/cursor-usage";
 import { anthropicCostFixture } from "@/lib/ingest/fixtures/anthropic-cost";
@@ -117,8 +117,22 @@ async function main() {
     { vendor: "openai", external_id: "proj_assistant", name: "Assistant project", created_by_email: keyOwner["openai:proj_assistant"], owner_employee_id: idByEmail.get(keyOwner["openai:proj_assistant"]) },
   ]);
 
+  // Seed-only Anthropic conversion (production goes through estimateAndScale;
+  // like it, this treats the Cost API `amount` as CENTS).
+  const anthropicSeedFacts: SpendFact[] = (anthropicCostFixture as AnthropicCostResponse).data.flatMap((b) =>
+    (b.results ?? [])
+      .filter((r) => Number(r.amount) > 0)
+      .map((r) => ({
+        source: "anthropic" as const,
+        day: (b.starting_at ?? "").slice(0, 10),
+        costType: "metered" as const,
+        entityKey: r.workspace_id ?? "org",
+        costUsd: Number(r.amount) / 100,
+        model: r.model ?? "",
+      })),
+  );
   const platformFacts = [
-    ...normalizeAnthropic(anthropicCostFixture),
+    ...anthropicSeedFacts,
     ...normalizeOpenAI(openaiCostFixture),
   ];
   const platformResolved: ResolvedFact[] = platformFacts.map((f) => ({
