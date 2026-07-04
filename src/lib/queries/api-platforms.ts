@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Vendor } from "@/lib/types";
-import { lastNMonths } from "@/lib/rollup";
+import { earliestFactDay } from "./common";
 
 export interface PlatformFactRow {
   source: Vendor;
@@ -66,8 +66,6 @@ export function buildPlatformRows(
     .sort((a, b) => b.total - a.total);
 }
 
-const FETCH_MONTHS = 24; // wide fixed window so the client can switch to any period
-
 function nextMonth(m: string): string {
   const [y, mo] = m.split("-").map(Number);
   return new Date(Date.UTC(y, mo, 1)).toISOString().slice(0, 10);
@@ -76,11 +74,12 @@ function nextMonth(m: string): string {
 /**
  * Fetch the full metered-spend window ONCE (period-independent); the client
  * re-slices per selected period and shapes via buildPlatformRows. Paginates the
- * 1000-row PostgREST cap — 24 months of metered facts easily exceeds it.
+ * 1000-row PostgREST cap — a multi-month range of metered facts easily exceeds it.
  */
 export async function getApiPlatformsScope(supabase: SupabaseClient): Promise<ApiPlatformsScope> {
   const now = new Date();
-  const from = lastNMonths(now, FETCH_MONTHS)[0] + "-01";
+  const firstDay = await earliestFactDay(supabase);
+  const from = (firstDay ?? now.toISOString().slice(0, 10)).slice(0, 7) + "-01";
   const toExclusive = nextMonth(now.toISOString().slice(0, 7));
 
   const PAGE = 1000;
@@ -92,7 +91,9 @@ export async function getApiPlatformsScope(supabase: SupabaseClient): Promise<Ap
       .eq("cost_type", "metered")
       .gte("day", from)
       .lt("day", toExclusive)
+      // id tiebreaker keeps page boundaries stable across queries.
       .order("day")
+      .order("id")
       .range(offset, offset + PAGE - 1);
     if (error) throw new Error(`getApiPlatformsScope: ${error.message}`);
     if (!data || data.length === 0) break;
@@ -110,14 +111,25 @@ export async function getApiPlatformsScope(supabase: SupabaseClient): Promise<Ap
     if (data.length < PAGE) break;
   }
 
-  // Friendly names for keys/projects.
+  // Friendly names for keys/projects (paginated past the 1000-row cap —
+  // beyond it entities silently fall back to raw ids).
+  const readAll = async (table: string, columns: string) => {
+    const all: Record<string, unknown>[] = [];
+    for (let offset = 0; ; offset += PAGE) {
+      const { data, error } = await supabase.from(table).select(columns).order("id").range(offset, offset + PAGE - 1);
+      if (error) throw new Error(`getApiPlatformsScope (${table}): ${error.message}`);
+      all.push(...((data ?? []) as unknown as Record<string, unknown>[]));
+      if (!data || data.length < PAGE) break;
+    }
+    return all;
+  };
   const names: [string, string][] = [];
-  const [{ data: keys }, { data: projects }] = await Promise.all([
-    supabase.from("api_keys").select("vendor, external_key_id, name"),
-    supabase.from("projects").select("vendor, external_id, name"),
+  const [keys, projects] = await Promise.all([
+    readAll("api_keys", "vendor, external_key_id, name"),
+    readAll("projects", "vendor, external_id, name"),
   ]);
-  for (const k of keys ?? []) if (k.name) names.push([`${k.vendor}:${k.external_key_id}`, k.name as string]);
-  for (const p of projects ?? []) if (p.name) names.push([`${p.vendor}:${p.external_id}`, p.name as string]);
+  for (const k of keys) if (k.name) names.push([`${k.vendor}:${k.external_key_id}`, k.name as string]);
+  for (const p of projects) if (p.name) names.push([`${p.vendor}:${p.external_id}`, p.name as string]);
 
   const earliest = rows.length
     ? rows.reduce((min, r) => (r.day < min ? r.day : min), rows[0].day).slice(0, 7)

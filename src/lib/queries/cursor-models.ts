@@ -1,7 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { lastNMonths } from "@/lib/rollup";
-
-const FETCH_MONTHS = 24; // wide fixed window so the client can switch to any period
+import { earliestFactDay } from "./common";
 
 /** One row of Cursor model usage, enriched with employee name + department. */
 export interface ModelUsageRow {
@@ -31,7 +29,8 @@ function nextMonth(m: string): string {
  */
 export async function getModelUsageScope(supabase: SupabaseClient): Promise<ModelUsageScope> {
   const now = new Date();
-  const from = lastNMonths(now, FETCH_MONTHS)[0] + "-01";
+  const firstDay = await earliestFactDay(supabase, "cursor_model_usage");
+  const from = (firstDay ?? now.toISOString().slice(0, 10)).slice(0, 7) + "-01";
   const toExclusive = nextMonth(now.toISOString().slice(0, 7));
 
   const PAGE = 1000;
@@ -42,7 +41,9 @@ export async function getModelUsageScope(supabase: SupabaseClient): Promise<Mode
       .select("day, model, messages, employee_id, employees(full_name, department)")
       .gte("day", from)
       .lt("day", toExclusive)
+      // id tiebreaker keeps page boundaries stable across queries.
       .order("day")
+      .order("id")
       .range(offset, offset + PAGE - 1);
     if (error) throw new Error(`getModelUsageScope: ${error.message}`);
     if (!page || page.length === 0) break;

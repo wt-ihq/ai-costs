@@ -76,6 +76,11 @@ export async function getCursorReconciliation(supabase: SupabaseClient): Promise
         .eq("source", "cursor")
         .eq("cost_type", "overage")
         .gte("day", cycleStart)
+        // Without ORDER BY, Postgres row order is unspecified per query, so
+        // pages could overlap/skip past 1000 rows — corrupting the very number
+        // this reconciliation exists to sanity-check.
+        .order("day")
+        .order("id")
         .range(from, from + PAGE - 1);
       if (error) return null;
       if (!data || data.length === 0) break;

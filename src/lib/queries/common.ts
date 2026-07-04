@@ -21,6 +21,39 @@ export interface MonthRange {
   toExclusive: string; // first day of next month
 }
 
+/**
+ * Read employees paging past PostgREST's 1000-row cap (gotcha #1 — the table
+ * only grows, since Okta leavers are retained). Optional department filter.
+ */
+export async function fetchEmployeesAll(
+  supabase: SupabaseClient,
+  columns: string,
+  filter?: { department: string | null },
+): Promise<Record<string, unknown>[]> {
+  const PAGE = 1000;
+  const rows: Record<string, unknown>[] = [];
+  for (let from = 0; ; from += PAGE) {
+    let q = supabase.from("employees").select(columns);
+    if (filter) q = filter.department === null ? q.is("department", null) : q.eq("department", filter.department);
+    const { data, error } = await q.order("id").range(from, from + PAGE - 1);
+    if (error) throw new Error(`fetchEmployeesAll: ${error.message}`);
+    rows.push(...((data ?? []) as unknown as Record<string, unknown>[]));
+    if (!data || data.length < PAGE) break;
+  }
+  return rows;
+}
+
+/**
+ * First `day` on record in a fact table, or null when empty. Anchors the fetch
+ * window at the actual start of the data — a fixed N-month lookback silently
+ * excludes older spend from "All time" once the data outgrows it.
+ */
+export async function earliestFactDay(supabase: SupabaseClient, table = "spend_facts"): Promise<string | null> {
+  const { data, error } = await supabase.from(table).select("day").order("day").limit(1);
+  if (error) throw new Error(`earliestFactDay(${table}): ${error.message}`);
+  return (data?.[0]?.day as string | undefined) ?? null;
+}
+
 export function monthRange(now: Date): MonthRange {
   const y = now.getUTCFullYear();
   const m = now.getUTCMonth();
@@ -33,25 +66,45 @@ export function monthRange(now: Date): MonthRange {
   };
 }
 
+/** Optional attribution filter, applied in SQL so scoped pages don't page the whole company's facts. */
+export interface FactFilter {
+  employeeIds: string[];
+  /** Also include facts with no employee attribution (the "Unattributed" pseudo-team). */
+  includeNullEmployee?: boolean;
+}
+
 /** Fetch facts from `fromMonth` (YYYY-MM-01) up to `toExclusive` (YYYY-MM-01). */
 export async function fetchFactsInRange(
   supabase: SupabaseClient,
   fromMonth: string,
   toExclusive: string,
+  filter?: FactFilter,
 ): Promise<EnrichedFact[]> {
+  if (filter && filter.employeeIds.length === 0 && !filter.includeNullEmployee) return [];
   // PostgREST caps each request at 1000 rows; a multi-month range now holds
   // thousands of facts (esp. Cursor per-event overage), so paginate until
-  // exhausted — otherwise the dashboard silently undercounts spend.
+  // exhausted — otherwise the dashboard silently undercounts spend. `day` has
+  // thousands of ties, so order by the unique id as well — without the
+  // tiebreaker a page boundary inside one day can duplicate or skip rows
+  // (especially if the cron upserts mid-read).
   const PAGE = 1000;
   const data: Record<string, unknown>[] = [];
   for (let from = 0; ; from += PAGE) {
-    const { data: page, error } = await supabase
+    let q = supabase
       .from("spend_facts")
       .select("day, source, cost_type, cost_usd, requests, entity_key, model, employee_id, employees(full_name, department)")
       .gte("day", fromMonth)
-      .lt("day", toExclusive)
-      .order("day")
-      .range(from, from + PAGE - 1);
+      .lt("day", toExclusive);
+    if (filter) {
+      if (filter.employeeIds.length === 0) {
+        q = q.is("employee_id", null);
+      } else if (filter.includeNullEmployee) {
+        q = q.or(`employee_id.is.null,employee_id.in.(${filter.employeeIds.join(",")})`);
+      } else {
+        q = q.in("employee_id", filter.employeeIds);
+      }
+    }
+    const { data: page, error } = await q.order("day").order("id").range(from, from + PAGE - 1);
     if (error) throw new Error(`fetchFactsInRange: ${error.message}`);
     if (!page || page.length === 0) break;
     data.push(...(page as Record<string, unknown>[]));

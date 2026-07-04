@@ -1,7 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { lastNMonths } from "@/lib/rollup";
-
-const FETCH_MONTHS = 24;
+import { earliestFactDay } from "./common";
 
 /** One per-user/day most-used-model row, enriched with employee name + dept. */
 export interface TopModelRow {
@@ -26,7 +24,8 @@ function nextMonth(m: string): string {
 /** Fetch the full Teams-plan top-model window once; the client slices by period. */
 export async function getCursorTopModelScope(supabase: SupabaseClient): Promise<TopModelScope> {
   const now = new Date();
-  const from = lastNMonths(now, FETCH_MONTHS)[0] + "-01";
+  const firstDay = await earliestFactDay(supabase, "cursor_top_model");
+  const from = (firstDay ?? now.toISOString().slice(0, 10)).slice(0, 7) + "-01";
   const toExclusive = nextMonth(now.toISOString().slice(0, 7));
 
   const PAGE = 1000;
@@ -37,7 +36,9 @@ export async function getCursorTopModelScope(supabase: SupabaseClient): Promise<
       .select("day, model, entity_key, employee_id, employees(full_name, department)")
       .gte("day", from)
       .lt("day", toExclusive)
+      // id tiebreaker keeps page boundaries stable across queries.
       .order("day")
+      .order("id")
       .range(offset, offset + PAGE - 1);
     if (error) throw new Error(`getCursorTopModelScope: ${error.message}`);
     if (!data || data.length === 0) break;
