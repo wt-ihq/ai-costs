@@ -61,4 +61,5 @@ Single `spend_facts` table. Unique key: **`(source, day, cost_type, entity_key, 
 - **Deploy only when the user asks.** Branch off `main`; commit/push only when requested.
 - Production-DB deletes require explicit per-action user authorization (the auto-mode classifier blocks agent-initiated ones).
 - New server actions **must** start with `await requireAdmin()` (`src/lib/auth-guard.ts`); new cron/debug routes gate through `src/lib/cron-auth.ts:isCronAuthorized` (fails closed).
+- When shipping user-visible changes, add a plain-language entry (features and fixes, no jargon) to `CHANGELOG` in `src/lib/changelog.ts`, newest first — it feeds the "What's new" popover.
 - Commit messages end with: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`

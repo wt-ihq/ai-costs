@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { Nav } from "@/components/nav";
 import { SearchBox } from "@/components/explore/search-box";
+import { WhatsNew } from "@/components/whats-new";
 import { getSearchIndex } from "@/lib/queries/explore";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth-guard";
@@ -36,7 +37,10 @@ export default async function DashboardLayout({
             Explore views (period dropdown + drill-down), not here. */}
         <div className="flex items-center justify-between gap-4 border-b border-border px-8 py-3 text-xs text-muted">
           <SearchBox items={searchIndex} />
-          <span>{role ? `Signed in · ${role}` : "Not signed in"}</span>
+          <div className="flex items-center gap-3">
+            <WhatsNew />
+            <span>{role ? `Signed in · ${role}` : "Not signed in"}</span>
+          </div>
         </div>
         <main className="flex-1 px-8 py-8">{children}</main>
       </div>
