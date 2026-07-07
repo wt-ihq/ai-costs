@@ -18,6 +18,8 @@ export const CHANGELOG: ChangelogEntry[] = [
       "Pages now show a friendly error screen instead of crashing when something goes wrong.",
       "Fixed totals that could drop rows for teams with many people.",
       "Nightly data syncs now recover cleanly if a vendor API fails mid-run, and sign-in is locked down tighter.",
+      "API Platforms now shows spend per vendor (click a vendor tile to filter) and spend per person.",
+      "Cursor Usage now shows spend: totals for the period, overage by model, and spend per person.",
     ],
   },
   {
