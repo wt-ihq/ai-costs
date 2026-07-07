@@ -5,20 +5,19 @@
 
 ## Purpose
 
-1. Rename the "API Platforms" page to "API"; show metered spend per vendor
-   with a vendor filter, and per-person spend.
+1. On the API Platforms page (name unchanged, per user): show metered spend
+   per vendor with a vendor filter, and per-person spend.
 2. Add spend to the Cursor Usage page: period tiles, overage spend by model,
    and per-person spend.
 
 ## Part 1 — API page
 
-### Rename
+### Naming
 
-- `nav.tsx` label: "API Platforms" → "API".
-- `PageHeader` title: "API"; subtitle: "Metered spend by vendor, key/project,
-  and person, with model breakdown."
-- **URL stays `/api-platforms`** — `/api` collides with the route-handler
-  namespace (`/api/auth`, `/api/cron`); a URL rename buys nothing internally.
+- Page name, nav label, and URL all stay "API Platforms" / `/api-platforms`
+  (user decision — no rename).
+- Subtitle updates to reflect the new content: "Metered spend by vendor,
+  key/project, and person, with model breakdown."
 
 ### Vendor tiles + filter (client-side; no query changes)
 
