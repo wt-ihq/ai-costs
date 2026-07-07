@@ -66,6 +66,25 @@ export function buildPlatformRows(
     .sort((a, b) => b.total - a.total);
 }
 
+/** Pure: metered total per vendor (for the tile row / filter). */
+export function buildVendorTotals(rows: PlatformFactRow[]): Map<Vendor, number> {
+  const totals = new Map<Vendor, number>();
+  for (const r of rows) totals.set(r.source, (totals.get(r.source) ?? 0) + r.costUsd);
+  return totals;
+}
+
+/** Pure: metered spend per owner; ownerless keys bucket as "Unattributed". */
+export function buildPersonRows(rows: PlatformFactRow[]): { name: string; total: number }[] {
+  const totals = new Map<string, number>();
+  for (const r of rows) {
+    const name = r.ownerName ?? "Unattributed";
+    totals.set(name, (totals.get(name) ?? 0) + r.costUsd);
+  }
+  return [...totals.entries()]
+    .map(([name, total]) => ({ name, total }))
+    .sort((a, b) => b.total - a.total);
+}
+
 function nextMonth(m: string): string {
   const [y, mo] = m.split("-").map(Number);
   return new Date(Date.UTC(y, mo, 1)).toISOString().slice(0, 10);
