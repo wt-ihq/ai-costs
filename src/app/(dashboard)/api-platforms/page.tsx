@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
-export default async function ApiPlatformsPage({ searchParams }: { searchParams: Promise<{ period?: string }> }) {
+export default async function ApiPlatformsPage({ searchParams }: { searchParams: Promise<{ period?: string; vendor?: string }> }) {
   const sp = await searchParams;
   const scope = await getApiPlatformsScope(getSupabaseAdminClient());
 
@@ -13,9 +13,9 @@ export default async function ApiPlatformsPage({ searchParams }: { searchParams:
     <>
       <PageHeader
         title="API Platforms"
-        subtitle="Metered spend by key / project, with creator attribution and model breakdown."
+        subtitle="Metered spend by vendor, key/project, and person, with model breakdown."
       />
-      <ApiPlatformsView scope={scope} initialPeriodParam={sp.period} />
+      <ApiPlatformsView scope={scope} initialPeriodParam={sp.period} initialVendorParam={sp.vendor} />
     </>
   );
 }
