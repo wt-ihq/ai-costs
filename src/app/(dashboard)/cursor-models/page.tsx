@@ -1,6 +1,7 @@
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getModelUsageScope } from "@/lib/queries/cursor-models";
 import { getCursorTopModelScope } from "@/lib/queries/cursor-top-model";
+import { getCursorSpendScope } from "@/lib/queries/cursor-spend";
 import { CursorModelsView } from "@/components/cursor-models/cursor-models-view";
 import { TeamsModelView } from "@/components/cursor-models/teams-model-view";
 import { EnterpriseLocked } from "@/components/cursor-models/enterprise-locked";
@@ -13,7 +14,7 @@ export default async function CursorModelsPage({ searchParams }: { searchParams:
   const sp = await searchParams;
   const supabase = getSupabaseAdminClient();
   const header = (
-    <PageHeader title="Cursor usage" subtitle="Cursor model adoption by model, team, and person (not spend)." />
+    <PageHeader title="Cursor usage" subtitle="Cursor model adoption and spend by model, team, and person." />
   );
 
   // Enterprise: full per-model message volume from the Analytics API.
@@ -29,12 +30,15 @@ export default async function CursorModelsPage({ searchParams }: { searchParams:
 
   // Teams plan: fall back to the per-user most-used-model signal if we have it;
   // otherwise show the Enterprise-only state.
-  const topModel = await getCursorTopModelScope(supabase);
+  const [topModel, spend] = await Promise.all([
+    getCursorTopModelScope(supabase),
+    getCursorSpendScope(supabase),
+  ]);
   return (
     <>
       {header}
       {topModel.rows.length > 0 ? (
-        <TeamsModelView scope={topModel} initialPeriodParam={sp.period} />
+        <TeamsModelView scope={topModel} spend={spend} initialPeriodParam={sp.period} />
       ) : (
         <EnterpriseLocked />
       )}

@@ -2,18 +2,29 @@
 
 import { useMemo, useState } from "react";
 import { buildTopModelData, type TopModelRow } from "@/lib/cursor-models/top-model-shape";
+import { buildCursorSpendData, type CursorSpendScope } from "@/lib/cursor-models/spend-shape";
+import { VENDOR_COLORS } from "@/lib/colors";
 import { allTimePeriod, parsePeriod, type Period } from "@/lib/explore/period";
 import { PeriodControl } from "@/components/explore/period-control";
 import { Panel } from "@/components/ui";
 import { ModelBars } from "./model-bars";
 import { modelColor } from "@/lib/cursor-models/shape";
-import { formatCount } from "@/lib/utils";
+import { formatCount, formatUsd } from "@/lib/utils";
 
-export function TeamsModelView({ scope, initialPeriodParam }: { scope: { rows: TopModelRow[]; earliest: string }; initialPeriodParam?: string }) {
+export function TeamsModelView({
+  scope,
+  spend,
+  initialPeriodParam,
+}: {
+  scope: { rows: TopModelRow[]; earliest: string };
+  spend: CursorSpendScope;
+  initialPeriodParam?: string;
+}) {
   const [period, setPeriod] = useState<Period>(() =>
     initialPeriodParam === "all" ? allTimePeriod(scope.earliest, new Date()) : parsePeriod(initialPeriodParam, new Date()),
   );
   const data = useMemo(() => buildTopModelData(scope, period), [scope, period]);
+  const spendData = useMemo(() => buildCursorSpendData(spend, period), [spend, period]);
 
   const changePeriod = (p: Period) => {
     setPeriod(p);
@@ -50,6 +61,21 @@ export function TeamsModelView({ scope, initialPeriodParam }: { scope: { rows: T
           <span className="truncate text-2xl font-semibold">{data.distribution[0]?.label ?? "—"}</span>
           <span className="text-xs text-muted">most people&rsquo;s primary</span>
         </Panel>
+        <Panel className="flex flex-col gap-1.5">
+          <span className="text-xs uppercase tracking-wide text-muted">Cursor spend</span>
+          <span className="text-2xl font-semibold tabular-nums">{formatUsd(spendData.total)}</span>
+          <span className="text-xs text-muted">{data.period.label}</span>
+        </Panel>
+        <Panel className="flex flex-col gap-1.5">
+          <span className="text-xs uppercase tracking-wide text-muted">Seats</span>
+          <span className="text-2xl font-semibold tabular-nums">{formatUsd(spendData.seat)}</span>
+          <span className="text-xs text-muted">seat fees</span>
+        </Panel>
+        <Panel className="flex flex-col gap-1.5">
+          <span className="text-xs uppercase tracking-wide text-muted">Overage</span>
+          <span className="text-2xl font-semibold tabular-nums">{formatUsd(spendData.overage)}</span>
+          <span className="text-xs text-muted">usage beyond the plan</span>
+        </Panel>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -73,6 +99,58 @@ export function TeamsModelView({ scope, initialPeriodParam }: { scope: { rows: T
                       <span className="size-2.5 rounded-full" style={{ background: modelColor(p.primaryModel) }} />
                       <span className="font-mono text-xs text-muted">{p.primaryModel}</span>
                     </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+        </section>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <section>
+          <h2 className="mb-3 text-sm font-medium text-muted">Overage spend by model · {data.period.label}</h2>
+          <Panel>
+            {spendData.byModel.length === 0 ? (
+              <div className="flex h-24 items-center justify-center text-sm text-muted">No Cursor overage in {data.period.label}.</div>
+            ) : (
+              <ul className="space-y-1.5">
+                {spendData.byModel.map((m) => (
+                  <li key={m.model} className="flex items-center gap-3 text-sm">
+                    <span className="w-48 shrink-0 truncate font-mono text-xs text-muted">{m.model}</span>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-2">
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${spendData.overage > 0 ? (m.cost / spendData.overage) * 100 : 0}%`,
+                          background: VENDOR_COLORS.cursor,
+                        }}
+                      />
+                    </div>
+                    <span className="w-20 shrink-0 text-right tabular-nums">{formatUsd(m.cost)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+        </section>
+        <section>
+          <h2 className="mb-3 text-sm font-medium text-muted">Spend by person · {data.period.label}</h2>
+          <Panel>
+            {spendData.byPerson.length === 0 ? (
+              <div className="flex h-24 items-center justify-center text-sm text-muted">No Cursor spend in {data.period.label}.</div>
+            ) : (
+              <ul className="space-y-1.5">
+                {spendData.byPerson.map((p) => (
+                  <li key={p.name} className="flex items-center gap-3 text-sm">
+                    <span className="w-48 shrink-0 truncate">{p.name}</span>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-2">
+                      <div
+                        className="h-full rounded-full bg-accent"
+                        style={{ width: `${spendData.total > 0 ? (p.cost / spendData.total) * 100 : 0}%` }}
+                      />
+                    </div>
+                    <span className="w-20 shrink-0 text-right tabular-nums">{formatUsd(p.cost)}</span>
                   </li>
                 ))}
               </ul>
