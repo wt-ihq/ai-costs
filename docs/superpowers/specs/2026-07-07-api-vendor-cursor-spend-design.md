@@ -91,7 +91,9 @@ Pure: `(scope: CursorSpendScope, period: Period)` →
 - Subtitle drops "(not spend)": "Cursor model adoption and spend by model,
   team, and person."
 - The Enterprise analytics path (`CURSOR_ANALYTICS_ENABLED`) is gated off on
-  the Teams plan and is untouched.
+  the Teams plan and is untouched. The `EnterpriseLocked` fallback (no
+  top-model rows at all) also stays as-is — spend panels only render with the
+  Teams model view.
 
 ## Error handling
 
