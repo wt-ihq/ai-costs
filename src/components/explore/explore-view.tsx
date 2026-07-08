@@ -23,14 +23,18 @@ function syncParam(key: string, value: string | null) {
   window.history.replaceState(null, "", url);
 }
 
-function Toggle({ dim, onChange }: { dim: Dim; onChange: (d: Dim) => void }) {
+function Toggle({ dim, onChange, disabled }: { dim: Dim; onChange: (d: Dim) => void; disabled?: boolean }) {
   return (
-    <div className="inline-flex rounded-md border border-border bg-surface-2 p-0.5 text-xs">
+    <div
+      className={cn("inline-flex rounded-md border border-border bg-surface-2 p-0.5 text-xs", disabled && "opacity-60")}
+      title={disabled ? "Charts split by cost type while a vendor filter is active" : undefined}
+    >
       {(["vendor", "cost_type"] as Dim[]).map((d) => (
         <button
           key={d}
+          disabled={disabled}
           onClick={() => { onChange(d); syncParam("dim", d); }}
-          className={cn("rounded px-2.5 py-1 transition-colors", dim === d ? "bg-accent/20 text-accent" : "text-muted hover:text-foreground")}
+          className={cn("rounded px-2.5 py-1 transition-colors", dim === d ? "bg-accent/20 text-accent" : "text-muted", !disabled && dim !== d && "hover:text-foreground")}
         >
           {d === "vendor" ? "By vendor" : "By cost type"}
         </button>
@@ -108,11 +112,14 @@ export function ExploreView({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <PeriodControl period={period} earliest={scope.earliest} onChange={changePeriod} />
-        <div className="flex flex-wrap items-center gap-3">
-          <VendorChips vendors={vendors} active={vendor} onChange={changeVendor} />
-          {vendor === "all" && <Toggle dim={dim} onChange={setDim} />}
+      <PeriodControl period={period} earliest={scope.earliest} onChange={changePeriod} />
+
+      {/* Filter row: fixed composition — the toggle dims instead of unmounting,
+          so nothing shifts when a vendor is (de)selected. */}
+      <div className="flex flex-wrap items-center gap-4">
+        <VendorChips vendors={vendors} active={vendor} onChange={changeVendor} />
+        <div className="ml-auto">
+          <Toggle dim={effectiveDim} onChange={setDim} disabled={vendor !== "all"} />
         </div>
       </div>
 
