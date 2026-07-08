@@ -7,6 +7,7 @@ import { VENDOR_COLORS } from "@/lib/colors";
 import { allTimePeriod, parsePeriod, type Period } from "@/lib/explore/period";
 import { PeriodControl } from "@/components/explore/period-control";
 import { Panel } from "@/components/ui";
+import { ShowAllList } from "@/components/show-all-list";
 import { ModelBars } from "./model-bars";
 import { modelColor } from "@/lib/cursor-models/shape";
 import { formatCount, formatUsd } from "@/lib/utils";
@@ -91,17 +92,21 @@ export function TeamsModelView({
             {data.people.length === 0 ? (
               <div className="flex h-40 items-center justify-center text-sm text-muted">No Cursor usage this period.</div>
             ) : (
-              <ul className="space-y-1.5">
-                {data.people.map((p) => (
-                  <li key={p.id} className="flex items-center justify-between gap-3 text-sm">
+              <ShowAllList
+                items={data.people}
+                render={(p) => (
+                  <li key={p.id} className="flex items-center gap-3 text-sm">
                     <span className="truncate">{p.name}</span>
-                    <span className="flex shrink-0 items-center gap-2">
+                    <span className="shrink-0 text-xs text-muted" title="Days with Cursor usage in this period">
+                      {p.days}d
+                    </span>
+                    <span className="ml-auto flex shrink-0 items-center gap-2">
                       <span className="size-2.5 rounded-full" style={{ background: modelColor(p.primaryModel) }} />
                       <span className="font-mono text-xs text-muted">{p.primaryModel}</span>
                     </span>
                   </li>
-                ))}
-              </ul>
+                )}
+              />
             )}
           </Panel>
         </section>
@@ -140,8 +145,9 @@ export function TeamsModelView({
             {spendData.byPerson.length === 0 ? (
               <div className="flex h-24 items-center justify-center text-sm text-muted">No Cursor spend in {data.period.label}.</div>
             ) : (
-              <ul className="space-y-1.5">
-                {spendData.byPerson.map((p) => (
+              <ShowAllList
+                items={spendData.byPerson}
+                render={(p) => (
                   <li key={p.name} className="flex items-center gap-3 text-sm">
                     <span className="w-48 shrink-0 truncate">{p.name}</span>
                     <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-2">
@@ -152,8 +158,8 @@ export function TeamsModelView({
                     </div>
                     <span className="w-20 shrink-0 text-right tabular-nums">{formatUsd(p.cost)}</span>
                   </li>
-                ))}
-              </ul>
+                )}
+              />
             )}
           </Panel>
         </section>
