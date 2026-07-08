@@ -15,7 +15,7 @@ type Tab = "teams" | "people";
  * Ranked breakdown. At company level (team rollup + full staff list both
  * present) it shows a Teams/People tabbed view; otherwise a single titled list.
  */
-export function RankedPanel({ ranked, allStaff, dim }: { ranked: ExploreData["ranked"]; allStaff?: RankRow[]; dim: Dim }) {
+export function RankedPanel({ ranked, allStaff, dim, linkQuery }: { ranked: ExploreData["ranked"]; allStaff?: RankRow[]; dim: Dim; linkQuery?: string }) {
   const [tab, setTab] = useState<Tab>("teams");
   const tabbed = ranked.kind === "team" && !!allStaff;
   const rows = tabbed && tab === "people" ? allStaff! : ranked.rows;
@@ -38,7 +38,7 @@ export function RankedPanel({ ranked, allStaff, dim }: { ranked: ExploreData["ra
       ) : (
         <h2 className="mb-4 text-sm font-medium">{TITLE[ranked.kind]}</h2>
       )}
-      <RankedList rows={rows} dim={dim} />
+      <RankedList rows={rows} dim={dim} linkQuery={linkQuery} />
     </section>
   );
 }

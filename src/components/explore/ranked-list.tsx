@@ -22,7 +22,7 @@ function SplitBar({ r, dim, pct }: { r: RankRow; dim: Dim; pct: number }) {
   );
 }
 
-function Row({ r, max, i, dim }: { r: RankRow; max: number; i: number; dim: Dim }) {
+function Row({ r, max, i, dim, linkQuery }: { r: RankRow; max: number; i: number; dim: Dim; linkQuery?: string }) {
   const reduce = useReducedMotion();
   const pct = max > 0 ? (r.total / max) * 100 : 0;
   const body = (
@@ -46,11 +46,12 @@ function Row({ r, max, i, dim }: { r: RankRow; max: number; i: number; dim: Dim 
       </div>
     </motion.div>
   );
-  return r.href ? <Link href={r.href} className="block">{body}</Link> : body;
+  const href = r.href && linkQuery ? `${r.href}?${linkQuery}` : r.href;
+  return href ? <Link href={href} className="block">{body}</Link> : body;
 }
 
-export function RankedList({ rows, dim }: { rows: RankRow[]; dim: Dim }) {
+export function RankedList({ rows, dim, linkQuery }: { rows: RankRow[]; dim: Dim; linkQuery?: string }) {
   if (!rows.length) return <p className="text-sm text-muted">No spend in this period.</p>;
   const max = Math.max(...rows.map((r) => r.total), 0);
-  return <div className="space-y-2">{rows.map((r, i) => <Row key={r.id} r={r} max={max} i={i} dim={dim} />)}</div>;
+  return <div className="space-y-2">{rows.map((r, i) => <Row key={r.id} r={r} max={max} i={i} dim={dim} linkQuery={linkQuery} />)}</div>;
 }
