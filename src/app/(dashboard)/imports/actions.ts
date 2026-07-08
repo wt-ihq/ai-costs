@@ -75,6 +75,8 @@ export async function commitChatGptImport(
 ): Promise<ChatGptCommitResult> {
   await requireAdmin();
   const supabase = getSupabaseAdminClient();
+  // Never delete a month when the insert would be empty (gotcha #4).
+  if (!rows.length) throw new Error("Nothing to import — the preview has no rows.");
   const day = asOf.slice(0, 7) + "-01"; // monthly snapshot, upsert-replace
   const seatPrice = (await loadSeatPrices(supabase))["chatgpt_business:chatgpt"] ?? 25;
 
@@ -293,6 +295,8 @@ export async function commitClaudeRoster(
 ): Promise<{ written: number; seats: number; attributed: number }> {
   await requireAdmin();
   const supabase = getSupabaseAdminClient();
+  // Never delete a month when the insert would be empty (gotcha #4).
+  if (!rows.length) throw new Error("Nothing to import — the preview has no rows.");
   const day = asOf.slice(0, 7) + "-01";
 
   // Snapshot semantics: clear this month's Claude seat facts, then re-insert.

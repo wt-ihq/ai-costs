@@ -35,7 +35,11 @@ export default async function ImportsPage() {
         <Panel>
           <h2 className="mb-1 text-sm font-medium">ChatGPT Business — workspace analytics</h2>
           <p className="mb-4 text-xs text-muted">
-            Paste the analytics table. Each listed member is a $25 seat; credits become overage. Fuzzy name-matched (no email).
+            Paste the analytics table. Each listed member is a $25 seat; credits become overage. Fuzzy name-matched (no email).{" "}
+            <span className="text-foreground">
+              Export a <strong>Custom</strong> range covering exactly one calendar month — the 1M preset is a rolling
+              30-day window and double-counts across months.
+            </span>
           </p>
           <ChatGptImport />
         </Panel>

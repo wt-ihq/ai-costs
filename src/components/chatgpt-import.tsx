@@ -63,7 +63,7 @@ export function ChatGptImport() {
           <input value={rate} onChange={(e) => setRate(e.target.value)} className="w-24 rounded-md border border-border bg-surface-2 px-2 py-1 text-foreground outline-none focus:border-accent" />
         </label>
         <label className="flex items-center gap-2 text-muted">
-          Data as of
+          Month
           {/* Default is the client's local date; the server-rendered value can differ by a day. */}
           <input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} suppressHydrationWarning className="rounded-md border border-border bg-surface-2 px-2 py-1 text-foreground outline-none focus:border-accent" />
         </label>
