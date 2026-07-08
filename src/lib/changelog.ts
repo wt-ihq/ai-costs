@@ -18,6 +18,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "Long people lists show the top 10 with a 'Show all' toggle.",
       "Explore can now be filtered to a single vendor — use the chips at the top or click a vendor in the composition chart; the filter follows you as you drill into teams and people.",
       "Department and people bars now use the exact same colors as the charts.",
+      "The Imports page now shows which months each manual source has been imported for, and the ChatGPT import explains how to export a single calendar month (the rolling 1M window double-counts).",
     ],
   },
   {
