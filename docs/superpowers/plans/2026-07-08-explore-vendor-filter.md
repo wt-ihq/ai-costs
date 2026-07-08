@@ -31,7 +31,7 @@
 - Consumes: `Vendor`, `VENDOR_LABEL` from `@/lib/types`; `ShapeFact` from `./shape`.
 - Produces: `vendorsInFacts(facts: Pick<ShapeFact, "source">[]): Vendor[]` (unique, label-sorted) and `parseVendorParam(param: string | undefined, present: Vendor[]): Vendor | "all"`. Task 3 imports both from `@/lib/explore/vendor-filter`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `src/lib/explore/vendor-filter.test.ts`:
 
@@ -71,12 +71,12 @@ describe("parseVendorParam", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run src/lib/explore/vendor-filter.test.ts`
 Expected: FAIL — cannot resolve `./vendor-filter`.
 
-- [ ] **Step 3: Write the helpers**
+- [x] **Step 3: Write the helpers**
 
 Create `src/lib/explore/vendor-filter.ts`:
 
@@ -98,12 +98,12 @@ export function parseVendorParam(param: string | undefined, present: Vendor[]): 
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npx vitest run src/lib/explore/vendor-filter.test.ts`
 Expected: PASS (4 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/explore/vendor-filter.ts src/lib/explore/vendor-filter.test.ts
@@ -122,7 +122,7 @@ git commit -m "feat: vendor-filter helpers for Explore"
 **Interfaces:**
 - Produces: `CompositionBreakdown({ nodes, onSelect }: { nodes: TreemapNode[]; onSelect?: (key: string) => void })`; `RankedList({ rows, dim, linkQuery }: { rows: RankRow[]; dim: Dim; linkQuery?: string })`; `RankedPanel` gains and forwards `linkQuery?: string`. Task 3 uses all three.
 
-- [ ] **Step 1: Make composition rows selectable**
+- [x] **Step 1: Make composition rows selectable**
 
 In `src/components/explore/composition-breakdown.tsx`, replace the exported function with:
 
@@ -177,7 +177,7 @@ export function CompositionBreakdown({ nodes, onSelect }: { nodes: TreemapNode[]
 }
 ```
 
-- [ ] **Step 2: Append the link query in RankedList**
+- [x] **Step 2: Append the link query in RankedList**
 
 In `src/components/explore/ranked-list.tsx`:
 
@@ -204,7 +204,7 @@ export function RankedList({ rows, dim, linkQuery }: { rows: RankRow[]; dim: Dim
 }
 ```
 
-- [ ] **Step 3: Forward linkQuery through RankedPanel**
+- [x] **Step 3: Forward linkQuery through RankedPanel**
 
 In `src/components/explore/ranked-panel.tsx`, change the signature and the final `RankedList` call:
 
@@ -216,7 +216,7 @@ export function RankedPanel({ ranked, allStaff, dim, linkQuery }: { ranked: Expl
       <RankedList rows={rows} dim={dim} linkQuery={linkQuery} />
 ```
 
-- [ ] **Step 4: Lint, typecheck, commit**
+- [x] **Step 4: Lint, typecheck, commit**
 
 Run: `npm run lint && npx tsc --noEmit`
 Expected: clean.
@@ -241,7 +241,7 @@ git commit -m "feat: selectable composition rows + drill-down links carry query"
 - Consumes: `vendorsInFacts`, `parseVendorParam` (Task 1); `CompositionBreakdown.onSelect`, `RankedPanel.linkQuery` (Task 2); `VENDOR_LABEL`, `VENDOR_COLORS`.
 - Produces: `ExploreView` gains optional `initialVendorParam?: string`.
 
-- [ ] **Step 1: Rework ExploreView**
+- [x] **Step 1: Rework ExploreView**
 
 Replace the entire contents of `src/components/explore/explore-view.tsx` with:
 
@@ -387,14 +387,14 @@ export function ExploreView({
 }
 ```
 
-- [ ] **Step 2: Pass the vendor param on all three pages**
+- [x] **Step 2: Pass the vendor param on all three pages**
 
 In each of `src/app/(dashboard)/explore/page.tsx`, `src/app/(dashboard)/explore/[team]/page.tsx`, `src/app/(dashboard)/explore/[team]/[person]/page.tsx`:
 
 - extend the searchParams type: `Promise<{ period?: string; dim?: string; vendor?: string }>`
 - pass the prop: `<ExploreView scope={scope} initialPeriodParam={sp.period} initialDim={dim} initialVendorParam={sp.vendor} />`
 
-- [ ] **Step 3: Changelog**
+- [x] **Step 3: Changelog**
 
 In `src/lib/changelog.ts`, append to the `2026-07-08` entry's `items`:
 
@@ -402,7 +402,7 @@ In `src/lib/changelog.ts`, append to the `2026-07-08` entry's `items`:
       "Explore can now be filtered to a single vendor — use the chips at the top or click a vendor in the composition chart; the filter follows you as you drill into teams and people.",
 ```
 
-- [ ] **Step 4: Full test suite and production build**
+- [x] **Step 4: Full test suite and production build**
 
 Run: `npm run test`
 Expected: all pass (127 existing + 4 new = 131).
@@ -410,7 +410,7 @@ Expected: all pass (127 existing + 4 new = 131).
 Run: `CI=true npm run build`
 Expected: build succeeds.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/explore/explore-view.tsx "src/app/(dashboard)/explore/page.tsx" "src/app/(dashboard)/explore/[team]/page.tsx" "src/app/(dashboard)/explore/[team]/[person]/page.tsx" src/lib/changelog.ts
