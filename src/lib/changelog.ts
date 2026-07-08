@@ -17,6 +17,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "The Cursor 'By person' list now shows each person's active-day count — that's what the list is sorted by.",
       "Long people lists show the top 10 with a 'Show all' toggle.",
       "Explore can now be filtered to a single vendor — use the chips at the top or click a vendor in the composition chart; the filter follows you as you drill into teams and people.",
+      "Department and people bars now use the exact same colors as the charts.",
     ],
   },
   {

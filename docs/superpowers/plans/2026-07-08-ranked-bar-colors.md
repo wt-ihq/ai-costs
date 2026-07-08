@@ -1,11 +1,35 @@
-"use client";
+# Ranked Bar Colors Implementation Plan
 
-import Link from "next/link";
-import { motion, useReducedMotion } from "motion/react";
-import type { Dim, RankRow } from "@/lib/explore/types";
-import { dimColor } from "@/lib/explore/shape";
-import { formatUsd, cn } from "@/lib/utils";
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Goal:** Ranked-list rows show a thin full-saturation segmented bar (exact chart colors) instead of an opacity-30 tinted background.
+
+**Architecture:** Single-component change in `ranked-list.tsx`: delete `SplitBar`, restructure `Row` to text line + thin track/fill beneath, using `dimColor` at full saturation with 2px segment gaps.
+
+**Tech Stack:** React, Tailwind, motion.
+
+**Spec:** `docs/superpowers/specs/2026-07-08-ranked-bar-colors-design.md`
+
+## Global Constraints
+
+- Segment colors are `dimColor(dim, key)` untouched — no opacity on them.
+- 2px gaps between segments (`gap-0.5`); rounded ends; track `h-1.5 bg-surface-2`.
+- Row hover/link/motion/props unchanged.
+- Working branch: `ranked-bar-colors`. `npm run test` + `CI=true npm run build` before finishing.
+
+---
+
+### Task 1: Restyle Row
+
+**Files:**
+- Modify: `src/components/explore/ranked-list.tsx`
+- Modify: `src/lib/changelog.ts` (append item to the 2026-07-08 entry)
+
+- [x] **Step 1: Replace SplitBar + Row**
+
+In `src/components/explore/ranked-list.tsx`, delete the `SplitBar` function and replace `Row` with:
+
+```tsx
 function Row({ r, max, i, dim, linkQuery }: { r: RankRow; max: number; i: number; dim: Dim; linkQuery?: string }) {
   const reduce = useReducedMotion();
   const pct = max > 0 ? (r.total / max) * 100 : 0;
@@ -47,9 +71,22 @@ function Row({ r, max, i, dim, linkQuery }: { r: RankRow; max: number; i: number
   const href = r.href && linkQuery ? `${r.href}?${linkQuery}` : r.href;
   return href ? <Link href={href} className="block">{body}</Link> : body;
 }
+```
 
-export function RankedList({ rows, dim, linkQuery }: { rows: RankRow[]; dim: Dim; linkQuery?: string }) {
-  if (!rows.length) return <p className="text-sm text-muted">No spend in this period.</p>;
-  const max = Math.max(...rows.map((r) => r.total), 0);
-  return <div className="space-y-2">{rows.map((r, i) => <Row key={r.id} r={r} max={max} i={i} dim={dim} linkQuery={linkQuery} />)}</div>;
-}
+- [x] **Step 2: Changelog item**
+
+In `src/lib/changelog.ts`, append to the `2026-07-08` entry's `items`:
+
+```ts
+      "Department and people bars now use the exact same colors as the charts.",
+```
+
+- [x] **Step 3: Verify and commit**
+
+Run: `npm run lint && npx tsc --noEmit && npm run test` — clean, 131 pass.
+Run: `CI=true npm run build` — succeeds.
+
+```bash
+git add src/components/explore/ranked-list.tsx src/lib/changelog.ts
+git commit -m "fix: ranked-list bars use full-saturation chart colors"
+```
