@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI Spend",
+  title: "AI Spend & Usage",
   description: "AI-tool spend per user and per department across Intent HQ.",
 };
 

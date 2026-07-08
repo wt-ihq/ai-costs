@@ -27,7 +27,7 @@ export default async function DashboardLayout({
             priority
             className="mb-3 h-auto w-36"
           />
-          <div className="text-sm font-semibold tracking-tight">AI Spend</div>
+          <div className="text-sm font-semibold tracking-tight">AI Spend &amp; Usage</div>
         </div>
         <Nav isAdmin={isAdmin} />
       </aside>
