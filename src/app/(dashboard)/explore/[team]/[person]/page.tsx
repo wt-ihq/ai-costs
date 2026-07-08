@@ -6,7 +6,7 @@ import type { Dim } from "@/lib/explore/types";
 
 export const dynamic = "force-dynamic";
 
-export default async function PersonPage({ params, searchParams }: { params: Promise<{ team: string; person: string }>; searchParams: Promise<{ period?: string; dim?: string }> }) {
+export default async function PersonPage({ params, searchParams }: { params: Promise<{ team: string; person: string }>; searchParams: Promise<{ period?: string; dim?: string; vendor?: string }> }) {
   const { person } = await params;
   const sp = await searchParams;
   const dim: Dim = sp.dim === "cost_type" ? "cost_type" : "vendor";
@@ -14,7 +14,7 @@ export default async function PersonPage({ params, searchParams }: { params: Pro
   return (
     <>
       <PageHeader title={scope.title} subtitle="Individual spend — where it occurs and when." />
-      <ExploreView scope={scope} initialPeriodParam={sp.period} initialDim={dim} />
+      <ExploreView scope={scope} initialPeriodParam={sp.period} initialDim={dim} initialVendorParam={sp.vendor} />
     </>
   );
 }

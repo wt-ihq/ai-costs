@@ -6,14 +6,14 @@ import type { Dim } from "@/lib/explore/types";
 
 export const dynamic = "force-dynamic";
 
-export default async function CompanyPage({ searchParams }: { searchParams: Promise<{ period?: string; dim?: string }> }) {
+export default async function CompanyPage({ searchParams }: { searchParams: Promise<{ period?: string; dim?: string; vendor?: string }> }) {
   const sp = await searchParams;
   const dim: Dim = sp.dim === "cost_type" ? "cost_type" : "vendor";
   const scope = await getCompanyScope(getSupabaseAdminClient());
   return (
     <>
       <PageHeader title="Company" subtitle="AI spend across Intent HQ — drill into a team." />
-      <ExploreView scope={scope} initialPeriodParam={sp.period} initialDim={dim} />
+      <ExploreView scope={scope} initialPeriodParam={sp.period} initialDim={dim} initialVendorParam={sp.vendor} />
     </>
   );
 }

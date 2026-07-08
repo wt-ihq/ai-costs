@@ -7,7 +7,7 @@ import type { Dim } from "@/lib/explore/types";
 
 export const dynamic = "force-dynamic";
 
-export default async function TeamPage({ params, searchParams }: { params: Promise<{ team: string }>; searchParams: Promise<{ period?: string; dim?: string }> }) {
+export default async function TeamPage({ params, searchParams }: { params: Promise<{ team: string }>; searchParams: Promise<{ period?: string; dim?: string; vendor?: string }> }) {
   const { team } = await params;
   const sp = await searchParams;
   const teamName = safeDecodeURIComponent(team);
@@ -16,7 +16,7 @@ export default async function TeamPage({ params, searchParams }: { params: Promi
   return (
     <>
       <PageHeader title={teamName} subtitle="Team spend — drill into a person." />
-      <ExploreView scope={scope} initialPeriodParam={sp.period} initialDim={dim} />
+      <ExploreView scope={scope} initialPeriodParam={sp.period} initialDim={dim} initialVendorParam={sp.vendor} />
     </>
   );
 }
