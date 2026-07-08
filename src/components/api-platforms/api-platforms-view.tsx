@@ -10,6 +10,7 @@ import {
 import { allTimePeriod, parsePeriod, type Period } from "@/lib/explore/period";
 import { PeriodControl } from "@/components/explore/period-control";
 import { Panel } from "@/components/ui";
+import { ShowAllList } from "@/components/show-all-list";
 import { VENDOR_LABEL, type Vendor } from "@/lib/types";
 import { VENDOR_COLORS } from "@/lib/colors";
 import { cn, formatUsd } from "@/lib/utils";
@@ -104,8 +105,9 @@ export function ApiPlatformsView({
           {people.length === 0 ? (
             <div className="flex h-24 items-center justify-center text-sm text-muted">No metered spend in {period.label}.</div>
           ) : (
-            <ul className="space-y-1.5">
-              {people.map((p) => (
+            <ShowAllList
+              items={people}
+              render={(p) => (
                 <li key={p.name} className="flex items-center gap-3 text-sm">
                   <span className="w-48 shrink-0 truncate">{p.name}</span>
                   <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-2">
@@ -116,8 +118,8 @@ export function ApiPlatformsView({
                   </div>
                   <span className="w-20 shrink-0 text-right tabular-nums">{formatUsd(p.total)}</span>
                 </li>
-              ))}
-            </ul>
+              )}
+            />
           )}
         </Panel>
       </section>

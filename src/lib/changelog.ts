@@ -11,6 +11,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-07-08",
+    title: "Tidier people lists",
+    items: [
+      "The Cursor 'By person' list now shows each person's active-day count — that's what the list is sorted by.",
+      "Long people lists show the top 10 with a 'Show all' toggle.",
+    ],
+  },
+  {
     date: "2026-07-07",
     title: "Sturdier syncs, safer sign-in — and this panel",
     items: [
