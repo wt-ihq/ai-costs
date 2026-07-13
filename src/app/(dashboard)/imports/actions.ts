@@ -12,7 +12,7 @@ import { parseClaudeRoster } from "@/lib/ingest/parsers/claude-roster";
 import { parseOpenAiCreditsCsv, coveredWindow, type CreditUsageFact } from "@/lib/ingest/parsers/openai-credits";
 import { matchByName } from "@/lib/ingest/identity";
 import { loadEmployeeNames, loadEmployeesFull, upsertSpendFacts, replaceWindowFacts, type ResolvedFact } from "@/lib/ingest/persist";
-import { rebuildChatGptSeatMonth } from "@/lib/ingest/seat-months";
+import { rebuildChatGptSeatMonth, getSeatMonthEntry, replaceSeatMonth, computeSeatFacts, type SeatMember } from "@/lib/ingest/seat-months";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** seat_prices as a `${vendor}:${seat_type}` -> USD map. */
@@ -76,23 +76,14 @@ export async function commitChatGptImport(
   const day = asOf.slice(0, 7) + "-01"; // monthly snapshot, upsert-replace
   const seatPrice = (await loadSeatPrices(supabase))["chatgpt_business:chatgpt"] ?? 25;
 
-  // Snapshot semantics: clear this month's ChatGPT *seat* facts only — overage
-  // now comes from the credit-usage CSV import and must never be clobbered here.
-  await supabase.from("spend_facts").delete().eq("source", "chatgpt_business").eq("cost_type", "seat").eq("day", day);
-
   const empId = (r: ChatGptPreviewRow) => (r.confidence === "high" ? r.employeeId : null);
 
-  // Every listed member holds a seat.
-  const seatFacts: ResolvedFact[] = rows.map((r) => ({
-    source: "chatgpt_business",
-    day,
-    costType: "seat",
-    entityKey: normalizeName(r.name),
-    costUsd: seatPrice,
-    employeeId: empId(r),
-  }));
-
-  const written = await upsertSpendFacts(supabase, seatFacts);
+  // Every listed member holds a seat; the month's manual entry (when present)
+  // is authoritative for the total — computeSeatFacts prices/splits/tops-up.
+  const members: SeatMember[] = rows.map((r) => ({ entityKey: normalizeName(r.name), employeeId: empId(r) }));
+  const entry = await getSeatMonthEntry(supabase, day);
+  const seatFacts = computeSeatFacts(day, entry, members, seatPrice);
+  const written = await replaceSeatMonth(supabase, day, seatFacts);
 
   // Record confirmed identity mappings (name -> employee).
   const identities = rows
