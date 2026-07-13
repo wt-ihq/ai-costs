@@ -12,6 +12,7 @@ import { parseClaudeRoster } from "@/lib/ingest/parsers/claude-roster";
 import { parseOpenAiCreditsCsv, coveredWindow, type CreditUsageFact } from "@/lib/ingest/parsers/openai-credits";
 import { matchByName } from "@/lib/ingest/identity";
 import { loadEmployeeNames, loadEmployeesFull, upsertSpendFacts, replaceWindowFacts, type ResolvedFact } from "@/lib/ingest/persist";
+import { rebuildChatGptSeatMonth } from "@/lib/ingest/seat-months";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** seat_prices as a `${vendor}:${seat_type}` -> USD map. */
@@ -117,6 +118,62 @@ export async function commitChatGptImport(
   });
 
   return { written, attributed, queued, seats: rows.length };
+}
+
+// ---- ChatGPT monthly seat entries (manual count × price) --------------------
+
+const MONTH_RE = /^\d{4}-\d{2}$/;
+
+/** Save (upsert) a month's authoritative seat count × price, then rebuild its facts. */
+export async function saveSeatMonthEntry(
+  month: string, // YYYY-MM from the month picker
+  seats: number,
+  priceUsd: number,
+): Promise<{ written: number }> {
+  await requireAdmin();
+  if (!MONTH_RE.test(month)) throw new Error(`Invalid month "${month}" — expected YYYY-MM.`);
+  if (!Number.isInteger(seats) || seats < 0) throw new Error("Seats must be a whole number ≥ 0.");
+  if (!Number.isFinite(priceUsd) || priceUsd < 0) throw new Error("Price must be a number ≥ 0.");
+  // Round to cents before storing/using: sub-cent prices (e.g. 0.005) would
+  // otherwise break computeSeatFacts' cent-exactness invariant.
+  priceUsd = Math.round(priceUsd * 100) / 100;
+  const supabase = getSupabaseAdminClient();
+  const day = `${month}-01`;
+
+  const { error } = await supabase
+    .from("seat_month_entries")
+    .upsert(
+      { vendor: "chatgpt_business", month: day, seats, price_usd: priceUsd, updated_at: new Date().toISOString() },
+      { onConflict: "vendor,month" },
+    );
+  if (error) throw new Error(`saveSeatMonthEntry: ${error.message}`);
+
+  const defaultPrice = (await loadSeatPrices(supabase))["chatgpt_business:chatgpt"] ?? 25;
+  const written = await rebuildChatGptSeatMonth(supabase, day, defaultPrice);
+  revalidatePath("/imports");
+  revalidatePath("/");
+  return { written };
+}
+
+/** Delete a month's manual entry and revert its facts to pasted-members × default price. */
+export async function deleteSeatMonthEntry(month: string): Promise<{ written: number }> {
+  await requireAdmin();
+  if (!MONTH_RE.test(month)) throw new Error(`Invalid month "${month}" — expected YYYY-MM.`);
+  const supabase = getSupabaseAdminClient();
+  const day = `${month}-01`;
+
+  const { error } = await supabase
+    .from("seat_month_entries")
+    .delete()
+    .eq("vendor", "chatgpt_business")
+    .eq("month", day);
+  if (error) throw new Error(`deleteSeatMonthEntry: ${error.message}`);
+
+  const defaultPrice = (await loadSeatPrices(supabase))["chatgpt_business:chatgpt"] ?? 25;
+  const written = await rebuildChatGptSeatMonth(supabase, day, defaultPrice);
+  revalidatePath("/imports");
+  revalidatePath("/");
+  return { written };
 }
 
 // ---- OpenAI credit-usage CSV (additional/paid credits) ---------------------

@@ -1,4 +1,5 @@
-import type { ResolvedFact } from "@/lib/ingest/persist";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { replaceWindowFacts, type ResolvedFact } from "@/lib/ingest/persist";
 
 /** Entity key for seats paid for but not attributed to a pasted member. */
 export const UNASSIGNED_SEATS_KEY = "unassigned seats";
@@ -61,4 +62,80 @@ export function computeSeatFacts(
     const cents = i === count - 1 ? totalCents - perCents * (count - 1) : perCents;
     return fact(m.entityKey, cents / 100, m.employeeId);
   });
+}
+
+/** The month's manual entry, if one has been saved. Single row — no pagination needed. */
+export async function getSeatMonthEntry(
+  supabase: SupabaseClient,
+  month: string, // YYYY-MM-01
+): Promise<SeatMonthEntry | null> {
+  const { data, error } = await supabase
+    .from("seat_month_entries")
+    .select("seats, price_usd")
+    .eq("vendor", "chatgpt_business")
+    .eq("month", month)
+    .limit(1);
+  if (error) throw new Error(`getSeatMonthEntry: ${error.message}`);
+  const row = data?.[0];
+  return row ? { seats: Number(row.seats), priceUsd: Number(row.price_usd) } : null;
+}
+
+/**
+ * Replace one month's ChatGPT seat facts (seat-scoped — overage/credits are
+ * never touched). An empty fact set is the intentional zero case: remove only
+ * a leftover unassigned fact, surgically (gotcha #4: no window wipe).
+ */
+export async function replaceSeatMonth(
+  supabase: SupabaseClient,
+  month: string, // YYYY-MM-01
+  facts: ResolvedFact[],
+): Promise<number> {
+  if (facts.length === 0) {
+    const { error } = await supabase
+      .from("spend_facts")
+      .delete()
+      .eq("source", "chatgpt_business")
+      .eq("cost_type", "seat")
+      .eq("day", month)
+      .eq("entity_key", UNASSIGNED_SEATS_KEY);
+    if (error) throw new Error(`replaceSeatMonth: ${error.message}`);
+    return 0;
+  }
+  // Seat facts are always stamped YYYY-MM-01, so a one-day window covers the month.
+  const window = { startDate: month, endDate: month.slice(0, 8) + "02" };
+  return replaceWindowFacts(supabase, "chatgpt_business", window, facts, { costType: "seat" });
+}
+
+/**
+ * Rebuild a month's seat facts after a manual-entry change. Members come from
+ * the month's existing member seat facts (i.e. the latest paste); the paste
+ * commit itself passes fresh members directly instead.
+ */
+export async function rebuildChatGptSeatMonth(
+  supabase: SupabaseClient,
+  month: string, // YYYY-MM-01
+  defaultPriceUsd: number,
+): Promise<number> {
+  const entry = await getSeatMonthEntry(supabase, month);
+
+  const members: SeatMember[] = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from("spend_facts")
+      .select("entity_key, employee_id")
+      .eq("source", "chatgpt_business")
+      .eq("cost_type", "seat")
+      .eq("day", month)
+      .neq("entity_key", UNASSIGNED_SEATS_KEY)
+      .order("id")
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(`rebuildChatGptSeatMonth: ${error.message}`);
+    for (const r of data ?? []) {
+      members.push({ entityKey: r.entity_key as string, employeeId: (r.employee_id as string) ?? null });
+    }
+    if (!data || data.length < PAGE) break;
+  }
+
+  return replaceSeatMonth(supabase, month, computeSeatFacts(month, entry, members, defaultPriceUsd));
 }
