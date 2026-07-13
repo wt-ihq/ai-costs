@@ -138,6 +138,17 @@ describe("parseOpenAiCreditsCsv", () => {
     expect(facts[0]).toMatchObject({ credits: 15, requests: 3 });
   });
 
+  it("rounds fractional quantities to integers (spend_facts tokens/requests are bigint)", () => {
+    // Real export data: codex task rows carry fractional counts (e.g. 2019.7),
+    // which Postgres rejects for the bigint requests column.
+    const { facts } = parseOpenAiCreditsCsv(csv(
+      "2026-05-02,acc1,u1,x@intenthq.com,X,user-1,codex,100,2019.7,counts",
+      "2026-05-02,acc1,u1,x@intenthq.com,X,user-1,api.gpt_5_5_2026_04_23_text_input_v_1,5,1000000.4,tokens",
+    ));
+    expect(facts.find((f) => f.model === "Codex tasks")).toMatchObject({ requests: 2020 });
+    expect(facts.find((f) => f.model === "GPT-5.5")).toMatchObject({ tokens: 1000000 });
+  });
+
   it("preserves true line numbers when a blank line sits between header and a bad row", () => {
     const { errors } = parseOpenAiCreditsCsv(
       [HEADER, "", "not-a-date,acc1,u1,x@intenthq.com,X,user-1,codex,10,1,counts"].join("\n"),
