@@ -33,7 +33,9 @@ export function modelLabelFromUsageType(usageType: string): string {
     const nums: string[] = [];
     const words: string[] = [];
     for (const part of chat[1].split(".")) (/^\d+$/.test(part) ? nums : words).push(part);
-    const tier = words.length ? " " + words.map(word).join(" ") : "";
+    const wordsLabel = words.map(word).join(" ");
+    if (!nums.length) return `${wordsLabel} (chat)`;
+    const tier = wordsLabel ? " " + wordsLabel : "";
     return `GPT-${nums.join(".")}${tier} (chat)`;
   }
   if (usageType === "chat_agent.completion") return "ChatGPT Agent";

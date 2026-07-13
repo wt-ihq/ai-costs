@@ -81,7 +81,8 @@ export default async function ImportsPage() {
               → <strong>Credits balance</strong> → ⋮ → <strong>Download usage data</strong>.
             </span>{" "}
             The export lags a day or two (the menu shows its &ldquo;Updated&rdquo; date). Any date range is fine — rows
-            carry their own dates and re-imports replace overlaps.
+            carry their own dates and re-imports replace overlaps. Download the full report (or at least start from a
+            month boundary) — a re-import starting mid-month can drop earlier days in that month.
           </p>
           <OpenAiCreditsImport importedThrough={importedThrough} defaultRate={defaultRate} />
         </Panel>

@@ -20,6 +20,8 @@ describe("modelLabelFromUsageType", () => {
     // ChatGPT message counts
     ["chat.completion.5.pro", "GPT-5 Pro (chat)"],
     ["chat.completion.4.5", "GPT-4.5 (chat)"],
+    // Alphanumeric-only version segment (no numeric part) → no "GPT-" prefix
+    ["chat.completion.4o", "4o (chat)"],
     ["chat_agent.completion", "ChatGPT Agent"],
     // Codex task counts
     ["codex", "Codex tasks"],
