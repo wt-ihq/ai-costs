@@ -266,6 +266,7 @@ export async function commitOpenAiCreditsImport(
   });
 
   revalidatePath("/");
+  revalidatePath("/imports");
   return { written, attributed, queued: resolved.length - attributed, from: minDay, to: maxDay };
 }
 
