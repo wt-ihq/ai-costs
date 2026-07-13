@@ -93,6 +93,13 @@ export async function loadEmployeeNames(supabase: SupabaseClient) {
   return selectAllRows<{ id: string; fullName: string }>(supabase, "employees", "id, fullName:full_name", "loadEmployeeNames");
 }
 
+/** Employees with email + name, paginated (gotcha #1) — for email-keyed import previews. */
+export async function loadEmployeesFull(supabase: SupabaseClient) {
+  return selectAllRows<{ id: string; email: string; fullName: string }>(
+    supabase, "employees", "id, email, fullName:full_name", "loadEmployeesFull",
+  );
+}
+
 /** Upsert employees from Okta (the identity spine). Keyed on email. */
 export async function upsertEmployees(
   supabase: SupabaseClient,

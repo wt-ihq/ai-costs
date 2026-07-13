@@ -9,8 +9,9 @@ import { syncAnthropic, syncOpenAI } from "@/lib/ingest/run-platforms";
 import { parseChatGptMemberTable, normalizeName } from "@/lib/ingest/parsers/chatgpt-clipboard";
 import { parseClaudeSpend } from "@/lib/ingest/parsers/claude-spend";
 import { parseClaudeRoster } from "@/lib/ingest/parsers/claude-roster";
+import { parseOpenAiCreditsCsv, coveredWindow, type CreditUsageFact } from "@/lib/ingest/parsers/openai-credits";
 import { matchByName } from "@/lib/ingest/identity";
-import { loadEmployeeNames, upsertSpendFacts, type ResolvedFact } from "@/lib/ingest/persist";
+import { loadEmployeeNames, loadEmployeesFull, upsertSpendFacts, replaceWindowFacts, type ResolvedFact } from "@/lib/ingest/persist";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** seat_prices as a `${vendor}:${seat_type}` -> USD map. */
@@ -129,6 +130,156 @@ export async function commitChatGptImport(
   });
 
   return { written, attributed, queued: withSpend.length - attributed, seats: rows.length };
+}
+
+// ---- OpenAI credit-usage CSV (additional/paid credits) ---------------------
+
+export interface OpenAiCreditsFact extends CreditUsageFact {
+  usd: number;
+  employeeId: string | null;
+}
+
+export interface OpenAiCreditsUserRow {
+  email: string;
+  name: string;
+  credits: number;
+  usd: number;
+  matched: boolean;
+  employeeName: string | null;
+}
+
+export interface OpenAiCreditsPreview {
+  facts: OpenAiCreditsFact[];
+  users: OpenAiCreditsUserRow[];
+  errors: { line: number; message: string }[];
+  totalCredits: number;
+  totalUsd: number;
+  minDay: string | null;
+  maxDay: string | null;
+  matchedCount: number;
+  modelCount: number;
+}
+
+/** Parse the credit-usage CSV, price credits at the given rate, exact-match emails. */
+export async function previewOpenAiCreditsImport(
+  csv: string,
+  usdPerCredit: number,
+): Promise<OpenAiCreditsPreview> {
+  await requireAdmin();
+  const supabase = getSupabaseAdminClient();
+  const employees = await loadEmployeesFull(supabase);
+  const byEmail = new Map(employees.map((e) => [e.email.toLowerCase(), e]));
+
+  const parsed = parseOpenAiCreditsCsv(csv);
+  const facts: OpenAiCreditsFact[] = parsed.facts.map((f) => ({
+    ...f,
+    usd: Math.round(f.credits * usdPerCredit * 100) / 100,
+    employeeId: byEmail.get(f.email)?.id ?? null,
+  }));
+
+  const users = new Map<string, OpenAiCreditsUserRow>();
+  for (const f of facts) {
+    const u = users.get(f.email) ?? {
+      email: f.email,
+      name: f.name,
+      credits: 0,
+      usd: 0,
+      matched: !!f.employeeId,
+      employeeName: byEmail.get(f.email)?.fullName ?? null,
+    };
+    u.credits += f.credits;
+    u.usd = Math.round((u.usd + f.usd) * 100) / 100;
+    users.set(f.email, u);
+  }
+  const userRows = [...users.values()].sort((a, b) => b.usd - a.usd);
+
+  return {
+    facts,
+    users: userRows,
+    errors: parsed.errors,
+    totalCredits: parsed.totalCredits,
+    totalUsd: Math.round(facts.reduce((s, f) => s + f.usd, 0) * 100) / 100,
+    minDay: parsed.minDay,
+    maxDay: parsed.maxDay,
+    matchedCount: userRows.filter((u) => u.matched).length,
+    modelCount: new Set(facts.map((f) => f.model)).size,
+  };
+}
+
+export interface OpenAiCreditsCommitResult {
+  written: number;
+  attributed: number;
+  queued: number;
+  from: string;
+  to: string;
+}
+
+/** Window-replace the overage slice only — seat facts in the window survive. */
+export async function commitOpenAiCreditsImport(
+  facts: OpenAiCreditsFact[],
+  usdPerCredit: number,
+  fileName: string | null,
+): Promise<OpenAiCreditsCommitResult> {
+  await requireAdmin();
+  const supabase = getSupabaseAdminClient();
+  // Never delete a window when the insert would be empty (gotcha #4).
+  if (!facts.length) throw new Error("Nothing to import — the preview has no rows.");
+
+  let minDay = facts[0].day;
+  let maxDay = facts[0].day;
+  for (const f of facts) {
+    if (f.day < minDay) minDay = f.day;
+    if (f.day > maxDay) maxDay = f.day;
+  }
+  const window = coveredWindow(minDay, maxDay);
+
+  const resolved: ResolvedFact[] = facts.map((f) => ({
+    source: "chatgpt_business",
+    day: f.day,
+    costType: "overage",
+    entityKey: f.email,
+    costUsd: f.usd,
+    tokens: f.tokens,
+    requests: f.requests,
+    model: f.model,
+    employeeId: f.employeeId,
+  }));
+  const written = await replaceWindowFacts(supabase, "chatgpt_business", window, resolved, { costType: "overage" });
+
+  // Record confirmed identity mappings (email → employee).
+  const identities = [
+    ...new Map(facts.filter((f) => f.employeeId).map((f) => [f.email, f.employeeId])).entries(),
+  ].map(([email, employeeId]) => ({
+    vendor: "chatgpt_business" as const,
+    external_email: email,
+    employee_id: employeeId,
+    match_method: "exact_email" as const,
+  }));
+  if (identities.length) {
+    await supabase.from("identities").upsert(identities, { onConflict: "vendor,external_email" });
+  }
+
+  const attributed = resolved.filter((f) => f.employeeId).length;
+  await supabase.from("imports").insert({
+    source: "chatgpt_business",
+    kind: "csv",
+    file_name: fileName,
+    data_as_of: maxDay,
+    status: "success",
+    row_counts: {
+      facts: resolved.length,
+      users: new Set(facts.map((f) => f.email)).size,
+      attributed,
+      queued: resolved.length - attributed,
+      total_credits: Math.round(facts.reduce((s, f) => s + f.credits, 0)),
+      usd_per_credit: usdPerCredit,
+      from: minDay,
+      to: maxDay,
+    },
+  });
+
+  revalidatePath("/");
+  return { written, attributed, queued: resolved.length - attributed, from: minDay, to: maxDay };
 }
 
 // ---- Claude Team MTD spend (paste) -----------------------------------------
