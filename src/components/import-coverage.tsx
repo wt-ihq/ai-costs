@@ -20,7 +20,8 @@ export function ImportCoverage({ rows }: { rows: CoverageMonthRow[] }) {
         <thead>
           <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
             <th className="px-3 py-2 font-medium">Month</th>
-            <th className="px-3 py-2 font-medium">ChatGPT Business</th>
+            <th className="px-3 py-2 font-medium">ChatGPT seats</th>
+            <th className="px-3 py-2 font-medium">ChatGPT credits</th>
             <th className="px-3 py-2 font-medium">Claude spend</th>
             <th className="px-3 py-2 font-medium">Claude seats</th>
           </tr>
@@ -29,7 +30,8 @@ export function ImportCoverage({ rows }: { rows: CoverageMonthRow[] }) {
           {rows.map((r) => (
             <tr key={r.month} className="border-b border-border/60 last:border-0">
               <td className="px-3 py-2 font-medium">{r.month}</td>
-              <td className="px-3 py-2"><Cell cell={r.chatgpt} /></td>
+              <td className="px-3 py-2"><Cell cell={r.chatgptSeats} /></td>
+              <td className="px-3 py-2"><Cell cell={r.chatgptCredits} /></td>
               <td className="px-3 py-2"><Cell cell={r.claudeSpend} /></td>
               <td className="px-3 py-2"><Cell cell={r.claudeSeats} /></td>
             </tr>
