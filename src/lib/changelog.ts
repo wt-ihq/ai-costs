@@ -11,6 +11,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-07-13",
+    title: "ChatGPT credit usage, per person per day",
+    items: [
+      "New import: the OpenAI credit-usage CSV (from the admin billing page) brings daily, per-person, per-model ChatGPT credit spend into the dashboard — Codex vs chat usage is now visible everywhere.",
+      "ChatGPT overage now counts only additional (paid) credits — bundled seat credits are no longer misbooked as extra spend.",
+      "The ChatGPT paste import now handles seats only, and the import-coverage table shows seats and credits separately.",
+      "The credits import card shows how far imported data reaches and where to download the export.",
+    ],
+  },
+  {
     date: "2026-07-08",
     title: "Tidier people lists",
     items: [

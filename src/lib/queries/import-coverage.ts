@@ -25,7 +25,8 @@ export interface CoverageCell {
 
 export interface CoverageMonthRow {
   month: string; // YYYY-MM
-  chatgpt: CoverageCell | null; // chatgpt_business seats + overage
+  chatgptSeats: CoverageCell | null; // chatgpt_business seats (paste import)
+  chatgptCredits: CoverageCell | null; // chatgpt_business overage (credits CSV)
   claudeSpend: CoverageCell | null; // claude_team overage
   claudeSeats: CoverageCell | null; // claude_team seats
 }
@@ -35,13 +36,15 @@ export interface ImportCoverageScope {
   imports: CoverageImportRow[];
 }
 
-type ColumnKey = "chatgpt" | "claudeSpend" | "claudeSeats";
+type ColumnKey = "chatgptSeats" | "chatgptCredits" | "claudeSpend" | "claudeSeats";
 
 const factColumn = (r: CoverageFactRow): ColumnKey =>
-  r.source === "chatgpt_business" ? "chatgpt" : r.costType === "seat" ? "claudeSeats" : "claudeSpend";
+  r.source === "chatgpt_business"
+    ? (r.costType === "seat" ? "chatgptSeats" : "chatgptCredits")
+    : (r.costType === "seat" ? "claudeSeats" : "claudeSpend");
 
 const importColumn = (r: CoverageImportRow): ColumnKey | null => {
-  if (r.source === "chatgpt_business") return "chatgpt";
+  if (r.source === "chatgpt_business") return r.kind === "csv" ? "chatgptCredits" : "chatgptSeats";
   if (r.source === "claude_team") return r.kind === "csv" ? "claudeSeats" : "claudeSpend";
   return null;
 };
@@ -100,7 +103,8 @@ export function buildImportCoverage(
     .reverse()
     .map((month) => ({
       month,
-      chatgpt: cell(month, "chatgpt"),
+      chatgptSeats: cell(month, "chatgptSeats"),
+      chatgptCredits: cell(month, "chatgptCredits"),
       claudeSpend: cell(month, "claudeSpend"),
       claudeSeats: cell(month, "claudeSeats"),
     }));

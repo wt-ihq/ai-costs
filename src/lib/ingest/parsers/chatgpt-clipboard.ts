@@ -1,4 +1,3 @@
-import type { SpendFact } from "@/lib/types";
 import { parseHumanNumber, type ParseRowError } from "./types";
 
 export interface ChatGptMember {
@@ -9,8 +8,6 @@ export interface ChatGptMember {
 }
 
 export interface ChatGptParseResult {
-  /** overage facts (credits × rate), keyed by normalized display name */
-  facts: SpendFact[];
   /** every active member, for ChatGPT seat assignment + activity */
   members: ChatGptMember[];
   errors: ParseRowError[];
@@ -26,35 +23,21 @@ const HEADER_TOKENS = new Set(["name", "seat type", "credits spent", "messages s
 /**
  * ChatGPT Business "Workspace analytics" table, copy/pasted as text. Columns:
  * Name, Seat type, Credits spent, Messages sent. No email — identity is
- * resolved by fuzzy name match downstream (matchByName). Credits convert to USD
- * overage via an admin credit rate.
+ * resolved by fuzzy name match downstream (matchByName). Credits are parsed
+ * for display only (read-only reference) — overage now comes from the
+ * credit-usage CSV import (see openai-credits.ts), not this paste.
  *
  * Two real paste shapes are supported:
  *   - block: each member is 4 lines (Name / "ChatGPT" / Credits / Messages) —
  *     how the table actually copies out of the UI.
  *   - row: one tab/space-separated line per member (some clients flatten it).
  */
-export function parseChatGptMemberTable(
-  text: string,
-  asOf: string,
-  usdPerCredit: number,
-): ChatGptParseResult {
-  const facts: SpendFact[] = [];
+export function parseChatGptMemberTable(text: string): ChatGptParseResult {
   const members: ChatGptMember[] = [];
   const errors: ParseRowError[] = [];
 
   const add = (name: string, creditsSpent: number, messagesSent: number) => {
     members.push({ name, creditsSpent, messagesSent });
-    if (creditsSpent > 0) {
-      facts.push({
-        source: "chatgpt_business",
-        day: asOf,
-        costType: "overage",
-        entityKey: normalizeName(name),
-        costUsd: Math.round(creditsSpent * usdPerCredit * 100) / 100,
-        requests: messagesSent || null,
-      });
-    }
   };
 
   // Drop blank lines and any header cells (combined or split across lines).
@@ -62,7 +45,7 @@ export function parseChatGptMemberTable(
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter((l) => l && !l.toLowerCase().includes("credits spent") && !HEADER_TOKENS.has(l.toLowerCase()));
-  if (lines.length === 0) return { facts, members, errors };
+  if (lines.length === 0) return { members, errors };
 
   // Detect shape from the first data line: multiple columns => row mode.
   const rowMode = lines[0].split(/\t|\s{2,}/).length >= 3;
@@ -96,5 +79,5 @@ export function parseChatGptMemberTable(
     }
   }
 
-  return { facts, members, errors };
+  return { members, errors };
 }

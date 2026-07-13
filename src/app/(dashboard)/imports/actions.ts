@@ -9,8 +9,9 @@ import { syncAnthropic, syncOpenAI } from "@/lib/ingest/run-platforms";
 import { parseChatGptMemberTable, normalizeName } from "@/lib/ingest/parsers/chatgpt-clipboard";
 import { parseClaudeSpend } from "@/lib/ingest/parsers/claude-spend";
 import { parseClaudeRoster } from "@/lib/ingest/parsers/claude-roster";
+import { parseOpenAiCreditsCsv, coveredWindow, type CreditUsageFact } from "@/lib/ingest/parsers/openai-credits";
 import { matchByName } from "@/lib/ingest/identity";
-import { loadEmployeeNames, upsertSpendFacts, type ResolvedFact } from "@/lib/ingest/persist";
+import { loadEmployeeNames, loadEmployeesFull, upsertSpendFacts, replaceWindowFacts, type ResolvedFact } from "@/lib/ingest/persist";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** seat_prices as a `${vendor}:${seat_type}` -> USD map. */
@@ -22,7 +23,6 @@ async function loadSeatPrices(supabase: SupabaseClient): Promise<Record<string, 
 export interface ChatGptPreviewRow {
   name: string;
   creditsSpent: number;
-  usd: number;
   employeeId: string | null;
   employeeName: string | null;
   confidence: "high" | "low" | "none";
@@ -31,34 +31,29 @@ export interface ChatGptPreviewRow {
 export interface ChatGptPreview {
   rows: ChatGptPreviewRow[];
   errors: { line: number; message: string }[];
-  totalUsd: number;
 }
 
 /** Parse the pasted member table and fuzzy-match each member to an employee. */
-export async function previewChatGptImport(
-  text: string,
-  usdPerCredit: number,
-): Promise<ChatGptPreview> {
+export async function previewChatGptImport(text: string): Promise<ChatGptPreview> {
   await requireAdmin();
   const supabase = getSupabaseAdminClient();
   const employees = await loadEmployeeNames(supabase);
   const byId = new Map(employees.map((e) => [e.id, e.fullName]));
 
-  const { members, errors } = parseChatGptMemberTable(text, new Date().toISOString().slice(0, 10), usdPerCredit);
+  const { members, errors } = parseChatGptMemberTable(text);
 
   const rows: ChatGptPreviewRow[] = members.map((m) => {
     const match = matchByName(m.name, employees);
     return {
       name: m.name,
       creditsSpent: m.creditsSpent,
-      usd: Math.round(m.creditsSpent * usdPerCredit * 100) / 100,
       employeeId: match.confidence === "high" ? match.employeeId : null,
       employeeName: match.employeeId ? byId.get(match.employeeId) ?? null : null,
       confidence: match.confidence,
     };
   });
 
-  return { rows, errors, totalUsd: rows.reduce((s, r) => s + r.usd, 0) };
+  return { rows, errors };
 }
 
 export interface ChatGptCommitResult {
@@ -68,7 +63,7 @@ export interface ChatGptCommitResult {
   seats?: number;
 }
 
-/** Commit reviewed rows: upsert overage facts, identities, and an import log. */
+/** Commit reviewed rows: upsert seat facts, identities, and an import log. */
 export async function commitChatGptImport(
   rows: ChatGptPreviewRow[],
   asOf: string,
@@ -80,13 +75,13 @@ export async function commitChatGptImport(
   const day = asOf.slice(0, 7) + "-01"; // monthly snapshot, upsert-replace
   const seatPrice = (await loadSeatPrices(supabase))["chatgpt_business:chatgpt"] ?? 25;
 
-  // Snapshot semantics: clear this month's ChatGPT facts, then re-insert.
-  await supabase.from("spend_facts").delete().eq("source", "chatgpt_business").eq("day", day);
+  // Snapshot semantics: clear this month's ChatGPT *seat* facts only — overage
+  // now comes from the credit-usage CSV import and must never be clobbered here.
+  await supabase.from("spend_facts").delete().eq("source", "chatgpt_business").eq("cost_type", "seat").eq("day", day);
 
-  const withSpend = rows.filter((r) => r.usd > 0);
   const empId = (r: ChatGptPreviewRow) => (r.confidence === "high" ? r.employeeId : null);
 
-  // Every listed member holds a seat; members with credits also incur overage.
+  // Every listed member holds a seat.
   const seatFacts: ResolvedFact[] = rows.map((r) => ({
     source: "chatgpt_business",
     day,
@@ -95,16 +90,8 @@ export async function commitChatGptImport(
     costUsd: seatPrice,
     employeeId: empId(r),
   }));
-  const overageFacts: ResolvedFact[] = withSpend.map((r) => ({
-    source: "chatgpt_business",
-    day,
-    costType: "overage",
-    entityKey: normalizeName(r.name),
-    costUsd: r.usd,
-    employeeId: empId(r),
-  }));
 
-  const written = await upsertSpendFacts(supabase, [...seatFacts, ...overageFacts]);
+  const written = await upsertSpendFacts(supabase, seatFacts);
 
   // Record confirmed identity mappings (name -> employee).
   const identities = rows
@@ -119,16 +106,168 @@ export async function commitChatGptImport(
     await supabase.from("identities").upsert(identities, { onConflict: "vendor,external_id" });
   }
 
-  const attributed = overageFacts.filter((f) => f.employeeId).length;
+  const attributed = seatFacts.filter((f) => f.employeeId).length;
+  const queued = rows.length - attributed;
   await supabase.from("imports").insert({
     source: "chatgpt_business",
     kind: "clipboard",
     data_as_of: asOf,
     status: "success",
-    row_counts: { members: rows.length, seats: rows.length, withSpend: withSpend.length, attributed, queued: withSpend.length - attributed },
+    row_counts: { members: rows.length, seats: rows.length, attributed, queued },
   });
 
-  return { written, attributed, queued: withSpend.length - attributed, seats: rows.length };
+  return { written, attributed, queued, seats: rows.length };
+}
+
+// ---- OpenAI credit-usage CSV (additional/paid credits) ---------------------
+
+export interface OpenAiCreditsFact extends CreditUsageFact {
+  usd: number;
+  employeeId: string | null;
+}
+
+export interface OpenAiCreditsUserRow {
+  email: string;
+  name: string;
+  credits: number;
+  usd: number;
+  matched: boolean;
+  employeeName: string | null;
+}
+
+export interface OpenAiCreditsPreview {
+  facts: OpenAiCreditsFact[];
+  users: OpenAiCreditsUserRow[];
+  errors: { line: number; message: string }[];
+  totalCredits: number;
+  totalUsd: number;
+  minDay: string | null;
+  maxDay: string | null;
+  matchedCount: number;
+  modelCount: number;
+}
+
+/** Parse the credit-usage CSV, price credits at the given rate, exact-match emails. */
+export async function previewOpenAiCreditsImport(
+  csv: string,
+  usdPerCredit: number,
+): Promise<OpenAiCreditsPreview> {
+  await requireAdmin();
+  const supabase = getSupabaseAdminClient();
+  const employees = await loadEmployeesFull(supabase);
+  const byEmail = new Map(employees.map((e) => [e.email.toLowerCase(), e]));
+
+  const parsed = parseOpenAiCreditsCsv(csv);
+  const facts: OpenAiCreditsFact[] = parsed.facts.map((f) => ({
+    ...f,
+    usd: Math.round(f.credits * usdPerCredit * 100) / 100,
+    employeeId: byEmail.get(f.email)?.id ?? null,
+  }));
+
+  const users = new Map<string, OpenAiCreditsUserRow>();
+  for (const f of facts) {
+    const u = users.get(f.email) ?? {
+      email: f.email,
+      name: f.name,
+      credits: 0,
+      usd: 0,
+      matched: !!f.employeeId,
+      employeeName: byEmail.get(f.email)?.fullName ?? null,
+    };
+    u.credits += f.credits;
+    u.usd = Math.round((u.usd + f.usd) * 100) / 100;
+    users.set(f.email, u);
+  }
+  const userRows = [...users.values()].sort((a, b) => b.usd - a.usd);
+
+  return {
+    facts,
+    users: userRows,
+    errors: parsed.errors,
+    totalCredits: parsed.totalCredits,
+    totalUsd: Math.round(facts.reduce((s, f) => s + f.usd, 0) * 100) / 100,
+    minDay: parsed.minDay,
+    maxDay: parsed.maxDay,
+    matchedCount: userRows.filter((u) => u.matched).length,
+    modelCount: new Set(facts.map((f) => f.model)).size,
+  };
+}
+
+export interface OpenAiCreditsCommitResult {
+  written: number;
+  attributed: number;
+  queued: number;
+  from: string;
+  to: string;
+}
+
+/** Window-replace the overage slice only — seat facts in the window survive. */
+export async function commitOpenAiCreditsImport(
+  facts: OpenAiCreditsFact[],
+  usdPerCredit: number,
+  fileName: string | null,
+): Promise<OpenAiCreditsCommitResult> {
+  await requireAdmin();
+  const supabase = getSupabaseAdminClient();
+  // Never delete a window when the insert would be empty (gotcha #4).
+  if (!facts.length) throw new Error("Nothing to import — the preview has no rows.");
+
+  let minDay = facts[0].day;
+  let maxDay = facts[0].day;
+  for (const f of facts) {
+    if (f.day < minDay) minDay = f.day;
+    if (f.day > maxDay) maxDay = f.day;
+  }
+  const window = coveredWindow(minDay, maxDay);
+
+  const resolved: ResolvedFact[] = facts.map((f) => ({
+    source: "chatgpt_business",
+    day: f.day,
+    costType: "overage",
+    entityKey: f.email,
+    costUsd: f.usd,
+    tokens: f.tokens,
+    requests: f.requests,
+    model: f.model,
+    employeeId: f.employeeId,
+  }));
+  const written = await replaceWindowFacts(supabase, "chatgpt_business", window, resolved, { costType: "overage" });
+
+  // Record confirmed identity mappings (email → employee).
+  const identities = [
+    ...new Map(facts.filter((f) => f.employeeId).map((f) => [f.email, f.employeeId])).entries(),
+  ].map(([email, employeeId]) => ({
+    vendor: "chatgpt_business" as const,
+    external_email: email,
+    employee_id: employeeId,
+    match_method: "exact_email" as const,
+  }));
+  if (identities.length) {
+    await supabase.from("identities").upsert(identities, { onConflict: "vendor,external_email" });
+  }
+
+  const attributed = resolved.filter((f) => f.employeeId).length;
+  await supabase.from("imports").insert({
+    source: "chatgpt_business",
+    kind: "csv",
+    file_name: fileName,
+    data_as_of: maxDay,
+    status: "success",
+    row_counts: {
+      facts: resolved.length,
+      users: new Set(facts.map((f) => f.email)).size,
+      attributed,
+      queued: resolved.length - attributed,
+      total_credits: Math.round(facts.reduce((s, f) => s + f.credits, 0)),
+      usd_per_credit: usdPerCredit,
+      from: minDay,
+      to: maxDay,
+    },
+  });
+
+  revalidatePath("/");
+  revalidatePath("/imports");
+  return { written, attributed, queued: resolved.length - attributed, from: minDay, to: maxDay };
 }
 
 // ---- Claude Team MTD spend (paste) -----------------------------------------

@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { SpendFact, ModelUsageFact } from "@/lib/types";
+import type { SpendFact, ModelUsageFact, CostType } from "@/lib/types";
 import { matchIdentity } from "@/lib/ingest/identity";
 
 export interface ResolvedFact extends SpendFact {
@@ -93,6 +93,13 @@ export async function loadEmployeeNames(supabase: SupabaseClient) {
   return selectAllRows<{ id: string; fullName: string }>(supabase, "employees", "id, fullName:full_name", "loadEmployeeNames");
 }
 
+/** Employees with email + name, paginated (gotcha #1) — for email-keyed import previews. */
+export async function loadEmployeesFull(supabase: SupabaseClient) {
+  return selectAllRows<{ id: string; email: string; fullName: string }>(
+    supabase, "employees", "id, email, fullName:full_name", "loadEmployeesFull",
+  );
+}
+
 /** Upsert employees from Okta (the identity spine). Keyed on email. */
 export async function upsertEmployees(
   supabase: SupabaseClient,
@@ -147,12 +154,15 @@ export async function upsertSpendFacts(
  * wipe existing data (gotcha #4). The window is exclusive-end, matching every
  * fetch window in this repo (deleting `.lte` endDate wiped a day the fetch
  * never covered — e.g. Aug 1 on a July backfill with ?to=2026-08-01).
+ * Pass `opts.costType` to scope the prune to one cost type — other cost types
+ * in the window are untouched.
  */
 export async function replaceWindowFacts(
   supabase: SupabaseClient,
   source: string,
   window: { startDate: string; endDate: string },
   facts: ResolvedFact[],
+  opts?: { costType?: CostType },
 ): Promise<number> {
   if (facts.length === 0) return 0;
   const written = await upsertSpendFacts(supabase, facts);
@@ -161,10 +171,14 @@ export async function replaceWindowFacts(
   const stale: string[] = [];
   const PAGE = 1000;
   for (let from = 0; ; from += PAGE) {
-    const { data, error } = await supabase
+    let query = supabase
       .from("spend_facts")
       .select("id, day, cost_type, entity_key, model")
-      .eq("source", source)
+      .eq("source", source);
+    // Scoped replace: prune only within this cost type (e.g. a credits import
+    // must never touch seat facts sharing the window).
+    if (opts?.costType) query = query.eq("cost_type", opts.costType);
+    const { data, error } = await query
       .gte("day", window.startDate)
       .lt("day", window.endDate)
       .order("id")
