@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { modelLabelFromUsageType } from "./openai-credits";
+import { modelLabelFromUsageType, parseOpenAiCreditsCsv, coveredWindow } from "./openai-credits";
 
 describe("modelLabelFromUsageType", () => {
   // Every usage_type family observed in the real export (2026-07-13).
@@ -30,5 +30,86 @@ describe("modelLabelFromUsageType", () => {
 
   it("degrades unknown types to a readable label, never throws", () => {
     expect(modelLabelFromUsageType("some.future_thing.v9")).toBe("some future thing v9");
+  });
+});
+
+// Real header + representative rows from the actual export. The BOM is
+// spelled \uFEFF explicitly so it can't be lost invisibly in copy/paste.
+const HEADER =
+  "\uFEFF" + "date_partition,account_id,account_user_id,email,name,public_id,usage_type,usage_credits,usage_quantity,usage_units";
+const csv = (...rows: string[]) => [HEADER, ...rows].join("\n");
+
+describe("parseOpenAiCreditsCsv", () => {
+  it("merges token line items of one model into a single fact per (email, day, model)", () => {
+    const { facts, errors, minDay, maxDay, totalCredits } = parseOpenAiCreditsCsv(csv(
+      "2026-05-02,acc1,u1,Omar.Ali@intenthq.com,Omar Ali,user-1,api.codex_fast_gpt_5_5_2026_04_23_text_input_v_1,100.5,1000000,tokens",
+      "2026-05-02,acc1,u1,omar.ali@intenthq.com,Omar Ali,user-1,api.codex_fast_gpt_5_5_2026_04_23_text_cached_input_v_1,50.25,5000000,tokens",
+      "2026-05-02,acc1,u1,omar.ali@intenthq.com,Omar Ali,user-1,api.codex_fast_gpt_5_5_2026_04_23_text_output_v_1,25,200000,tokens",
+    ));
+    expect(errors).toEqual([]);
+    expect(facts).toHaveLength(1);
+    expect(facts[0]).toEqual({
+      email: "omar.ali@intenthq.com", // lowercased
+      name: "Omar Ali",
+      day: "2026-05-02",
+      model: "GPT-5.5 Codex (fast)",
+      credits: 175.75,
+      tokens: 6200000,
+      requests: null,
+    });
+    expect(minDay).toBe("2026-05-02");
+    expect(maxDay).toBe("2026-05-02");
+    expect(totalCredits).toBeCloseTo(175.75);
+  });
+
+  it("puts count-based usage in requests, keeps distinct models separate", () => {
+    const { facts } = parseOpenAiCreditsCsv(csv(
+      "2025-08-14,acc1,u2,sharifah.amirah@intenthq.com,Sharifah Amirah,user-2,chat.completion.5.pro,400.0,8.0,counts",
+      "2025-08-14,acc1,u2,sharifah.amirah@intenthq.com,Sharifah Amirah,user-2,codex,120,3,counts",
+    ));
+    expect(facts).toHaveLength(2);
+    const pro = facts.find((f) => f.model === "GPT-5 Pro (chat)");
+    expect(pro).toMatchObject({ credits: 400, requests: 8, tokens: null });
+    expect(facts.find((f) => f.model === "Codex tasks")).toMatchObject({ credits: 120, requests: 3 });
+  });
+
+  it("collects per-row errors for bad rows and keeps the good ones", () => {
+    const { facts, errors } = parseOpenAiCreditsCsv(csv(
+      "not-a-date,acc1,u1,x@intenthq.com,X,user-1,codex,10,1,counts",
+      "2026-05-02,acc1,u1,,No Email,user-1,codex,10,1,counts",
+      "2026-05-03,acc1,u1,ok@intenthq.com,OK,user-1,codex,10,1,counts",
+    ));
+    expect(facts).toHaveLength(1);
+    expect(facts[0].email).toBe("ok@intenthq.com");
+    expect(errors).toHaveLength(2);
+    expect(errors[0].line).toBe(2); // 1-based, header is line 1
+  });
+
+  it("handles quoted fields containing commas", () => {
+    const { facts } = parseOpenAiCreditsCsv(csv(
+      '2026-05-02,acc1,u1,jo@intenthq.com,"Jones, Jo",user-1,codex,10,1,counts',
+    ));
+    expect(facts[0].name).toBe("Jones, Jo");
+  });
+
+  it("throws on header drift (missing required column)", () => {
+    const bad = "date_partition,account_id,email,usage_credits\n2026-05-02,acc1,x@intenthq.com,10";
+    expect(() => parseOpenAiCreditsCsv(bad)).toThrow(/missing column/i);
+  });
+
+  it("returns an error (not a throw) for an empty file", () => {
+    const { facts, errors } = parseOpenAiCreditsCsv("");
+    expect(facts).toEqual([]);
+    expect(errors).toHaveLength(1);
+  });
+});
+
+describe("coveredWindow", () => {
+  it("month-aligns the start (sweeps old month-stamped paste overage) and is exclusive-end", () => {
+    expect(coveredWindow("2025-08-14", "2026-07-11")).toEqual({ startDate: "2025-08-01", endDate: "2026-07-12" });
+  });
+
+  it("rolls the end over month and year boundaries", () => {
+    expect(coveredWindow("2026-12-05", "2026-12-31")).toEqual({ startDate: "2026-12-01", endDate: "2027-01-01" });
   });
 });
