@@ -12,6 +12,7 @@ import { parseClaudeRoster } from "@/lib/ingest/parsers/claude-roster";
 import { parseOpenAiCreditsCsv, coveredWindow, type CreditUsageFact } from "@/lib/ingest/parsers/openai-credits";
 import { matchByName } from "@/lib/ingest/identity";
 import { loadEmployeeNames, loadEmployeesFull, upsertSpendFacts, replaceWindowFacts, type ResolvedFact } from "@/lib/ingest/persist";
+import { rebuildChatGptSeatMonth, getSeatMonthEntry, replaceSeatMonth, computeSeatFacts, type SeatMember } from "@/lib/ingest/seat-months";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** seat_prices as a `${vendor}:${seat_type}` -> USD map. */
@@ -75,23 +76,14 @@ export async function commitChatGptImport(
   const day = asOf.slice(0, 7) + "-01"; // monthly snapshot, upsert-replace
   const seatPrice = (await loadSeatPrices(supabase))["chatgpt_business:chatgpt"] ?? 25;
 
-  // Snapshot semantics: clear this month's ChatGPT *seat* facts only — overage
-  // now comes from the credit-usage CSV import and must never be clobbered here.
-  await supabase.from("spend_facts").delete().eq("source", "chatgpt_business").eq("cost_type", "seat").eq("day", day);
-
   const empId = (r: ChatGptPreviewRow) => (r.confidence === "high" ? r.employeeId : null);
 
-  // Every listed member holds a seat.
-  const seatFacts: ResolvedFact[] = rows.map((r) => ({
-    source: "chatgpt_business",
-    day,
-    costType: "seat",
-    entityKey: normalizeName(r.name),
-    costUsd: seatPrice,
-    employeeId: empId(r),
-  }));
-
-  const written = await upsertSpendFacts(supabase, seatFacts);
+  // Every listed member holds a seat; the month's manual entry (when present)
+  // is authoritative for the total — computeSeatFacts prices/splits/tops-up.
+  const members: SeatMember[] = rows.map((r) => ({ entityKey: normalizeName(r.name), employeeId: empId(r) }));
+  const entry = await getSeatMonthEntry(supabase, day);
+  const seatFacts = computeSeatFacts(day, entry, members, seatPrice);
+  const written = await replaceSeatMonth(supabase, day, seatFacts);
 
   // Record confirmed identity mappings (name -> employee).
   const identities = rows
@@ -117,6 +109,62 @@ export async function commitChatGptImport(
   });
 
   return { written, attributed, queued, seats: rows.length };
+}
+
+// ---- ChatGPT monthly seat entries (manual count × price) --------------------
+
+const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/** Save (upsert) a month's authoritative seat count × price, then rebuild its facts. */
+export async function saveSeatMonthEntry(
+  month: string, // YYYY-MM from the month picker
+  seats: number,
+  priceUsd: number,
+): Promise<{ written: number }> {
+  await requireAdmin();
+  if (!MONTH_RE.test(month)) throw new Error(`Invalid month "${month}" — expected YYYY-MM.`);
+  if (!Number.isInteger(seats) || seats < 0) throw new Error("Seats must be a whole number ≥ 0.");
+  if (!Number.isFinite(priceUsd) || priceUsd < 0) throw new Error("Price must be a number ≥ 0.");
+  // Round to cents before storing/using: sub-cent prices (e.g. 0.005) would
+  // otherwise break computeSeatFacts' cent-exactness invariant.
+  priceUsd = Math.round(priceUsd * 100) / 100;
+  const supabase = getSupabaseAdminClient();
+  const day = `${month}-01`;
+
+  const { error } = await supabase
+    .from("seat_month_entries")
+    .upsert(
+      { vendor: "chatgpt_business", month: day, seats, price_usd: priceUsd, updated_at: new Date().toISOString() },
+      { onConflict: "vendor,month" },
+    );
+  if (error) throw new Error(`saveSeatMonthEntry: ${error.message}`);
+
+  const defaultPrice = (await loadSeatPrices(supabase))["chatgpt_business:chatgpt"] ?? 25;
+  const written = await rebuildChatGptSeatMonth(supabase, day, defaultPrice);
+  revalidatePath("/imports");
+  revalidatePath("/");
+  return { written };
+}
+
+/** Delete a month's manual entry and revert its facts to pasted-members × default price. */
+export async function deleteSeatMonthEntry(month: string): Promise<{ written: number }> {
+  await requireAdmin();
+  if (!MONTH_RE.test(month)) throw new Error(`Invalid month "${month}" — expected YYYY-MM.`);
+  const supabase = getSupabaseAdminClient();
+  const day = `${month}-01`;
+
+  const { error } = await supabase
+    .from("seat_month_entries")
+    .delete()
+    .eq("vendor", "chatgpt_business")
+    .eq("month", day);
+  if (error) throw new Error(`deleteSeatMonthEntry: ${error.message}`);
+
+  const defaultPrice = (await loadSeatPrices(supabase))["chatgpt_business:chatgpt"] ?? 25;
+  const written = await rebuildChatGptSeatMonth(supabase, day, defaultPrice);
+  revalidatePath("/imports");
+  revalidatePath("/");
+  return { written };
 }
 
 // ---- OpenAI credit-usage CSV (additional/paid credits) ---------------------

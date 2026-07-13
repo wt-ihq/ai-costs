@@ -18,6 +18,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "ChatGPT overage now counts only additional (paid) credits — bundled seat credits are no longer misbooked as extra spend.",
       "The ChatGPT paste import now handles seats only, and the import-coverage table shows seats and credits separately.",
       "The credits import card shows how far imported data reaches and where to download the export.",
+      "You can now enter a month's ChatGPT seat count and per-seat price by hand (default $25, override per month) — pasted members share the entered total, and any extra seats show as 'unassigned seats'.",
       "Fixed the credits import failing on Codex task rows (their usage counts can be fractional).",
     ],
   },

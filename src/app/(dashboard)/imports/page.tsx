@@ -9,6 +9,7 @@ import { getRole } from "@/lib/auth-guard";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { buildImportCoverage, getImportCoverageScope } from "@/lib/queries/import-coverage";
 import { ImportCoverage } from "@/components/import-coverage";
+import { SeatMonthEntries, type SeatMonthEntryRow } from "@/components/seat-month-entries";
 
 export default async function ImportsPage() {
   // The nav only hides the link for viewers; the page itself must enforce it.
@@ -29,6 +30,17 @@ export default async function ImportsPage() {
   const importedThrough = (lastCsv?.[0]?.data_as_of as string | undefined) ?? null;
   const lastRate = (lastCsv?.[0]?.row_counts as { usd_per_credit?: number } | null)?.usd_per_credit;
   const defaultRate = typeof lastRate === "number" && lastRate > 0 ? lastRate : 0.04;
+  const { data: seatMonths } = await supabase
+    .from("seat_month_entries")
+    .select("month, seats, price_usd")
+    .eq("vendor", "chatgpt_business")
+    .order("month", { ascending: false })
+    .limit(36);
+  const seatEntries: SeatMonthEntryRow[] = (seatMonths ?? []).map((r) => ({
+    month: (r.month as string).slice(0, 7),
+    seats: Number(r.seats),
+    priceUsd: Number(r.price_usd),
+  }));
   return (
     <>
       <PageHeader
@@ -67,6 +79,16 @@ export default async function ImportsPage() {
             reference only; paid credit overage comes from the credits CSV below. Fuzzy name-matched (no email).
           </p>
           <ChatGptImport />
+        </Panel>
+
+        <Panel>
+          <h2 className="mb-1 text-sm font-medium">ChatGPT Business — monthly seats</h2>
+          <p className="mb-4 text-xs text-muted">
+            The authoritative seat count and per-seat price for a month (default $25 — override per month if
+            needed). Pasted members share the entered total; seats beyond the pasted members show as
+            &ldquo;unassigned seats&rdquo;. Removing a month reverts it to pasted members × default price.
+          </p>
+          <SeatMonthEntries entries={seatEntries} />
         </Panel>
 
         <Panel>
