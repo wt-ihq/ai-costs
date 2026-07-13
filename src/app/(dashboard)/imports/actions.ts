@@ -23,7 +23,6 @@ async function loadSeatPrices(supabase: SupabaseClient): Promise<Record<string, 
 export interface ChatGptPreviewRow {
   name: string;
   creditsSpent: number;
-  usd: number;
   employeeId: string | null;
   employeeName: string | null;
   confidence: "high" | "low" | "none";
@@ -32,34 +31,29 @@ export interface ChatGptPreviewRow {
 export interface ChatGptPreview {
   rows: ChatGptPreviewRow[];
   errors: { line: number; message: string }[];
-  totalUsd: number;
 }
 
 /** Parse the pasted member table and fuzzy-match each member to an employee. */
-export async function previewChatGptImport(
-  text: string,
-  usdPerCredit: number,
-): Promise<ChatGptPreview> {
+export async function previewChatGptImport(text: string): Promise<ChatGptPreview> {
   await requireAdmin();
   const supabase = getSupabaseAdminClient();
   const employees = await loadEmployeeNames(supabase);
   const byId = new Map(employees.map((e) => [e.id, e.fullName]));
 
-  const { members, errors } = parseChatGptMemberTable(text, new Date().toISOString().slice(0, 10), usdPerCredit);
+  const { members, errors } = parseChatGptMemberTable(text);
 
   const rows: ChatGptPreviewRow[] = members.map((m) => {
     const match = matchByName(m.name, employees);
     return {
       name: m.name,
       creditsSpent: m.creditsSpent,
-      usd: Math.round(m.creditsSpent * usdPerCredit * 100) / 100,
       employeeId: match.confidence === "high" ? match.employeeId : null,
       employeeName: match.employeeId ? byId.get(match.employeeId) ?? null : null,
       confidence: match.confidence,
     };
   });
 
-  return { rows, errors, totalUsd: rows.reduce((s, r) => s + r.usd, 0) };
+  return { rows, errors };
 }
 
 export interface ChatGptCommitResult {
@@ -69,7 +63,7 @@ export interface ChatGptCommitResult {
   seats?: number;
 }
 
-/** Commit reviewed rows: upsert overage facts, identities, and an import log. */
+/** Commit reviewed rows: upsert seat facts, identities, and an import log. */
 export async function commitChatGptImport(
   rows: ChatGptPreviewRow[],
   asOf: string,
@@ -81,13 +75,13 @@ export async function commitChatGptImport(
   const day = asOf.slice(0, 7) + "-01"; // monthly snapshot, upsert-replace
   const seatPrice = (await loadSeatPrices(supabase))["chatgpt_business:chatgpt"] ?? 25;
 
-  // Snapshot semantics: clear this month's ChatGPT facts, then re-insert.
-  await supabase.from("spend_facts").delete().eq("source", "chatgpt_business").eq("day", day);
+  // Snapshot semantics: clear this month's ChatGPT *seat* facts only — overage
+  // now comes from the credit-usage CSV import and must never be clobbered here.
+  await supabase.from("spend_facts").delete().eq("source", "chatgpt_business").eq("cost_type", "seat").eq("day", day);
 
-  const withSpend = rows.filter((r) => r.usd > 0);
   const empId = (r: ChatGptPreviewRow) => (r.confidence === "high" ? r.employeeId : null);
 
-  // Every listed member holds a seat; members with credits also incur overage.
+  // Every listed member holds a seat.
   const seatFacts: ResolvedFact[] = rows.map((r) => ({
     source: "chatgpt_business",
     day,
@@ -96,16 +90,8 @@ export async function commitChatGptImport(
     costUsd: seatPrice,
     employeeId: empId(r),
   }));
-  const overageFacts: ResolvedFact[] = withSpend.map((r) => ({
-    source: "chatgpt_business",
-    day,
-    costType: "overage",
-    entityKey: normalizeName(r.name),
-    costUsd: r.usd,
-    employeeId: empId(r),
-  }));
 
-  const written = await upsertSpendFacts(supabase, [...seatFacts, ...overageFacts]);
+  const written = await upsertSpendFacts(supabase, seatFacts);
 
   // Record confirmed identity mappings (name -> employee).
   const identities = rows
@@ -120,16 +106,17 @@ export async function commitChatGptImport(
     await supabase.from("identities").upsert(identities, { onConflict: "vendor,external_id" });
   }
 
-  const attributed = overageFacts.filter((f) => f.employeeId).length;
+  const attributed = seatFacts.filter((f) => f.employeeId).length;
+  const queued = rows.length - attributed;
   await supabase.from("imports").insert({
     source: "chatgpt_business",
     kind: "clipboard",
     data_as_of: asOf,
     status: "success",
-    row_counts: { members: rows.length, seats: rows.length, withSpend: withSpend.length, attributed, queued: withSpend.length - attributed },
+    row_counts: { members: rows.length, seats: rows.length, attributed, queued },
   });
 
-  return { written, attributed, queued: withSpend.length - attributed, seats: rows.length };
+  return { written, attributed, queued, seats: rows.length };
 }
 
 // ---- OpenAI credit-usage CSV (additional/paid credits) ---------------------
