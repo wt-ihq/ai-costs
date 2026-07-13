@@ -147,7 +147,14 @@ export function parseOpenAiCreditsCsv(csv: string): OpenAiCreditsParseResult {
     if (!maxDay || day > maxDay) maxDay = day;
   }
 
-  return { facts: [...byKey.values()], errors, minDay, maxDay, totalCredits };
+  // Round after summing: spend_facts tokens/requests are bigint, and codex
+  // task rows carry fractional counts (e.g. 2019.7) that Postgres rejects.
+  const facts = [...byKey.values()].map((f) => ({
+    ...f,
+    tokens: f.tokens === null ? null : Math.round(f.tokens),
+    requests: f.requests === null ? null : Math.round(f.requests),
+  }));
+  return { facts, errors, minDay, maxDay, totalCredits };
 }
 
 /**
