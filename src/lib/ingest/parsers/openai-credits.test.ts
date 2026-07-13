@@ -44,15 +44,15 @@ const csv = (...rows: string[]) => [HEADER, ...rows].join("\n");
 describe("parseOpenAiCreditsCsv", () => {
   it("merges token line items of one model into a single fact per (email, day, model)", () => {
     const { facts, errors, minDay, maxDay, totalCredits } = parseOpenAiCreditsCsv(csv(
-      "2026-05-02,acc1,u1,Omar.Ali@intenthq.com,Omar Ali,user-1,api.codex_fast_gpt_5_5_2026_04_23_text_input_v_1,100.5,1000000,tokens",
-      "2026-05-02,acc1,u1,omar.ali@intenthq.com,Omar Ali,user-1,api.codex_fast_gpt_5_5_2026_04_23_text_cached_input_v_1,50.25,5000000,tokens",
-      "2026-05-02,acc1,u1,omar.ali@intenthq.com,Omar Ali,user-1,api.codex_fast_gpt_5_5_2026_04_23_text_output_v_1,25,200000,tokens",
+      "2026-05-02,acc1,u1,Alex.Morgan@intenthq.com,Alex Morgan,user-1,api.codex_fast_gpt_5_5_2026_04_23_text_input_v_1,100.5,1000000,tokens",
+      "2026-05-02,acc1,u1,alex.morgan@intenthq.com,Alex Morgan,user-1,api.codex_fast_gpt_5_5_2026_04_23_text_cached_input_v_1,50.25,5000000,tokens",
+      "2026-05-02,acc1,u1,alex.morgan@intenthq.com,Alex Morgan,user-1,api.codex_fast_gpt_5_5_2026_04_23_text_output_v_1,25,200000,tokens",
     ));
     expect(errors).toEqual([]);
     expect(facts).toHaveLength(1);
     expect(facts[0]).toEqual({
-      email: "omar.ali@intenthq.com", // lowercased
-      name: "Omar Ali",
+      email: "alex.morgan@intenthq.com", // lowercased
+      name: "Alex Morgan",
       day: "2026-05-02",
       model: "GPT-5.5 Codex (fast)",
       credits: 175.75,
@@ -66,8 +66,8 @@ describe("parseOpenAiCreditsCsv", () => {
 
   it("puts count-based usage in requests, keeps distinct models separate", () => {
     const { facts } = parseOpenAiCreditsCsv(csv(
-      "2025-08-14,acc1,u2,sharifah.amirah@intenthq.com,Sharifah Amirah,user-2,chat.completion.5.pro,400.0,8.0,counts",
-      "2025-08-14,acc1,u2,sharifah.amirah@intenthq.com,Sharifah Amirah,user-2,codex,120,3,counts",
+      "2025-08-14,acc1,u2,jamie.lee@intenthq.com,Jamie Lee,user-2,chat.completion.5.pro,400.0,8.0,counts",
+      "2025-08-14,acc1,u2,jamie.lee@intenthq.com,Jamie Lee,user-2,codex,120,3,counts",
     ));
     expect(facts).toHaveLength(2);
     const pro = facts.find((f) => f.model === "GPT-5 Pro (chat)");

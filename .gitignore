@@ -49,3 +49,6 @@ yarn-error.log*
 .idea
 .vscode/*
 !.vscode/extensions.json
+
+# Local credit-usage CSV exports (contain employee PII — never commit)
+analytics/

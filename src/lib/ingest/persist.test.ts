@@ -90,9 +90,9 @@ describe("replaceWindowFacts with a cost-type scope", () => {
   it("prunes stale rows only within the scoped cost type — seat facts survive an overage replace", async () => {
     const { client, rows } = fakeSpendFactsDb([
       // paste-era seat fact — must survive
-      { source: "chatgpt_business", day: "2026-05-01", cost_type: "seat", entity_key: "omar ali", model: "", cost_usd: 25 },
+      { source: "chatgpt_business", day: "2026-05-01", cost_type: "seat", entity_key: "alex morgan", model: "", cost_usd: 25 },
       // paste-era month-stamped overage — must be pruned (not in the new snapshot)
-      { source: "chatgpt_business", day: "2026-05-01", cost_type: "overage", entity_key: "omar ali", model: "", cost_usd: 360 },
+      { source: "chatgpt_business", day: "2026-05-01", cost_type: "overage", entity_key: "alex morgan", model: "", cost_usd: 360 },
       // other source in-window — must survive
       { source: "claude_team", day: "2026-05-10", cost_type: "overage", entity_key: "x@intenthq.com", model: "", cost_usd: 9 },
     ]);
@@ -103,16 +103,16 @@ describe("replaceWindowFacts with a cost-type scope", () => {
       { startDate: "2026-05-01", endDate: "2026-06-01" },
       [{
         source: "chatgpt_business", day: "2026-05-02", costType: "overage",
-        entityKey: "omar.ali@intenthq.com", costUsd: 7.03, model: "GPT-5.5 Codex (fast)", employeeId: "e1",
+        entityKey: "alex.morgan@intenthq.com", costUsd: 7.03, model: "GPT-5.5 Codex (fast)", employeeId: "e1",
       }],
       { costType: "overage" },
     );
 
     expect(written).toBe(1);
     const keys = rows.map((r) => `${r.source}|${r.cost_type}|${r.entity_key}`);
-    expect(keys).toContain("chatgpt_business|seat|omar ali");                 // survived
+    expect(keys).toContain("chatgpt_business|seat|alex morgan");                 // survived
     expect(keys).toContain("claude_team|overage|x@intenthq.com");             // survived
-    expect(keys).toContain("chatgpt_business|overage|omar.ali@intenthq.com"); // new fact
-    expect(keys).not.toContain("chatgpt_business|overage|omar ali");          // pruned
+    expect(keys).toContain("chatgpt_business|overage|alex.morgan@intenthq.com"); // new fact
+    expect(keys).not.toContain("chatgpt_business|overage|alex morgan");          // pruned
   });
 });
