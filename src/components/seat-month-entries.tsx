@@ -54,6 +54,7 @@ export function SeatMonthEntries({ entries }: { entries: SeatMonthEntryRow[] }) 
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <label className="flex items-center gap-2 text-muted">
           Month
+          {/* Default is the client's local date; the server-rendered value can differ by a day. */}
           <input type="month" value={month} onChange={(e) => onMonth(e.target.value)} suppressHydrationWarning className="rounded-md border border-border bg-surface-2 px-2 py-1 text-foreground outline-none focus:border-accent" />
         </label>
         <label className="flex items-center gap-2 text-muted">

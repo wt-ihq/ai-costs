@@ -22,7 +22,7 @@ export interface SeatMember {
  *   - entry, no members   → one "unassigned seats" fact for the whole total
  *   - entry, M ≤ seats    → members at price, remainder unassigned
  *   - entry, M > seats    → total split evenly across members, cent-exact
- *                           (last member absorbs the rounding remainder)
+ *                           (remainder lands on the last member in entityKey order)
  * Returns [] only for a zero-total entry with no members — the caller must
  * then remove any stale unassigned fact surgically (never a window wipe).
  */
@@ -57,8 +57,11 @@ export function computeSeatFacts(
   }
 
   // More members than seats: manual count wins — split the total evenly.
+  // Sort so the remainder placement is deterministic regardless of input order
+  // (the paste path passes paste order; rebuildChatGptSeatMonth reads by uuid id).
+  const ordered = [...members].sort((a, b) => a.entityKey.localeCompare(b.entityKey));
   const perCents = Math.floor(totalCents / count);
-  return members.map((m, i) => {
+  return ordered.map((m, i) => {
     const cents = i === count - 1 ? totalCents - perCents * (count - 1) : perCents;
     return fact(m.entityKey, cents / 100, m.employeeId);
   });

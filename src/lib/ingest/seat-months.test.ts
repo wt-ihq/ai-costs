@@ -48,6 +48,23 @@ describe("computeSeatFacts", () => {
     expect(facts[22].costUsd).toBe(21.94); // last row absorbs the rounding remainder
   });
 
+  it("entry with MORE members than seats: remainder placement is deterministic by entityKey, not input order", () => {
+    // 2 seats × $25 = $50.00 over 3 members: floor(5000/3)=1666 -> alpha/bravo 16.66, charlie (last alphabetically) 16.68.
+    const memberSet = [
+      { entityKey: "charlie", employeeId: null },
+      { entityKey: "alpha", employeeId: null },
+      { entityKey: "bravo", employeeId: null },
+    ];
+    const forward = computeSeatFacts(MONTH, { seats: 2, priceUsd: 25 }, memberSet, 25);
+    const reversed = computeSeatFacts(MONTH, { seats: 2, priceUsd: 25 }, [...memberSet].reverse(), 25);
+
+    const toMap = (facts: { entityKey: string; costUsd: number }[]) =>
+      Object.fromEntries(facts.map((f) => [f.entityKey, f.costUsd]));
+
+    expect(toMap(forward)).toEqual({ alpha: 16.66, bravo: 16.66, charlie: 16.68 });
+    expect(toMap(reversed)).toEqual(toMap(forward));
+  });
+
   it("entry priced per month overrides the default", () => {
     const facts = computeSeatFacts(MONTH, { seats: 2, priceUsd: 20 }, members(2), 25);
     expect(facts.every((f) => f.costUsd === 20)).toBe(true);

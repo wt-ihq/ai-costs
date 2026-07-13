@@ -113,7 +113,7 @@ export async function commitChatGptImport(
 
 // ---- ChatGPT monthly seat entries (manual count × price) --------------------
 
-const MONTH_RE = /^\d{4}-\d{2}$/;
+const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 /** Save (upsert) a month's authoritative seat count × price, then rebuild its facts. */
 export async function saveSeatMonthEntry(
