@@ -89,8 +89,8 @@ function splitCsvLine(line: string): string[] {
  * drift throws; bad rows become ParseRowErrors and good rows still import.
  */
 export function parseOpenAiCreditsCsv(csv: string): OpenAiCreditsParseResult {
-  const lines = csv.replace(/^\uFEFF/, "").split(/\r?\n/).filter((l) => l.trim());
-  if (lines.length === 0) {
+  const lines = csv.replace(/^\uFEFF/, "").split(/\r?\n/);
+  if (lines.every((l) => !l.trim())) {
     return { facts: [], errors: [{ line: 0, message: "empty file" }], minDay: null, maxDay: null, totalCredits: 0 };
   }
 
@@ -108,15 +108,17 @@ export function parseOpenAiCreditsCsv(csv: string): OpenAiCreditsParseResult {
   let totalCredits = 0;
 
   for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
     const cells = splitCsvLine(lines[i]);
     const day = (cells[col.date_partition] ?? "").trim();
     const email = (cells[col.email] ?? "").trim().toLowerCase();
     const usageType = (cells[col.usage_type] ?? "").trim();
-    const credits = Number(cells[col.usage_credits]);
+    const rawCredits = (cells[col.usage_credits] ?? "").trim();
+    const credits = Number(rawCredits);
     const quantity = Number(cells[col.usage_quantity]);
     const units = (cells[col.usage_units] ?? "").trim();
 
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !email || !usageType || !Number.isFinite(credits)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !email || !usageType || !rawCredits || !Number.isFinite(credits)) {
       errors.push({ line: i + 1, message: `unparseable row: "${lines[i].slice(0, 80)}"` });
       continue;
     }
@@ -133,9 +135,9 @@ export function parseOpenAiCreditsCsv(csv: string): OpenAiCreditsParseResult {
       requests: null,
     };
     fact.credits += credits;
-    if (Number.isFinite(quantity) && quantity > 0) {
+    if (Number.isFinite(quantity)) {
       if (units === "tokens") fact.tokens = (fact.tokens ?? 0) + quantity;
-      else fact.requests = (fact.requests ?? 0) + quantity;
+      else if (units === "counts") fact.requests = (fact.requests ?? 0) + quantity;
     }
     byKey.set(key, fact);
     totalCredits += credits;

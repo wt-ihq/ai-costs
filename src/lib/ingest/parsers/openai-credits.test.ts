@@ -102,6 +102,47 @@ describe("parseOpenAiCreditsCsv", () => {
     expect(facts).toEqual([]);
     expect(errors).toHaveLength(1);
   });
+
+  it("rejects a blank usage_credits cell as a bad row, not a 0-credit fact", () => {
+    const { facts, errors } = parseOpenAiCreditsCsv(csv(
+      "2026-05-02,acc1,u1,x@intenthq.com,X,user-1,codex,  ,1,counts",
+    ));
+    expect(facts).toEqual([]);
+    expect(errors).toHaveLength(1);
+  });
+
+  it("counts credits from an unknown usage_units value without contributing to tokens or requests", () => {
+    const { facts } = parseOpenAiCreditsCsv(csv(
+      "2026-05-02,acc1,u1,x@intenthq.com,X,user-1,codex,10,5,widgets",
+    ));
+    expect(facts).toHaveLength(1);
+    expect(facts[0]).toMatchObject({ credits: 10, tokens: null, requests: null });
+  });
+
+  it("sums a zero usage_quantity without throwing or dropping the row", () => {
+    const { facts } = parseOpenAiCreditsCsv(csv(
+      "2026-05-02,acc1,u1,x@intenthq.com,X,user-1,codex,10,0,counts",
+    ));
+    expect(facts).toHaveLength(1);
+    expect(facts[0]).toMatchObject({ credits: 10, requests: 0 });
+  });
+
+  it("sums a negative usage_quantity (adjustment row reduces requests)", () => {
+    const { facts } = parseOpenAiCreditsCsv(csv(
+      "2026-05-02,acc1,u1,x@intenthq.com,X,user-1,codex,20,8,counts",
+      "2026-05-02,acc1,u1,x@intenthq.com,X,user-1,codex,-5,-5,counts",
+    ));
+    expect(facts).toHaveLength(1);
+    expect(facts[0]).toMatchObject({ credits: 15, requests: 3 });
+  });
+
+  it("preserves true line numbers when a blank line sits between header and a bad row", () => {
+    const { errors } = parseOpenAiCreditsCsv(
+      [HEADER, "", "not-a-date,acc1,u1,x@intenthq.com,X,user-1,codex,10,1,counts"].join("\n"),
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0].line).toBe(3); // header=1, blank=2, bad row=3
+  });
 });
 
 describe("coveredWindow", () => {
