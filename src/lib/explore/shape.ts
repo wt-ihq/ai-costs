@@ -43,8 +43,6 @@ export function dimColorFor(dim: Dim, key: string, toolColors?: ToolColors): str
   }
   return dim === "vendor" ? VENDOR_COLORS[key as Vendor] ?? "#6ea8fe" : COST_TYPE_COLORS[key as CostType] ?? "#6ea8fe";
 }
-// deprecated: Task-6 components migrate to dimColorFor/segment.color
-export const dimColor = (dim: Dim, key: string) => dimColorFor(dim, key);
 const teamSlug = (dept: string) => encodeURIComponent(dept);
 const sum = (rows: ShapeFact[]) => rows.reduce((s, r) => s + r.costUsd, 0);
 

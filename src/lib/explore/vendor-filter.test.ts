@@ -1,33 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { parseVendorParam, vendorsInFacts } from "./vendor-filter";
+import { matchesVendorKey, parseVendorParam, vendorsInFacts } from "./vendor-filter";
 
-describe("vendorsInFacts", () => {
-  it("returns unique vendors sorted by display label", () => {
-    const facts = [
-      { source: "openai" as const },
-      { source: "anthropic" as const },
-      { source: "openai" as const },
-      { source: "cursor" as const },
-    ];
-    // Labels: Anthropic, Cursor, OpenAI
-    expect(vendorsInFacts(facts)).toEqual(["anthropic", "cursor", "openai"]);
+const f = (source: string, model = "") => ({ source, model }) as Parameters<typeof matchesVendorKey>[0];
+
+describe("vendor filter with tool keys", () => {
+  it("lists tools as their own keys, sorted by label", () => {
+    expect(vendorsInFacts([f("cursor"), f("other", "Perplexity"), f("other", "ElevenLabs"), f("other", "Perplexity")]))
+      .toEqual(["cursor", "other:ElevenLabs", "other:Perplexity"]);
   });
-
-  it("returns [] for no facts", () => {
-    expect(vendorsInFacts([])).toEqual([]);
+  it("matches facts to keys", () => {
+    expect(matchesVendorKey(f("other", "Perplexity"), "other:Perplexity")).toBe(true);
+    expect(matchesVendorKey(f("other", "ElevenLabs"), "other:Perplexity")).toBe(false);
+    expect(matchesVendorKey(f("cursor"), "cursor")).toBe(true);
+    expect(matchesVendorKey(f("cursor"), "other:Perplexity")).toBe(false);
   });
-});
-
-describe("parseVendorParam", () => {
-  const present = ["anthropic", "cursor"] as const;
-
-  it("accepts a vendor that is present", () => {
-    expect(parseVendorParam("cursor", [...present])).toBe("cursor");
-  });
-
-  it("falls back to all when absent, unknown, or not present in scope", () => {
-    expect(parseVendorParam(undefined, [...present])).toBe("all");
-    expect(parseVendorParam("not-a-vendor", [...present])).toBe("all");
-    expect(parseVendorParam("openai", [...present])).toBe("all"); // valid vendor, no data in scope
+  it("validates ?vendor= against present keys", () => {
+    expect(parseVendorParam("other:Perplexity", ["cursor", "other:Perplexity"])).toBe("other:Perplexity");
+    expect(parseVendorParam("other:Ghost", ["cursor"])).toBe("all");
   });
 });

@@ -2,12 +2,11 @@
 
 import { useMemo, useState } from "react";
 import type { Dim } from "@/lib/explore/types";
-import type { Vendor } from "@/lib/types";
-import { VENDOR_LABEL } from "@/lib/types";
-import { VENDOR_COLORS } from "@/lib/colors";
+import { dimColorFor, dimLabel } from "@/lib/explore/shape";
+import type { ToolColors } from "@/lib/explore/shape";
 import { parsePeriod, allTimePeriod, type Period } from "@/lib/explore/period";
 import { buildExploreData, type RawScope } from "@/lib/explore/build";
-import { parseVendorParam, vendorsInFacts } from "@/lib/explore/vendor-filter";
+import { matchesVendorKey, parseVendorParam, vendorsInFacts, type VendorKey } from "@/lib/explore/vendor-filter";
 import { cn } from "@/lib/utils";
 import { Scorecards } from "./scorecards";
 import { TrendChart } from "./trend-chart";
@@ -43,7 +42,17 @@ function Toggle({ dim, onChange, disabled }: { dim: Dim; onChange: (d: Dim) => v
   );
 }
 
-function VendorChips({ vendors, active, onChange }: { vendors: Vendor[]; active: Vendor | "all"; onChange: (v: Vendor | "all") => void }) {
+function VendorChips({
+  vendors,
+  active,
+  onChange,
+  toolColors,
+}: {
+  vendors: VendorKey[];
+  active: VendorKey | "all";
+  onChange: (v: VendorKey | "all") => void;
+  toolColors: ToolColors;
+}) {
   if (vendors.length < 2) return null; // a filter with one option is noise
   return (
     <div className="inline-flex flex-wrap items-center rounded-md border border-border bg-surface-2 p-0.5 text-xs">
@@ -61,8 +70,8 @@ function VendorChips({ vendors, active, onChange }: { vendors: Vendor[]; active:
           onClick={() => onChange(active === v ? "all" : v)}
           className={cn("flex items-center gap-1.5 rounded px-2.5 py-1 transition-colors", active === v ? "bg-accent/20 text-accent" : "text-muted hover:text-foreground")}
         >
-          <span className="size-2 rounded-full" style={{ background: VENDOR_COLORS[v] }} />
-          {VENDOR_LABEL[v]}
+          <span className="size-2 rounded-full" style={{ background: dimColorFor("vendor", v, toolColors) }} />
+          {dimLabel("vendor", v)}
         </button>
       ))}
     </div>
@@ -86,12 +95,12 @@ export function ExploreView({
     initialPeriodParam === "all" ? allTimePeriod(scope.earliest, new Date()) : parsePeriod(initialPeriodParam, new Date()),
   );
   const [dim, setDim] = useState<Dim>(initialDim);
-  const [vendor, setVendor] = useState<Vendor | "all">(() => parseVendorParam(initialVendorParam, vendors));
+  const [vendor, setVendor] = useState<VendorKey | "all">(() => parseVendorParam(initialVendorParam, vendors));
 
   // Vendor filter slices upstream of the shapers, so every panel (including
   // total-to-date) is vendor-scoped. Pure, in-memory — no network round-trip.
   const facts = useMemo(
-    () => (vendor === "all" ? scope.facts : scope.facts.filter((f) => f.source === vendor)),
+    () => (vendor === "all" ? scope.facts : scope.facts.filter((f) => matchesVendorKey(f, vendor))),
     [scope.facts, vendor],
   );
   const data = useMemo(() => buildExploreData({ ...scope, facts }, period), [scope, facts, period]);
@@ -101,7 +110,7 @@ export function ExploreView({
   const effectiveDim: Dim = vendor === "all" ? dim : "cost_type";
 
   const changePeriod = (p: Period) => { setPeriod(p); syncParam("period", p.anchor); };
-  const changeVendor = (v: Vendor | "all") => { setVendor(v); syncParam("vendor", v === "all" ? null : v); };
+  const changeVendor = (v: VendorKey | "all") => { setVendor(v); syncParam("vendor", v === "all" ? null : v); };
 
   // Drill-down links keep the current period/dim/vendor context.
   const linkQuery = useMemo(() => {
@@ -117,7 +126,7 @@ export function ExploreView({
       {/* Filter row: fixed composition — the toggle dims instead of unmounting,
           so nothing shifts when a vendor is (de)selected. */}
       <div className="flex flex-wrap items-center gap-4">
-        <VendorChips vendors={vendors} active={vendor} onChange={changeVendor} />
+        <VendorChips vendors={vendors} active={vendor} onChange={changeVendor} toolColors={scope.toolColors} />
         <div className="ml-auto">
           <Toggle dim={effectiveDim} onChange={setDim} disabled={vendor !== "all"} />
         </div>
@@ -128,14 +137,14 @@ export function ExploreView({
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="rounded-xl border border-border bg-surface p-5">
           <h2 className="mb-4 text-sm font-medium">Trend · {data.period.label}</h2>
-          <TrendChart data={data.trend[effectiveDim]} dim={effectiveDim} />
+          <TrendChart data={data.trend[effectiveDim]} dim={effectiveDim} toolColors={scope.toolColors} />
         </section>
 
         <section className="rounded-xl border border-border bg-surface p-5">
           <h2 className="mb-4 text-sm font-medium">Where it&rsquo;s going · {data.period.label}</h2>
           <CompositionBreakdown
             nodes={data.treemap[effectiveDim]}
-            onSelect={effectiveDim === "vendor" ? (key) => changeVendor(key as Vendor) : undefined}
+            onSelect={effectiveDim === "vendor" ? (key) => (key.startsWith("__") ? undefined : changeVendor(key as VendorKey)) : undefined}
           />
         </section>
       </div>

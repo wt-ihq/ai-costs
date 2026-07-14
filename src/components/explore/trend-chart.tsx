@@ -3,10 +3,8 @@
 import { useMemo } from "react";
 import { Bar, BarChart, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Dim, TrendPoint } from "@/lib/explore/types";
-import { seriesOrder } from "@/lib/explore/shape";
-import type { Vendor, CostType } from "@/lib/types";
-import { VENDOR_COLORS, COST_TYPE_COLORS } from "@/lib/colors";
-import { VENDOR_LABEL, COST_TYPE_LABEL } from "@/lib/types";
+import { dimColorFor, dimLabel, seriesOrder } from "@/lib/explore/shape";
+import type { ToolColors } from "@/lib/explore/shape";
 import { formatUsd } from "@/lib/utils";
 
 const AXIS = { stroke: "#8b92a5", fontSize: 11 };
@@ -22,13 +20,23 @@ const usdTick = (v: unknown) => {
   return `$${Math.round(n)}`;
 };
 
-export function TrendChart({ data, dim, height = 280 }: { data: TrendPoint[]; dim: Dim; height?: number }) {
+export function TrendChart({
+  data,
+  dim,
+  height = 280,
+  toolColors,
+}: {
+  data: TrendPoint[];
+  dim: Dim;
+  height?: number;
+  toolColors?: ToolColors;
+}) {
   // Stacked series from ALL the data points (every dim value that appears in
   // any bucket): vendors by total desc, cost types canonical (seat at the base).
   const series = useMemo(() => seriesOrder(data, dim), [data, dim]);
 
-  const color = (k: string) => (dim === "vendor" ? VENDOR_COLORS[k as Vendor] ?? "#6ea8fe" : COST_TYPE_COLORS[k as CostType] ?? "#6ea8fe");
-  const label = (k: string) => (dim === "vendor" ? VENDOR_LABEL[k as Vendor] ?? k : COST_TYPE_LABEL[k as CostType] ?? k);
+  const color = (k: string) => dimColorFor(dim, k, toolColors);
+  const label = (k: string) => dimLabel(dim, k);
 
   return (
     <ResponsiveContainer width="100%" height={height}>
