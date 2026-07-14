@@ -11,6 +11,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-07-14",
+    title: "ChatGPT seats sync themselves",
+    items: [
+      "ChatGPT seat members now come straight from Okta (the access-chatgpt group), refreshed nightly — the end-of-month membership becomes that month's seat count, with exact person attribution. The analytics-table paste is gone.",
+      "Your manual monthly seat entry still wins when present — synced members share the entered total.",
+      "The API platforms are now labelled 'Anthropic API' and 'OpenAI API' to distinguish them from Claude Team and ChatGPT Business.",
+    ],
+  },
+  {
     date: "2026-07-13",
     title: "ChatGPT credit usage, per person per day",
     items: [
