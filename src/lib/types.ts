@@ -55,8 +55,8 @@ export interface ModelUsageFact {
 
 export const VENDOR_LABEL: Record<Vendor, string> = {
   cursor: "Cursor",
-  anthropic: "Anthropic",
-  openai: "OpenAI",
+  anthropic: "Anthropic API",
+  openai: "OpenAI API",
   claude_team: "Claude Team",
   chatgpt_business: "ChatGPT Business",
 };
