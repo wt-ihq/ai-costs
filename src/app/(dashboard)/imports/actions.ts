@@ -30,38 +30,69 @@ export interface ImportCommitResult {
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
-/** Save (upsert) a month's authoritative seat count × price, then rebuild its facts. */
-export async function saveSeatMonthEntry(
-  month: string, // YYYY-MM from the month picker
-  seats: number,
-  priceUsd: number,
+export interface SeatEntryInput {
+  seatType: string; // 'chatgpt' | 'standard' | 'premium'
+  seats: number;
+  price: number; // USD for chatgpt_business, £ for claude_team
+}
+
+const VALID_TIERS: Record<string, string[]> = {
+  chatgpt_business: ["chatgpt"],
+  claude_team: ["standard", "premium"],
+};
+
+async function rebuildSeatMonth(supabase: SupabaseClient, vendor: string, day: string): Promise<number> {
+  return vendor === "claude_team" ? rebuildClaudeSeatMonth(supabase, day) : rebuildChatGptSeatMonth(supabase, day);
+}
+
+/** Save a month's authoritative entries (per tier), then rebuild its facts. Claude prices are £ × fxRate. */
+export async function saveSeatMonthEntries(
+  month: string,
+  vendor: "chatgpt_business" | "claude_team",
+  inputs: SeatEntryInput[],
+  fxRate: number | null,
 ): Promise<{ written: number }> {
   await requireAdmin();
   if (!MONTH_RE.test(month)) throw new Error(`Invalid month "${month}" — expected YYYY-MM.`);
-  if (!Number.isInteger(seats) || seats < 0) throw new Error("Seats must be a whole number ≥ 0.");
-  if (!Number.isFinite(priceUsd) || priceUsd < 0) throw new Error("Price must be a number ≥ 0.");
-  // Round to cents before storing/using: sub-cent prices (e.g. 0.005) would
-  // otherwise break computeSeatFacts' cent-exactness invariant.
-  priceUsd = Math.round(priceUsd * 100) / 100;
+  if (!inputs.length) throw new Error("Nothing to save — no tier rows.");
+  const isClaude = vendor === "claude_team";
+  if (isClaude && (!Number.isFinite(fxRate) || (fxRate as number) <= 0)) throw new Error("A £→$ rate > 0 is required for Claude.");
   const supabase = getSupabaseAdminClient();
   const day = `${month}-01`;
 
-  const { error } = await supabase
-    .from("seat_month_entries")
-    .upsert(
-      { vendor: "chatgpt_business", month: day, seats, price_usd: priceUsd, updated_at: new Date().toISOString() },
-      { onConflict: "vendor,month" },
-    );
-  if (error) throw new Error(`saveSeatMonthEntry: ${error.message}`);
+  const rows = inputs.map((i) => {
+    if (!VALID_TIERS[vendor].includes(i.seatType)) throw new Error(`Invalid tier "${i.seatType}" for ${vendor}.`);
+    if (!Number.isInteger(i.seats) || i.seats < 0) throw new Error("Seats must be a whole number ≥ 0.");
+    if (!Number.isFinite(i.price) || i.price < 0) throw new Error("Price must be a number ≥ 0.");
+    // Round to cents post-conversion: sub-cent prices break cent-exactness.
+    const priceUsd = Math.round((isClaude ? i.price * (fxRate as number) : i.price) * 100) / 100;
+    return {
+      vendor,
+      month: day,
+      seat_type: i.seatType,
+      seats: i.seats,
+      price_usd: priceUsd,
+      price_gbp: isClaude ? i.price : null,
+      fx_rate: isClaude ? fxRate : null,
+      updated_at: new Date().toISOString(),
+    };
+  });
 
-  const written = await rebuildChatGptSeatMonth(supabase, day);
+  const { error } = await supabase.from("seat_month_entries").upsert(rows, { onConflict: "vendor,month,seat_type" });
+  if (error) throw new Error(`saveSeatMonthEntries: ${error.message}`);
+
+  const written = await rebuildSeatMonth(supabase, vendor, day);
   revalidatePath("/imports");
   revalidatePath("/");
   return { written };
 }
 
-/** Delete a month's manual entry and revert its facts to pasted-members × default price. */
-export async function deleteSeatMonthEntry(month: string): Promise<{ written: number }> {
+/** Delete one tier's entry for a month and revert its facts to members × default price. */
+export async function deleteSeatMonthEntry(
+  month: string,
+  vendor: "chatgpt_business" | "claude_team",
+  seatType: string,
+): Promise<{ written: number }> {
   await requireAdmin();
   if (!MONTH_RE.test(month)) throw new Error(`Invalid month "${month}" — expected YYYY-MM.`);
   const supabase = getSupabaseAdminClient();
@@ -70,11 +101,12 @@ export async function deleteSeatMonthEntry(month: string): Promise<{ written: nu
   const { error } = await supabase
     .from("seat_month_entries")
     .delete()
-    .eq("vendor", "chatgpt_business")
-    .eq("month", day);
+    .eq("vendor", vendor)
+    .eq("month", day)
+    .eq("seat_type", seatType);
   if (error) throw new Error(`deleteSeatMonthEntry: ${error.message}`);
 
-  const written = await rebuildChatGptSeatMonth(supabase, day);
+  const written = await rebuildSeatMonth(supabase, vendor, day);
   revalidatePath("/imports");
   revalidatePath("/");
   return { written };

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { saveSeatMonthEntry, deleteSeatMonthEntry } from "@/app/(dashboard)/imports/actions";
+import { saveSeatMonthEntries, deleteSeatMonthEntry } from "@/app/(dashboard)/imports/actions";
 import { formatUsd } from "@/lib/utils";
 
 export interface SeatMonthEntryRow {
@@ -39,13 +39,18 @@ export function SeatMonthEntries({ entries }: { entries: SeatMonthEntryRow[] }) 
 
   const onSave = () =>
     run(async () => {
-      const { written } = await saveSeatMonthEntry(month, Number(seats), Number(price) || 0);
+      const { written } = await saveSeatMonthEntries(
+        month,
+        "chatgpt_business",
+        [{ seatType: "chatgpt", seats: Number(seats), price: Number(price) || 0 }],
+        null,
+      );
       setSaved(`Saved ${month}: ${seats} seats × ${formatUsd(Number(price) || 0)} — ${written} facts written.`);
     });
 
   const onDelete = (m: string) =>
     run(async () => {
-      const { written } = await deleteSeatMonthEntry(m);
+      const { written } = await deleteSeatMonthEntry(m, "chatgpt_business", "chatgpt");
       setSaved(`Removed ${m} — reverted to pasted members × default price (${written} facts).`);
     });
 
