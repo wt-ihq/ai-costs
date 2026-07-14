@@ -64,6 +64,13 @@ function fakeChatGptSeatsDb(initialSpendFacts: Record<string, unknown>[]) {
       const filters: ((r: Record<string, unknown>) => boolean)[] = [];
       const builder = {
         eq: (c: string, v: unknown) => { filters.push((r) => r[c] === v); return builder; },
+        // Only supports the "prefix%" shape replaceSeatMonth's empty-path delete uses.
+        like: (c: string, pattern: string) => {
+          if (!pattern.endsWith("%")) throw new Error(`fake like: unsupported pattern "${pattern}"`);
+          const prefix = pattern.slice(0, -1);
+          filters.push((r) => (r[c] as string).startsWith(prefix));
+          return builder;
+        },
         in: (_c: string, ids: string[]) => {
           for (const id of ids) {
             const i = rows.findIndex((r) => r.id === id);
@@ -98,7 +105,19 @@ function fakeChatGptSeatsDb(initialSpendFacts: Record<string, unknown>[]) {
           return { select: () => ({ order: () => ({ range: () => Promise.resolve({ data: [], error: null }) }) }) };
         case "seat_month_entries":
         case "seat_prices":
-          return { select: () => ({ eq: () => ({ eq: () => ({ limit: () => Promise.resolve({ data: [], error: null }) }) }) }) };
+          return {
+            // Generic chainable stub: getSeatMonthEntry (3× eq + limit) and
+            // defaultSeatPrice (2× eq + order + limit, or 2× eq + limit) all
+            // resolve to "no rows" so the caller falls through the price chain.
+            select: () => {
+              const chain = {
+                eq: () => chain,
+                order: () => chain,
+                limit: () => Promise.resolve({ data: [], error: null }),
+              };
+              return chain;
+            },
+          };
         case "spend_facts":
           return spendFactsTable();
         default:

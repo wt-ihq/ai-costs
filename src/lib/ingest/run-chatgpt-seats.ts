@@ -2,7 +2,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchOktaGroupMembers, type OktaGroupFetcher } from "@/lib/ingest/sources/okta";
 import { finishSyncRun, loadEmployees, saveRawPayload, startSyncRun } from "@/lib/ingest/persist";
 import { matchIdentity } from "@/lib/ingest/identity";
-import { computeSeatFacts, getSeatMonthEntry, replaceSeatMonth, type SeatMember } from "@/lib/ingest/seat-months";
+import {
+  computeSeatFacts,
+  defaultSeatPrice,
+  getSeatMonthEntry,
+  replaceSeatMonth,
+  type SeatMember,
+} from "@/lib/ingest/seat-months";
 
 /** The Okta group whose membership defines who holds a ChatGPT seat. */
 export const CHATGPT_OKTA_GROUP = "access-chatgpt";
@@ -46,14 +52,7 @@ export async function syncChatGptSeats(
     const members = toSeatMembers(groupMembers.map((m) => m.email), employees);
 
     const entry = await getSeatMonthEntry(supabase, month);
-    const { data: priceRows, error } = await supabase
-      .from("seat_prices")
-      .select("monthly_price_usd")
-      .eq("vendor", "chatgpt_business")
-      .eq("seat_type", "chatgpt")
-      .limit(1);
-    if (error) throw new Error(`chatgpt_seats seat_prices: ${error.message}`);
-    const defaultPrice = priceRows?.[0] ? Number(priceRows[0].monthly_price_usd) : 25;
+    const defaultPrice = await defaultSeatPrice(supabase, "chatgpt_business", "chatgpt");
 
     const rowsWritten = await replaceSeatMonth(supabase, month, computeSeatFacts(month, entry, members, defaultPrice));
     await finishSyncRun(supabase, runId, { status: "success", rowsWritten });

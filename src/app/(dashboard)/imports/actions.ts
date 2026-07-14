@@ -54,8 +54,7 @@ export async function saveSeatMonthEntry(
     );
   if (error) throw new Error(`saveSeatMonthEntry: ${error.message}`);
 
-  const defaultPrice = (await loadSeatPrices(supabase))["chatgpt_business:chatgpt"] ?? 25;
-  const written = await rebuildChatGptSeatMonth(supabase, day, defaultPrice);
+  const written = await rebuildChatGptSeatMonth(supabase, day);
   revalidatePath("/imports");
   revalidatePath("/");
   return { written };
@@ -75,8 +74,7 @@ export async function deleteSeatMonthEntry(month: string): Promise<{ written: nu
     .eq("month", day);
   if (error) throw new Error(`deleteSeatMonthEntry: ${error.message}`);
 
-  const defaultPrice = (await loadSeatPrices(supabase))["chatgpt_business:chatgpt"] ?? 25;
-  const written = await rebuildChatGptSeatMonth(supabase, day, defaultPrice);
+  const written = await rebuildChatGptSeatMonth(supabase, day);
   revalidatePath("/imports");
   revalidatePath("/");
   return { written };

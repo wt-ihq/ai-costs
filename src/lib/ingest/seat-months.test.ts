@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { computeSeatFacts, UNASSIGNED_SEATS_KEY } from "./seat-months";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { computeSeatFacts, replaceSeatMonth, UNASSIGNED_SEATS_KEY } from "./seat-months";
 import { computeClaudeSeatFacts, CLAUDE_UNASSIGNED_KEY } from "./seat-months";
 
 const MONTH = "2026-06-01";
@@ -90,6 +91,65 @@ describe("computeSeatFacts with source/unassignedKey opts", () => {
   it("defaults remain ChatGPT (regression)", () => {
     const facts = computeSeatFacts(MONTH, { seats: 1, priceUsd: 25 }, [], 25);
     expect(facts[0]).toMatchObject({ source: "chatgpt_business", entityKey: "unassigned seats" });
+  });
+});
+
+/**
+ * Stateful in-memory spend_facts table modeled on fakeSpendFactsDb in
+ * persist.test.ts, extended with a LIKE-aware delete chain — replaceSeatMonth's
+ * empty-facts path deletes by entity_key prefix (`.like("entity_key", pattern)`)
+ * so it can remove any of a source's unassigned-seat keys in one shot.
+ */
+function fakeSpendFactsDb(initial: Record<string, unknown>[]) {
+  const rows: Record<string, unknown>[] = initial.map((r, i) => ({ id: `seed${i}`, ...r }));
+  const client = {
+    from: () => ({
+      delete: () => {
+        const filters: ((r: Record<string, unknown>) => boolean)[] = [];
+        const builder = {
+          eq: (c: string, v: unknown) => { filters.push((r) => r[c] === v); return builder; },
+          like: (c: string, pattern: string) => {
+            // Only the "prefix%" shape is used in production.
+            if (!pattern.endsWith("%")) throw new Error(`fake like: unsupported pattern "${pattern}"`);
+            const prefix = pattern.slice(0, -1);
+            filters.push((r) => (r[c] as string).startsWith(prefix));
+            return builder;
+          },
+          then: (resolve: (v: { error: null }) => void) => {
+            for (let i = rows.length - 1; i >= 0; i--) {
+              if (filters.every((f) => f(rows[i]))) rows.splice(i, 1);
+            }
+            resolve({ error: null });
+          },
+        };
+        return builder;
+      },
+    }),
+  } as unknown as SupabaseClient;
+  return { client, rows };
+}
+
+describe("replaceSeatMonth — empty-facts path deletes by LIKE prefix", () => {
+  const MONTH = "2026-06-01";
+
+  it("removes a claude_team unassigned-tier fact while a member fact survives", async () => {
+    const { client, rows } = fakeSpendFactsDb([
+      {
+        source: "claude_team", day: MONTH, cost_type: "seat",
+        entity_key: "unassigned seats (standard)", model: "", cost_usd: 19.05, employee_id: null,
+      },
+      {
+        source: "claude_team", day: MONTH, cost_type: "seat",
+        entity_key: "a@intenthq.com", model: "", cost_usd: 19.05, employee_id: "e1",
+      },
+    ]);
+
+    const written = await replaceSeatMonth(client, MONTH, [], "claude_team");
+
+    expect(written).toBe(0);
+    const keys = rows.map((r) => `${r.source}|${r.cost_type}|${r.entity_key}`);
+    expect(keys).not.toContain("claude_team|seat|unassigned seats (standard)"); // removed
+    expect(keys).toContain("claude_team|seat|a@intenthq.com"); // survives
   });
 });
 
