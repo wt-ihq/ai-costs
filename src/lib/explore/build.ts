@@ -10,9 +10,9 @@ import {
  * which re-derives the per-period views in-memory (no refetch on period change).
  */
 export type RawScope =
-  | { kind: "company"; title: string; earliest: string; facts: ShapeFact[]; headcounts: Record<string, number>; employees: { id: string; fullName: string | null; department: string | null }[] }
-  | { kind: "team"; title: string; earliest: string; facts: ShapeFact[]; team: string; employees: { id: string; fullName: string | null }[] }
-  | { kind: "person"; title: string; earliest: string; facts: ShapeFact[] };
+  | { kind: "company"; title: string; earliest: string; facts: ShapeFact[]; headcounts: Record<string, number>; employees: { id: string; fullName: string | null; department: string | null }[]; toolColors: Record<string, string> }
+  | { kind: "team"; title: string; earliest: string; facts: ShapeFact[]; team: string; employees: { id: string; fullName: string | null }[]; toolColors: Record<string, string> }
+  | { kind: "person"; title: string; earliest: string; facts: ShapeFact[]; toolColors: Record<string, string> };
 
 const sumAll = (rows: ShapeFact[]) => Math.round(rows.reduce((s, r) => s + r.costUsd, 0) * 100) / 100;
 const inPeriod = (p: Period) => (r: ShapeFact) => r.day >= p.from && r.day < p.toExclusive;
