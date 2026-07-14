@@ -90,10 +90,11 @@ async function latestPerSource(
 export async function getDataHealth(supabase: SupabaseClient): Promise<DataHealth> {
   const [facts, syncs, imports, emps] = await Promise.all([
     fetchAllSpendFacts(supabase),
-    // "chatgpt_seats" (the Okta group sync) has no spend-fact/vendor row of its
-    // own — it's folded onto the chatgpt_business row below — but its sync_runs
-    // rows must still be fetched or a failed run is invisible on Data Health.
-    latestPerSource(supabase, "sync_runs", ["okta", ...VENDORS, "chatgpt_seats"], "source, finished_at, started_at, status", "started_at"),
+    // "chatgpt_seats"/"claude_seats" (the Okta group syncs) have no spend-fact/
+    // vendor row of their own — each is folded onto its vendor row below — but
+    // their sync_runs rows must still be fetched or a failed run is invisible
+    // on Data Health.
+    latestPerSource(supabase, "sync_runs", ["okta", ...VENDORS, "chatgpt_seats", "claude_seats"], "source, finished_at, started_at, status", "started_at"),
     latestPerSource(supabase, "imports", VENDORS, "source, data_as_of, created_at", "created_at"),
     fetchEmployeesAll(supabase, "id, full_name"),
   ]);
@@ -102,19 +103,21 @@ export async function getDataHealth(supabase: SupabaseClient): Promise<DataHealt
   for (const [source, s] of syncs) lastSync.set(source, { at: (s.finished_at ?? s.started_at) as string, status: s.status as string });
 
   /**
-   * chatgpt_business has no sync of its own (manual-import only) apart from the
-   * chatgpt_seats Okta-group sync that now populates its seat facts. Fold the
-   * two signals together by picking whichever ran later, so a failed
-   * chatgpt_seats run (group missing/renamed/no permission) surfaces as a
-   * failure on the chatgpt_business row instead of nowhere.
+   * chatgpt_business and claude_team each have no sync of their own
+   * (manual-import only) apart from their Okta-group seat sync
+   * (chatgpt_seats / claude_seats) that now populates seat facts. Fold the two
+   * signals together per vendor by picking whichever ran later, so a failed
+   * seat sync (group missing/renamed/no permission) surfaces as a failure on
+   * the vendor row instead of nowhere.
    */
+  const SEAT_SYNC: Partial<Record<Vendor, string>> = { chatgpt_business: "chatgpt_seats", claude_team: "claude_seats" };
   function syncFor(source: Vendor): { at: string | null; status: string } | undefined {
-    if (source !== "chatgpt_business") return lastSync.get(source);
-    const business = lastSync.get("chatgpt_business");
-    const seats = lastSync.get("chatgpt_seats");
-    if (!business) return seats;
-    if (!seats) return business;
-    return (seats.at ?? "") >= (business.at ?? "") ? seats : business;
+    const direct = lastSync.get(source);
+    const seatsKey = SEAT_SYNC[source];
+    const seats = seatsKey ? lastSync.get(seatsKey) : undefined;
+    if (!direct) return seats;
+    if (!seats) return direct;
+    return (seats.at ?? "") >= (direct.at ?? "") ? seats : direct;
   }
 
   const lastImport = new Map<string, string>();

@@ -229,6 +229,29 @@ export async function rebuildChatGptSeatMonth(
   return replaceSeatMonth(supabase, month, computeSeatFacts(month, entry, members, defaultPriceUsd));
 }
 
+/**
+ * Rebuild a Claude month after an entry change or roster (tier) upload:
+ * members from the month's stored seat facts, tiers re-resolved, entries
+ * authoritative per tier.
+ */
+export async function rebuildClaudeSeatMonth(supabase: SupabaseClient, month: string): Promise<number> {
+  const members = await readSeatMonthMembers(supabase, "claude_team", month);
+  const tiers = await resolveClaudeTiers(supabase, month);
+  const byTier: Record<ClaudeTier, SeatMember[]> = { standard: [], premium: [] };
+  for (const m of members) byTier[m.employeeId ? tiers.get(m.employeeId) ?? "standard" : "standard"].push(m);
+
+  const tierInputs: TierInput[] = [];
+  for (const seatType of ["standard", "premium"] as const) {
+    tierInputs.push({
+      seatType,
+      entry: await getSeatMonthEntry(supabase, month, "claude_team", seatType),
+      members: byTier[seatType],
+      defaultPriceUsd: await defaultSeatPrice(supabase, "claude_team", seatType),
+    });
+  }
+  return replaceSeatMonth(supabase, month, computeClaudeSeatFacts(month, tierInputs), "claude_team");
+}
+
 /** premium only when the winning assignment says so; anything else is standard. */
 export function pickTier(assignments: { seatType: string; periodStart: string }[], month: string): ClaudeTier {
   if (assignments.length === 0) return "standard";
