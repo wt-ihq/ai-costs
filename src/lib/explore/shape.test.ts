@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  treemapByDim,
+  seriesOrder, treemapByDim,
   scorecardFor, rankTeams, rankPeople, rankAllStaff, lineItems, trendForPeriod, type ShapeFact,
 } from "./shape";
 import { parsePeriod } from "./period";
+import type { TrendPoint } from "./types";
 import { VENDOR_LABEL } from "@/lib/types";
 
 const rows: ShapeFact[] = [
@@ -44,17 +45,18 @@ describe("rankTeams", () => {
     expect(r[0].href).toContain("/explore/");
   });
 
-  it("attaches a spend split for both dims, sorted desc", () => {
+  it("attaches a spend split: vendors sorted desc, cost types in canonical order", () => {
     const r = rankTeams(june, new Map([["Eng", 2]]));
-    // vendor split: anthropic 100 > cursor 40
+    // vendor split: anthropic 100 > cursor 40 (by value)
     expect(r[0].segments?.vendor).toEqual([
       { key: "anthropic", value: 100 },
       { key: "cursor", value: 40 },
     ]);
-    // cost_type split: metered 100 > seat 40
+    // cost_type split: canonical seat → overage → metered, NOT by value —
+    // seat leads even though metered (100) outweighs it (40).
     expect(r[0].segments?.cost_type).toEqual([
-      { key: "metered", value: 100 },
       { key: "seat", value: 40 },
+      { key: "metered", value: 100 },
     ]);
   });
 });
@@ -124,5 +126,29 @@ describe("trendForPeriod", () => {
     const t = trendForPeriod(rows, parsePeriod("2026-05", NOW2), "vendor"); // only the 2026-05-03 row
     const total = t.reduce((s, p) => s + ((p.cursor as number) ?? 0) + ((p.anthropic as number) ?? 0), 0);
     expect(total).toBe(40);
+  });
+});
+
+describe("seriesOrder", () => {
+  const points: TrendPoint[] = [
+    // overage dominates by total — canonical order must still put seat first.
+    { label: "May", seat: 40, overage: 500 },
+    { label: "Jun", seat: 40, overage: 600, metered: 10 },
+  ];
+
+  it("cost_type dim: canonical seat → overage → metered regardless of totals", () => {
+    expect(seriesOrder(points, "cost_type")).toEqual(["seat", "overage", "metered"]);
+  });
+
+  it("vendor dim: totals desc (unchanged behavior)", () => {
+    const v: TrendPoint[] = [
+      { label: "May", cursor: 40, anthropic: 500 },
+      { label: "Jun", cursor: 40, anthropic: 600 },
+    ];
+    expect(seriesOrder(v, "vendor")).toEqual(["anthropic", "cursor"]);
+  });
+
+  it("ignores non-numeric fields and series absent from every point", () => {
+    expect(seriesOrder([{ label: "May", overage: 5 }], "cost_type")).toEqual(["overage"]);
   });
 });

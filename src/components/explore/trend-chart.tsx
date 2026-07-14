@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { Bar, BarChart, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Dim, TrendPoint } from "@/lib/explore/types";
+import { seriesOrder } from "@/lib/explore/shape";
 import type { Vendor, CostType } from "@/lib/types";
 import { VENDOR_COLORS, COST_TYPE_COLORS } from "@/lib/colors";
 import { VENDOR_LABEL, COST_TYPE_LABEL } from "@/lib/types";
@@ -22,18 +23,9 @@ const usdTick = (v: unknown) => {
 };
 
 export function TrendChart({ data, dim, height = 280 }: { data: TrendPoint[]; dim: Dim; height?: number }) {
-  // Derive the stacked series from ALL the data points (every dim value that
-  // appears in any month), ordered by total desc — not just the current month.
-  const series = useMemo(() => {
-    const totals = new Map<string, number>();
-    for (const p of data) {
-      for (const [k, v] of Object.entries(p)) {
-        if (k === "label" || typeof v !== "number") continue;
-        totals.set(k, (totals.get(k) ?? 0) + v);
-      }
-    }
-    return [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k);
-  }, [data]);
+  // Stacked series from ALL the data points (every dim value that appears in
+  // any bucket): vendors by total desc, cost types canonical (seat at the base).
+  const series = useMemo(() => seriesOrder(data, dim), [data, dim]);
 
   const color = (k: string) => (dim === "vendor" ? VENDOR_COLORS[k as Vendor] ?? "#6ea8fe" : COST_TYPE_COLORS[k as CostType] ?? "#6ea8fe");
   const label = (k: string) => (dim === "vendor" ? VENDOR_LABEL[k as Vendor] ?? k : COST_TYPE_LABEL[k as CostType] ?? k);

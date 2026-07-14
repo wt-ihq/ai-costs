@@ -67,3 +67,9 @@ export const COST_TYPE_LABEL: Record<CostType, string> = {
   overage: "Overage",
   metered: "API",
 };
+
+/**
+ * Canonical display order for cost-type compositions (stacked bars, segmented
+ * bars): the fixed seat cost sits at the base, usage-driven spend on top.
+ */
+export const COST_TYPE_ORDER: CostType[] = ["seat", "overage", "metered"];
