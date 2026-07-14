@@ -52,7 +52,7 @@ export async function syncChatGptSeats(
     const members = toSeatMembers(groupMembers.map((m) => m.email), employees);
 
     const entry = await getSeatMonthEntry(supabase, month);
-    const defaultPrice = await defaultSeatPrice(supabase, "chatgpt_business", "chatgpt");
+    const defaultPrice = await defaultSeatPrice(supabase, "chatgpt_business", "chatgpt", month);
 
     const rowsWritten = await replaceSeatMonth(supabase, month, computeSeatFacts(month, entry, members, defaultPrice));
     await finishSyncRun(supabase, runId, { status: "success", rowsWritten });

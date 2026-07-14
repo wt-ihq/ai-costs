@@ -186,16 +186,23 @@ export const SEAT_PRICE_FALLBACK: Record<string, number> = {
 };
 
 /**
- * The default per-seat price for months WITHOUT their own entry: the latest
- * entry's price (most recent month, any vendor month), else seat_prices, else
- * the constant. Entering a new price in any month moves this default.
+ * The default per-seat price for a month WITHOUT its own entry: the latest
+ * entry AT OR BEFORE the month — a later entry never re-prices an earlier
+ * month; later no-entry months inherit the most recent earlier entry's
+ * price. Falls through to seat_prices, then the constant.
  */
-export async function defaultSeatPrice(supabase: SupabaseClient, vendor: Vendor, seatType: string): Promise<number> {
+export async function defaultSeatPrice(
+  supabase: SupabaseClient,
+  vendor: Vendor,
+  seatType: string,
+  month: string, // YYYY-MM-01
+): Promise<number> {
   const { data: latest, error: e1 } = await supabase
     .from("seat_month_entries")
     .select("price_usd")
     .eq("vendor", vendor)
     .eq("seat_type", seatType)
+    .lte("month", month)
     .order("month", { ascending: false })
     .limit(1);
   if (e1) throw new Error(`defaultSeatPrice entries: ${e1.message}`);
@@ -224,7 +231,7 @@ export async function rebuildChatGptSeatMonth(
 ): Promise<number> {
   const entry = await getSeatMonthEntry(supabase, month);
   const members = await readSeatMonthMembers(supabase, "chatgpt_business", month);
-  const defaultPriceUsd = await defaultSeatPrice(supabase, "chatgpt_business", "chatgpt");
+  const defaultPriceUsd = await defaultSeatPrice(supabase, "chatgpt_business", "chatgpt", month);
 
   return replaceSeatMonth(supabase, month, computeSeatFacts(month, entry, members, defaultPriceUsd));
 }
@@ -246,7 +253,7 @@ export async function rebuildClaudeSeatMonth(supabase: SupabaseClient, month: st
       seatType,
       entry: await getSeatMonthEntry(supabase, month, "claude_team", seatType),
       members: byTier[seatType],
-      defaultPriceUsd: await defaultSeatPrice(supabase, "claude_team", seatType),
+      defaultPriceUsd: await defaultSeatPrice(supabase, "claude_team", seatType, month),
     });
   }
   return replaceSeatMonth(supabase, month, computeClaudeSeatFacts(month, tierInputs), "claude_team");

@@ -107,11 +107,12 @@ function fakeChatGptSeatsDb(initialSpendFacts: Record<string, unknown>[]) {
         case "seat_prices":
           return {
             // Generic chainable stub: getSeatMonthEntry (3× eq + limit) and
-            // defaultSeatPrice (2× eq + order + limit, or 2× eq + limit) all
-            // resolve to "no rows" so the caller falls through the price chain.
+            // defaultSeatPrice (2× eq + lte + order + limit, or 2× eq + limit)
+            // all resolve to "no rows" so the caller falls through the price chain.
             select: () => {
               const chain = {
                 eq: () => chain,
+                lte: () => chain,
                 order: () => chain,
                 limit: () => Promise.resolve({ data: [], error: null }),
               };

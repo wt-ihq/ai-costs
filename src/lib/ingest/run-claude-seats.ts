@@ -37,7 +37,7 @@ export async function syncClaudeSeats(
         seatType,
         entry: await getSeatMonthEntry(supabase, month, "claude_team", seatType),
         members: byTier[seatType],
-        defaultPriceUsd: await defaultSeatPrice(supabase, "claude_team", seatType),
+        defaultPriceUsd: await defaultSeatPrice(supabase, "claude_team", seatType, month),
       });
     }
 

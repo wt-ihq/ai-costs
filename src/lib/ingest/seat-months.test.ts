@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { computeSeatFacts, replaceSeatMonth, UNASSIGNED_SEATS_KEY, pickTier } from "./seat-months";
-import { computeClaudeSeatFacts, CLAUDE_UNASSIGNED_KEY } from "./seat-months";
+import { computeClaudeSeatFacts, CLAUDE_UNASSIGNED_KEY, defaultSeatPrice, rebuildClaudeSeatMonth } from "./seat-months";
 
 const MONTH = "2026-06-01";
 const members = (n: number) =>
@@ -199,5 +199,257 @@ describe("pickTier", () => {
   it("defaults to standard with no assignments or unknown tier strings", () => {
     expect(pickTier([], "2026-06-01")).toBe("standard");
     expect(pickTier([a("unassigned", "2026-01-01")], "2026-06-01")).toBe("standard");
+  });
+});
+
+/**
+ * Fake covering only the tables defaultSeatPrice touches: seat_month_entries
+ * (eq × 2, optional lte, order, limit) and seat_prices (eq × 2, limit). The
+ * `.order()` call is a no-op passthrough — the terminal `.limit()` does the
+ * real filtering (and, for entries, a month-desc sort so "latest ≤ month"
+ * behaves correctly regardless of seed order).
+ */
+function fakeSeatPricingDb(
+  entries: { vendor: string; seat_type: string; month: string; price_usd: number }[],
+  seatPrices: { vendor: string; seat_type: string; monthly_price_usd: number }[] = [],
+) {
+  type Row = Record<string, unknown>;
+  const client = {
+    from: (table: string) => {
+      if (table === "seat_month_entries") {
+        return {
+          select: () => {
+            const filters: ((r: Row) => boolean)[] = [];
+            const chain = {
+              eq: (c: string, v: unknown) => { filters.push((r) => r[c] === v); return chain; },
+              lte: (c: string, v: string) => { filters.push((r) => (r[c] as string) <= v); return chain; },
+              order: () => chain,
+              limit: (n: number) => {
+                const matched = (entries as Row[])
+                  .filter((r) => filters.every((f) => f(r)))
+                  .sort((a, b) => (b.month as string).localeCompare(a.month as string));
+                return Promise.resolve({ data: matched.slice(0, n), error: null });
+              },
+            };
+            return chain;
+          },
+        };
+      }
+      if (table === "seat_prices") {
+        return {
+          select: () => {
+            const filters: ((r: Row) => boolean)[] = [];
+            const chain = {
+              eq: (c: string, v: unknown) => { filters.push((r) => r[c] === v); return chain; },
+              limit: (n: number) =>
+                Promise.resolve({ data: (seatPrices as Row[]).filter((r) => filters.every((f) => f(r))).slice(0, n), error: null }),
+            };
+            return chain;
+          },
+        };
+      }
+      throw new Error(`fakeSeatPricingDb: unexpected table "${table}"`);
+    },
+  } as unknown as SupabaseClient;
+  return client;
+}
+
+describe("defaultSeatPrice — price as-of the month, not the global latest", () => {
+  // Two entries for claude_team:standard: 2026-01-01 → $15, 2026-03-01 → $30.
+  const entries = [
+    { vendor: "claude_team", seat_type: "standard", month: "2026-01-01", price_usd: 15 },
+    { vendor: "claude_team", seat_type: "standard", month: "2026-03-01", price_usd: 30 },
+  ];
+
+  it("pricing a month between the two entries uses the latest entry AT OR BEFORE it (Feb -> Jan's $15)", async () => {
+    const client = fakeSeatPricingDb(entries);
+    const price = await defaultSeatPrice(client, "claude_team", "standard", "2026-02-01");
+    // Regression check: global-latest (pre-fix) behavior would return 30 here.
+    expect(price).toBe(15);
+  });
+
+  it("pricing a month at/after the later entry uses it (Apr -> Mar's $30)", async () => {
+    const client = fakeSeatPricingDb(entries);
+    const price = await defaultSeatPrice(client, "claude_team", "standard", "2026-04-01");
+    expect(price).toBe(30);
+  });
+
+  it("pricing a month before any entry falls through to seat_prices, then the constant fallback", async () => {
+    const client = fakeSeatPricingDb(entries); // no seat_prices rows seeded
+    const price = await defaultSeatPrice(client, "claude_team", "standard", "2025-12-01");
+    expect(price).toBe(19.05); // SEAT_PRICE_FALLBACK["claude_team:standard"]
+  });
+});
+
+/**
+ * Fake covering every table rebuildClaudeSeatMonth touches directly (no
+ * sync_runs/raw_payloads/employees — the orchestrator layer isn't exercised
+ * here): spend_facts (member facts in, rebuilt facts out via replaceWindowFacts),
+ * seat_assignments (tier resolution), seat_month_entries + seat_prices (pricing).
+ */
+function fakeClaudeRebuildDb(opts: {
+  spendFacts: Record<string, unknown>[];
+  seatAssignments: Record<string, unknown>[];
+  seatMonthEntries: Record<string, unknown>[];
+  seatPrices?: Record<string, unknown>[];
+}) {
+  type Row = Record<string, unknown>;
+  const rows: Row[] = opts.spendFacts.map((r, i) => ({ id: `seed${i}`, ...r }));
+  let nextId = 0;
+
+  const spendFactsTable = () => ({
+    upsert: (incoming: Row[]) => {
+      for (const r of incoming) {
+        const key = (x: Row) => `${x.source}|${x.day}|${x.cost_type}|${x.entity_key}|${x.model}`;
+        const idx = rows.findIndex((x) => key(x) === key(r));
+        if (idx >= 0) rows[idx] = { ...rows[idx], ...r };
+        else rows.push({ id: `new${nextId++}`, ...r });
+      }
+      return Promise.resolve({ error: null });
+    },
+    select: () => {
+      const filters: ((r: Row) => boolean)[] = [];
+      const q = {
+        eq: (c: string, v: unknown) => { filters.push((r) => r[c] === v); return q; },
+        neq: (c: string, v: unknown) => { filters.push((r) => r[c] !== v); return q; },
+        gte: (c: string, v: string) => { filters.push((r) => (r[c] as string) >= v); return q; },
+        lt: (c: string, v: string) => { filters.push((r) => (r[c] as string) < v); return q; },
+        not: (c: string, _op: string, pattern: string) => {
+          const prefix = pattern.replace(/%$/, "");
+          filters.push((r) => !(r[c] as string).startsWith(prefix));
+          return q;
+        },
+        order: () => q,
+        range: (from: number, to: number) =>
+          Promise.resolve({ data: rows.filter((r) => filters.every((f) => f(r))).slice(from, to + 1), error: null }),
+      };
+      return q;
+    },
+    delete: () => {
+      const filters: ((r: Row) => boolean)[] = [];
+      const builder = {
+        eq: (c: string, v: unknown) => { filters.push((r) => r[c] === v); return builder; },
+        like: (c: string, pattern: string) => {
+          if (!pattern.endsWith("%")) throw new Error(`fake like: unsupported pattern "${pattern}"`);
+          const prefix = pattern.slice(0, -1);
+          filters.push((r) => (r[c] as string).startsWith(prefix));
+          return builder;
+        },
+        in: (_c: string, ids: string[]) => {
+          for (const id of ids) {
+            const i = rows.findIndex((r) => r.id === id);
+            if (i >= 0) rows.splice(i, 1);
+          }
+          return Promise.resolve({ error: null });
+        },
+        then: (resolve: (v: { error: null }) => void) => {
+          for (let i = rows.length - 1; i >= 0; i--) {
+            if (filters.every((f) => f(rows[i]))) rows.splice(i, 1);
+          }
+          resolve({ error: null });
+        },
+      };
+      return builder;
+    },
+  });
+
+  const client = {
+    from: (table: string) => {
+      switch (table) {
+        case "spend_facts":
+          return spendFactsTable();
+        case "seat_assignments":
+          return {
+            select: () => ({
+              eq: () => ({
+                order: () => ({
+                  range: (from: number, to: number) =>
+                    Promise.resolve({ data: opts.seatAssignments.slice(from, to + 1), error: null }),
+                }),
+              }),
+            }),
+          };
+        case "seat_month_entries":
+          return {
+            select: () => {
+              const filters: ((r: Row) => boolean)[] = [];
+              const chain = {
+                eq: (c: string, v: unknown) => { filters.push((r) => r[c] === v); return chain; },
+                lte: (c: string, v: string) => { filters.push((r) => (r[c] as string) <= v); return chain; },
+                order: () => chain,
+                limit: (n: number) => {
+                  const matched = (opts.seatMonthEntries as Row[])
+                    .filter((r) => filters.every((f) => f(r)))
+                    .sort((a, b) => (b.month as string).localeCompare(a.month as string));
+                  return Promise.resolve({ data: matched.slice(0, n), error: null });
+                },
+              };
+              return chain;
+            },
+          };
+        case "seat_prices":
+          return {
+            select: () => {
+              const filters: ((r: Row) => boolean)[] = [];
+              const chain = {
+                eq: (c: string, v: unknown) => { filters.push((r) => r[c] === v); return chain; },
+                limit: (n: number) =>
+                  Promise.resolve({
+                    data: (opts.seatPrices ?? []).filter((r) => filters.every((f) => f(r))).slice(0, n),
+                    error: null,
+                  }),
+              };
+              return chain;
+            },
+          };
+        default:
+          throw new Error(`fakeClaudeRebuildDb: unexpected table "${table}"`);
+      }
+    },
+  } as unknown as SupabaseClient;
+
+  return { client, rows };
+}
+
+describe("rebuildClaudeSeatMonth — direct regression lock", () => {
+  // Regression lock (should pass immediately, no implementation change
+  // required): pins the full tier-resolution + as-of-pricing + authoritative-
+  // entry chain together for a Claude month, independent of the orchestrator
+  // (syncClaudeSeats) tests in run-claude-seats.test.ts.
+  const MONTH = "2026-06-01";
+
+  it("prices e1 (standard) via the authoritative entry, e2 (premium) via the as-of fallback chain, plus an unassigned-standard fact", async () => {
+    const { client, rows } = fakeClaudeRebuildDb({
+      spendFacts: [
+        {
+          source: "claude_team", day: MONTH, cost_type: "seat",
+          entity_key: "x@intenthq.com", model: "", cost_usd: 0, employee_id: "e1",
+        },
+        {
+          source: "claude_team", day: MONTH, cost_type: "seat",
+          entity_key: "y@intenthq.com", model: "", cost_usd: 0, employee_id: "e2",
+        },
+      ],
+      seatAssignments: [
+        { employee_id: "e2", vendor: "claude_team", seat_type: "premium", period_start: "2026-01-01" },
+      ],
+      seatMonthEntries: [
+        { vendor: "claude_team", seat_type: "standard", month: MONTH, seats: 2, price_usd: 19.05 },
+        // No premium entry at any month.
+      ],
+      seatPrices: [], // no seat_prices rows either
+    });
+
+    const written = await rebuildClaudeSeatMonth(client, MONTH);
+    expect(written).toBeGreaterThan(0);
+
+    const byKey = Object.fromEntries(
+      rows.filter((r) => r.source === "claude_team" && r.cost_type === "seat").map((r) => [r.entity_key, r]),
+    );
+
+    expect((byKey["x@intenthq.com"] as { cost_usd: number }).cost_usd).toBe(19.05); // standard, entry-priced
+    expect((byKey["y@intenthq.com"] as { cost_usd: number }).cost_usd).toBe(95.25); // premium, constant fallback
+    expect((byKey["unassigned seats (standard)"] as { cost_usd: number }).cost_usd).toBe(19.05); // entry authoritative: 2 seats, 1 member -> 1 seat unassigned
+    expect(byKey["unassigned seats (premium)"]).toBeUndefined(); // no premium entry -> no unassigned fact
   });
 });
