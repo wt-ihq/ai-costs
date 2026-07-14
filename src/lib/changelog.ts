@@ -21,6 +21,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "Claude seat members now sync nightly from Okta (the access-claude group), with each person's standard or premium tier applied automatically — the roster CSV is only needed when a tier changes.",
       "You can backfill any month's Claude seat costs per tier, entered in £ with your exchange rate (stored alongside the $ conversion).",
       "The most recent price you enter becomes the default seat price for later months — for both Claude and ChatGPT.",
+      "Explore's team list now shows backfilled seat months as their own 'Shared seats' row instead of swelling 'Unattributed' — what's left in Unattributed is genuinely unmatched and worth fixing (see Data Health).",
     ],
   },
   {

@@ -3,6 +3,7 @@ import { VENDOR_COLORS, COST_TYPE_COLORS } from "@/lib/colors";
 import { VENDOR_LABEL, COST_TYPE_LABEL, COST_TYPE_ORDER } from "@/lib/types";
 import type { Dim, TrendPoint, TreemapNode, RankRow, RankSegment, Scorecard } from "./types";
 import { enumerateBuckets, type Period, type Bucket } from "./period";
+import { UNASSIGNED_PREFIX } from "@/lib/ingest/seat-months";
 
 export interface ShapeFact {
   day: string;
@@ -17,6 +18,8 @@ export interface ShapeFact {
 }
 
 export const UNATTRIBUTED = "Unattributed";
+/** Pseudo-team for backfilled seat months with no member data — by nature not team-attributable. */
+export const SHARED_SEATS = "Shared seats";
 
 const dimKey = (r: ShapeFact, dim: Dim): string => (dim === "vendor" ? r.source : r.costType);
 const labelFor = (dim: Dim, key: string) =>
@@ -124,10 +127,23 @@ export function scorecardFor(rows: ShapeFact[]): Scorecard {
   return { total: sum(rows), ...split };
 }
 
-/** Department rankings (rows already filtered to the period). */
+/**
+ * Department rankings (rows already filtered to the period). Two pseudo-rows
+ * pin to the bottom regardless of size — they aren't teams, so they must not
+ * distort the ranking:
+ *   - "Shared seats": backfilled seat months with no member data (entity keys
+ *     with the `unassigned seats` prefix) — by nature not team-attributable.
+ *   - "Unattributed": unmatched entity keys + employees with no department.
+ */
 export function rankTeams(rows: ShapeFact[], headcounts: Map<string, number>): RankRow[] {
-  const byDept = groupBy(rows, (r) => r.department ?? UNATTRIBUTED);
-  return [...byDept.entries()]
+  const shared = rows.filter((r) => r.entityKey.startsWith(UNASSIGNED_PREFIX));
+  const attributable = rows.filter((r) => !r.entityKey.startsWith(UNASSIGNED_PREFIX));
+
+  const byDept = groupBy(attributable, (r) => r.department ?? UNATTRIBUTED);
+  const unattributed = byDept.get(UNATTRIBUTED) ?? [];
+  byDept.delete(UNATTRIBUTED);
+
+  const teams: RankRow[] = [...byDept.entries()]
     .map(([dept, facts]) => {
       const total = sum(facts);
       const head = headcounts.get(dept) ?? 0;
@@ -135,13 +151,38 @@ export function rankTeams(rows: ShapeFact[], headcounts: Map<string, number>): R
         id: dept,
         label: dept,
         total: Math.round(total * 100) / 100,
-        href: dept === UNATTRIBUTED ? undefined : `/explore/${teamSlug(dept)}`,
-        perHead: dept === UNATTRIBUTED || head === 0 ? null : Math.round((total / head) * 100) / 100,
+        href: `/explore/${teamSlug(dept)}`,
+        perHead: head === 0 ? null : Math.round((total / head) * 100) / 100,
         sub: head ? `${head} people` : undefined,
         segments: segmentsByDim(facts),
       };
     })
     .sort((a, b) => b.total - a.total);
+
+  if (shared.length > 0) {
+    teams.push({
+      id: SHARED_SEATS,
+      label: SHARED_SEATS,
+      total: Math.round(sum(shared) * 100) / 100,
+      href: undefined,
+      perHead: null,
+      sub: "backfilled seat months — no member data",
+      segments: segmentsByDim(shared),
+    });
+  }
+  if (unattributed.length > 0) {
+    const head = headcounts.get(UNATTRIBUTED) ?? 0;
+    teams.push({
+      id: UNATTRIBUTED,
+      label: UNATTRIBUTED,
+      total: Math.round(sum(unattributed) * 100) / 100,
+      href: undefined,
+      perHead: null,
+      sub: `${head ? `${head} people · ` : ""}unmatched keys — see Data Health`,
+      segments: segmentsByDim(unattributed),
+    });
+  }
+  return teams;
 }
 
 /** People rankings within a team (rows already filtered to team + period). */
