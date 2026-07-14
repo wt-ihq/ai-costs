@@ -23,6 +23,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "The most recent price you enter becomes the default seat price for later months — for both Claude and ChatGPT.",
       "Explore's team list now shows backfilled seat months as their own 'Shared seats' row instead of swelling 'Unattributed' — what's left in Unattributed is genuinely unmatched and worth fixing (see Data Health).",
       "Data Health no longer offers to assign person-less spend (unassigned seats, org-level costs) to individuals — it moved to its own explained list, and a new section shows exactly who has no department in Okta.",
+      "You can now add any other AI tool's costs by hand — a monthly price or an up-front contract spread across its months, in £, $, or € — attributed to the department of your choice. Each tool shows up in Explore as its own vendor with its own colour.",
     ],
   },
   {
