@@ -22,7 +22,7 @@ export const fetchOktaUsers: OktaFetcher = async () => {
   let url: string | null = `${base}/api/v1/users?search=${encodeURIComponent("status pr")}&limit=200`;
   const users: OktaUser[] = [];
   while (url) {
-    const { page, next } = await getUsersPage(url, token);
+    const { page, next }: { page: OktaUser[]; next: string | null } = await getPage<OktaUser>(url, token, "users");
     users.push(...page);
     url = next;
   }
@@ -33,25 +33,72 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * GET one page, retrying on 429/5xx with exponential backoff (Okta rate-limits
- * per org), and return the parsed users plus the `rel="next"` URL if any.
+ * per org), and return the parsed items plus the `rel="next"` URL if any.
  */
-async function getUsersPage(url: string, token: string): Promise<{ page: OktaUser[]; next: string | null }> {
+async function getPage<T>(url: string, token: string, label: string): Promise<{ page: T[]; next: string | null }> {
   const maxAttempts = 6;
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(url, {
       headers: { Accept: "application/json", Authorization: `SSWS ${token}` },
     });
     if (res.ok) {
-      const page = (await res.json()) as OktaUser[];
+      const page = (await res.json()) as T[];
       return { page: Array.isArray(page) ? page : [], next: parseNextLink(res.headers.get("link")) };
     }
     const retryable = res.status === 429 || res.status >= 500;
     if (!retryable || attempt >= maxAttempts - 1) {
-      throw new Error(`Okta users ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      throw new Error(`Okta ${label} ${res.status}: ${(await res.text()).slice(0, 200)}`);
     }
     await sleep(Math.min(1000 * 2 ** attempt, 16_000)); // 1s,2s,4s,8s,16s
   }
 }
+
+export interface OktaGroupMember {
+  email: string; // lowercased profile.email (login fallback)
+}
+
+export type OktaGroupFetcher = (groupName: string) => Promise<OktaGroupMember[]>;
+
+interface OktaGroup {
+  id?: string;
+  profile?: { name?: string };
+}
+
+/**
+ * Members of one Okta group, by exact group name. `q=` only prefix-matches,
+ * so the exact-name filter happens here — and a missing or ambiguous group
+ * THROWS rather than returning zero members (a renamed group must fail the
+ * seats sync loudly, never silently empty a month).
+ */
+export const fetchOktaGroupMembers: OktaGroupFetcher = async (groupName) => {
+  const org = process.env.OKTA_ORG_URL;
+  const token = process.env.OKTA_API_TOKEN;
+  if (!org || !token) throw new Error("OKTA_ORG_URL / OKTA_API_TOKEN not set");
+  const base = org.replace(/\/+$/, "");
+
+  const { page: groups } = await getPage<OktaGroup>(
+    `${base}/api/v1/groups?q=${encodeURIComponent(groupName)}&limit=100`,
+    token,
+    "groups",
+  );
+  const matches = groups.filter((g) => g.profile?.name === groupName);
+  if (matches.length === 0) throw new Error(`Okta group "${groupName}" not found`);
+  if (matches.length > 1) throw new Error(`Okta group "${groupName}" is ambiguous (${matches.length} exact matches)`);
+  const groupId = matches[0].id;
+  if (!groupId) throw new Error(`Okta group "${groupName}" has no id`);
+
+  const members: OktaGroupMember[] = [];
+  let url: string | null = `${base}/api/v1/groups/${groupId}/users?limit=200`;
+  while (url) {
+    const { page, next }: { page: OktaUser[]; next: string | null } = await getPage<OktaUser>(url, token, "group users");
+    for (const u of page) {
+      const email = (u.profile?.email ?? u.profile?.login ?? "").trim().toLowerCase();
+      if (email) members.push({ email });
+    }
+    url = next;
+  }
+  return members;
+};
 
 /** Okta paginates with Link headers: `<url>; rel="next"` (and rel="self"). */
 export function parseNextLink(linkHeader: string | null): string | null {
