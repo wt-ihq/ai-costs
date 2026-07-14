@@ -189,7 +189,7 @@ describe("rankTeams — Shared seats split", () => {
   it("Unattributed keeps the headcount and points at Data Health", () => {
     const r = rankTeams([...june, seatFact("ghost@nowhere.com", 10)], new Map([["Eng", 2], ["Unattributed", 64]]));
     const un = r.find((x) => x.id === "Unattributed");
-    expect(un?.sub).toContain("64 people");
+    expect(un?.sub).toContain("64 people without a department");
     expect(un?.sub).toContain("Data Health");
   });
 });

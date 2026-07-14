@@ -1,5 +1,5 @@
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getDataHealth } from "@/lib/queries/data-health";
+import { getDataHealth, pseudoExplanation } from "@/lib/queries/data-health";
 import { getCursorReconciliation } from "@/lib/queries/cursor-reconciliation";
 import { PageHeader, Panel } from "@/components/ui";
 import { UnmatchedQueue } from "@/components/unmatched-queue";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 export default async function DataHealthPage() {
   const supabase = getSupabaseAdminClient();
-  const [{ identity, sources, unmatched, employees }, reconciliation] = await Promise.all([
+  const [{ identity, sources, unmatched, pseudo, employees, noDepartment }, reconciliation] = await Promise.all([
     getDataHealth(supabase),
     getCursorReconciliation(supabase),
   ]);
@@ -133,6 +133,62 @@ export default async function DataHealthPage() {
         </p>
         <UnmatchedQueue rows={unmatched} employees={employees} />
       </Panel>
+
+      {pseudo.length > 0 && (
+        <Panel className="mt-4">
+          <h2 className="mb-1 text-sm font-medium">Not person-attributable</h2>
+          <p className="mb-4 text-xs text-muted">
+            Real spend that by design belongs to no individual — shown for transparency, never assignable.
+            On Explore, seat spend here appears under &ldquo;Shared seats&rdquo;.
+          </p>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
+                <th className="py-2 pr-4 font-medium">Source</th>
+                <th className="py-2 pr-4 font-medium">Entity</th>
+                <th className="py-2 pr-4 font-medium">What it is</th>
+                <th className="py-2 text-right font-medium">Spend</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pseudo.map((p) => (
+                <tr key={`${p.source}:${p.entityKey}`} className="border-b border-border/60 last:border-0">
+                  <td className="py-2 pr-4">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="size-2 rounded-full" style={{ background: VENDOR_COLORS[p.source] }} />
+                      {VENDOR_LABEL[p.source]}
+                    </span>
+                  </td>
+                  <td className="py-2 pr-4 font-mono text-xs">{p.entityKey}</td>
+                  <td className="py-2 pr-4 text-xs text-muted">{pseudoExplanation(p.entityKey)}</td>
+                  <td className="py-2 text-right tabular-nums">{formatUsd(p.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Panel>
+      )}
+
+      {noDepartment.length > 0 && (
+        <Panel className="mt-4">
+          <h2 className="mb-1 text-sm font-medium">People without a department ({noDepartment.length})</h2>
+          <p className="mb-4 text-xs text-muted">
+            Their spend lands in Explore&rsquo;s &ldquo;Unattributed&rdquo; row. Current staff here are fixable —
+            set the department on their Okta profile; leavers keep their historical spend unplaceable.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {noDepartment.map((p) => (
+              <span
+                key={p.id}
+                className={`rounded-md border border-border bg-surface-2 px-2 py-1 text-xs ${p.left ? "text-muted" : "text-foreground"}`}
+              >
+                {p.name}
+                {p.left && <span className="ml-1 text-[10px] uppercase tracking-wide text-muted">left</span>}
+              </span>
+            ))}
+          </div>
+        </Panel>
+      )}
     </>
   );
 }
