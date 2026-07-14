@@ -114,7 +114,7 @@ export async function getDataHealth(supabase: SupabaseClient): Promise<DataHealt
     // vendor row of their own — each is folded onto its vendor row below — but
     // their sync_runs rows must still be fetched or a failed run is invisible
     // on Data Health.
-    latestPerSource(supabase, "sync_runs", ["okta", ...VENDORS, "chatgpt_seats", "claude_seats"], "source, finished_at, started_at, status", "started_at"),
+    latestPerSource(supabase, "sync_runs", ["okta", ...VENDORS, "chatgpt_seats", "claude_seats", "recurring"], "source, finished_at, started_at, status", "started_at"),
     latestPerSource(supabase, "imports", VENDORS, "source, data_as_of, created_at", "created_at"),
     fetchEmployeesAll(supabase, "id, full_name, department, employment_status"),
   ]);
@@ -125,15 +125,17 @@ export async function getDataHealth(supabase: SupabaseClient): Promise<DataHealt
   /**
    * chatgpt_business and claude_team each have no sync of their own
    * (manual-import only) apart from their Okta-group seat sync
-   * (chatgpt_seats / claude_seats) that now populates seat facts. Fold the two
-   * signals together per vendor by picking whichever ran later, so a failed
-   * seat sync (group missing/renamed/no permission) surfaces as a failure on
-   * the vendor row instead of nowhere.
+   * (chatgpt_seats / claude_seats) that now populates seat facts. other
+   * likewise has no sync of its own — its facts are materialized by the
+   * "recurring" cron source. Fold each vendor's secondary sync signal
+   * together by picking whichever ran later, so a failed seat/materializer
+   * sync (group missing/renamed/no permission) surfaces as a failure on the
+   * vendor row instead of nowhere.
    */
-  const SEAT_SYNC: Partial<Record<Vendor, string>> = { chatgpt_business: "chatgpt_seats", claude_team: "claude_seats" };
+  const VENDOR_SYNC: Partial<Record<Vendor, string>> = { chatgpt_business: "chatgpt_seats", claude_team: "claude_seats", other: "recurring" };
   function syncFor(source: Vendor): { at: string | null; status: string } | undefined {
     const direct = lastSync.get(source);
-    const seatsKey = SEAT_SYNC[source];
+    const seatsKey = VENDOR_SYNC[source];
     const seats = seatsKey ? lastSync.get(seatsKey) : undefined;
     if (!direct) return seats;
     if (!seats) return direct;
@@ -150,6 +152,8 @@ export async function getDataHealth(supabase: SupabaseClient): Promise<DataHealt
   for (const f of facts ?? []) {
     count.set(f.source, (count.get(f.source) ?? 0) + 1);
     if (!latest.get(f.source) || (f.day as string) > latest.get(f.source)!) latest.set(f.source, f.day as string);
+    // recurring tool costs are deliberate manual entries — never assignable
+    if (f.source === "other") continue;
     if (f.employee_id == null) {
       // Person-less pseudo-entities are shown for transparency but excluded
       // from the assignable queue — assigning them to a person would be wrong.

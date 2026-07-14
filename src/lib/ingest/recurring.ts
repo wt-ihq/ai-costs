@@ -1,4 +1,5 @@
-import type { ResolvedFact } from "@/lib/ingest/persist";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { finishSyncRun, replaceWindowFacts, startSyncRun, type ResolvedFact } from "@/lib/ingest/persist";
 
 export interface RecurringEntry {
   tool: string;
@@ -76,4 +77,69 @@ export function pickColorSlot(existing: { tool: string; colorSlot: number }[], t
   for (const t of existing) counts[t.colorSlot] += 1;
   const min = Math.min(...counts);
   return counts.indexOf(min);
+}
+
+/** All recurring entries (paginated, gotcha #1 — the table grows forever). */
+export async function fetchRecurringEntries(
+  supabase: SupabaseClient,
+): Promise<(RecurringEntry & { id: string; colorSlot: number; currency: string })[]> {
+  const PAGE = 1000;
+  const out: (RecurringEntry & { id: string; colorSlot: number; currency: string })[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from("recurring_costs")
+      .select("id, tool, color_slot, department, kind, amount, currency, fx_rate, start_month, end_month")
+      .order("id")
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(`fetchRecurringEntries: ${error.message}`);
+    for (const r of data ?? []) {
+      out.push({
+        id: r.id as string,
+        tool: r.tool as string,
+        colorSlot: Number(r.color_slot),
+        department: (r.department as string) ?? null,
+        kind: r.kind as "monthly" | "contract",
+        amount: Number(r.amount),
+        currency: r.currency as string,
+        fxRate: Number(r.fx_rate),
+        startMonth: r.start_month as string,
+        endMonth: (r.end_month as string) ?? null,
+      });
+    }
+    if (!data || data.length < PAGE) break;
+  }
+  return out;
+}
+
+/**
+ * Rebuild ALL source='other' facts from recurring_costs (the source of
+ * truth). Zero entries is the one intentional full clear — these facts are
+ * purely derived, so wiping them cannot lose information (deliberate,
+ * documented exception to gotcha #4's spirit).
+ */
+export async function rebuildRecurringFacts(supabase: SupabaseClient): Promise<number> {
+  const entries = await fetchRecurringEntries(supabase);
+  const throughMonth = new Date().toISOString().slice(0, 7) + "-01";
+  const facts = computeRecurringFacts(entries, throughMonth);
+  if (facts.length === 0) {
+    const { error } = await supabase.from("spend_facts").delete().eq("source", "other");
+    if (error) throw new Error(`rebuildRecurringFacts clear: ${error.message}`);
+    return 0;
+  }
+  const startDate = facts.reduce((min, f) => (f.day < min ? f.day : min), facts[0].day);
+  const window = { startDate, endDate: throughMonth.slice(0, 8) + "02" }; // exclusive-end just past current month-01
+  return replaceWindowFacts(supabase, "other", window, facts);
+}
+
+/** Nightly cron step: extends open-ended monthlies into each new month. */
+export async function syncRecurring(supabase: SupabaseClient): Promise<{ rowsWritten: number }> {
+  const runId = await startSyncRun(supabase, "recurring");
+  try {
+    const rowsWritten = await rebuildRecurringFacts(supabase);
+    await finishSyncRun(supabase, runId, { status: "success", rowsWritten });
+    return { rowsWritten };
+  } catch (err) {
+    await finishSyncRun(supabase, runId, { status: "failed", error: err instanceof Error ? err.message : String(err) });
+    throw err;
+  }
 }

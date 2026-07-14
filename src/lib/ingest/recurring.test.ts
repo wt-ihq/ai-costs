@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { computeRecurringFacts, monthsBetween, pickColorSlot, type RecurringEntry } from "./recurring";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { computeRecurringFacts, monthsBetween, pickColorSlot, rebuildRecurringFacts, type RecurringEntry } from "./recurring";
 
 const THROUGH = "2026-07-01";
 const entry = (over: Partial<RecurringEntry>): RecurringEntry => ({
@@ -87,5 +88,102 @@ describe("pickColorSlot", () => {
   it("reuses the least-used slot when all 8 are taken", () => {
     const existing = [0, 1, 2, 3, 4, 5, 6, 7, 0].map((s, i) => t(`T${i}`, s)); // slot 0 used twice
     expect(pickColorSlot(existing, "New")).toBe(1); // lowest among the least-used (1..7 used once)
+  });
+});
+
+/**
+ * Stateful in-memory fake supporting the exact call chains rebuildRecurringFacts
+ * makes: a `recurring_costs` select→order→range read, and — depending on
+ * whether computeRecurringFacts produced any facts — either a `spend_facts`
+ * delete().eq() full clear or the upsert/select/delete chains replaceWindowFacts
+ * uses (modeled on fakeSpendFactsDb in persist.test.ts).
+ */
+function fakeRecurringDb(recurringRows: Record<string, unknown>[], initialFacts: Record<string, unknown>[] = []) {
+  const facts: Record<string, unknown>[] = initialFacts.map((r, i) => ({ id: `seed${i}`, ...r }));
+  let nextId = 0;
+  const client = {
+    from: (table: string) => {
+      if (table === "recurring_costs") {
+        return {
+          select: () => ({
+            order: () => ({
+              range: (from: number, to: number) =>
+                Promise.resolve({ data: recurringRows.slice(from, to + 1), error: null }),
+            }),
+          }),
+        };
+      }
+      // spend_facts
+      return {
+        upsert: (incoming: Record<string, unknown>[]) => {
+          for (const r of incoming) {
+            const key = (x: Record<string, unknown>) => `${x.source}|${x.day}|${x.cost_type}|${x.entity_key}|${x.model}`;
+            const idx = facts.findIndex((x) => key(x) === key(r));
+            if (idx >= 0) facts[idx] = { ...facts[idx], ...r };
+            else facts.push({ id: `new${nextId++}`, ...r });
+          }
+          return Promise.resolve({ error: null });
+        },
+        select: () => {
+          const filters: ((r: Record<string, unknown>) => boolean)[] = [];
+          const q = {
+            eq: (c: string, v: unknown) => { filters.push((r) => r[c] === v); return q; },
+            gte: (c: string, v: string) => { filters.push((r) => (r[c] as string) >= v); return q; },
+            lt: (c: string, v: string) => { filters.push((r) => (r[c] as string) < v); return q; },
+            order: () => q,
+            range: (from: number, to: number) =>
+              Promise.resolve({ data: facts.filter((r) => filters.every((f) => f(r))).slice(from, to + 1), error: null }),
+          };
+          return q;
+        },
+        delete: () => ({
+          // Zero-entries full clear: `.delete().eq("source", "other")` runs
+          // (and resolves) directly, no further chaining.
+          eq: (c: string, v: unknown) => {
+            for (let i = facts.length - 1; i >= 0; i--) {
+              if (facts[i][c] === v) facts.splice(i, 1);
+            }
+            return Promise.resolve({ error: null });
+          },
+          // replaceWindowFacts prune: `.delete().in("id", staleIds)`.
+          in: (_c: string, ids: string[]) => {
+            for (const id of ids) {
+              const i = facts.findIndex((r) => r.id === id);
+              if (i >= 0) facts.splice(i, 1);
+            }
+            return Promise.resolve({ error: null });
+          },
+        }),
+      };
+    },
+  } as unknown as SupabaseClient;
+  return { client, facts };
+}
+
+describe("rebuildRecurringFacts", () => {
+  it("clears all source='other' facts when there are zero recurring entries", async () => {
+    const { client, facts } = fakeRecurringDb([], [
+      { source: "other", day: "2026-06-01", cost_type: "seat", entity_key: "perplexity|Data Science", model: "Perplexity", cost_usd: 40 },
+    ]);
+
+    const written = await rebuildRecurringFacts(client);
+
+    expect(written).toBe(0);
+    expect(facts).toHaveLength(0);
+  });
+
+  it("materializes facts from a monthly recurring entry", async () => {
+    const { client, facts } = fakeRecurringDb([
+      {
+        id: "r1", tool: "Perplexity", color_slot: 0, department: "Data Science", kind: "monthly",
+        amount: 40, currency: "USD", fx_rate: 1, start_month: "2026-01-01", end_month: null,
+      },
+    ]);
+
+    const written = await rebuildRecurringFacts(client);
+
+    expect(written).toBeGreaterThan(0);
+    expect(facts.length).toBeGreaterThan(0);
+    expect(facts.every((f) => f.source === "other")).toBe(true);
   });
 });
