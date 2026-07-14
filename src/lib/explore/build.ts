@@ -28,13 +28,17 @@ export function buildExploreData(scope: RawScope, period: Period): ExploreData {
     totalToDate: sumAll(scope.facts),
     scorecard: scorecardFor(cur),
     trend: bothDims((d) => trendForPeriod(scope.facts, period, d)),
-    treemap: bothDims((d) => treemapByDim(cur, d)),
+    treemap: bothDims((d) => treemapByDim(cur, d, 12, scope.toolColors)),
   };
   if (scope.kind === "company") {
-    return { ...base, ranked: { kind: "team", rows: rankTeams(cur, new Map(Object.entries(scope.headcounts))) }, allStaff: rankAllStaff(cur, scope.employees) };
+    return {
+      ...base,
+      ranked: { kind: "team", rows: rankTeams(cur, new Map(Object.entries(scope.headcounts)), scope.toolColors) },
+      allStaff: rankAllStaff(cur, scope.employees, scope.toolColors),
+    };
   }
   if (scope.kind === "team") {
-    return { ...base, ranked: { kind: "person", rows: rankPeople(cur, scope.team, scope.employees) } };
+    return { ...base, ranked: { kind: "person", rows: rankPeople(cur, scope.team, scope.employees, scope.toolColors) } };
   }
   return { ...base, ranked: { kind: "lineitem", rows: lineItems(cur) } };
 }
