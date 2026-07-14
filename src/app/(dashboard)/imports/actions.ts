@@ -10,7 +10,7 @@ import { parseClaudeSpend } from "@/lib/ingest/parsers/claude-spend";
 import { parseClaudeRoster } from "@/lib/ingest/parsers/claude-roster";
 import { parseOpenAiCreditsCsv, coveredWindow, type CreditUsageFact } from "@/lib/ingest/parsers/openai-credits";
 import { loadEmployeesFull, upsertSpendFacts, replaceWindowFacts, type ResolvedFact } from "@/lib/ingest/persist";
-import { rebuildChatGptSeatMonth } from "@/lib/ingest/seat-months";
+import { rebuildChatGptSeatMonth, rebuildClaudeSeatMonth } from "@/lib/ingest/seat-months";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** seat_prices as a `${vendor}:${seat_type}` -> USD map. */
@@ -399,20 +399,8 @@ export async function commitClaudeRoster(
   if (!rows.length) throw new Error("Nothing to import — the preview has no rows.");
   const day = asOf.slice(0, 7) + "-01";
 
-  // Snapshot semantics: clear this month's Claude seat facts, then re-insert.
-  await supabase.from("spend_facts").delete().eq("source", "claude_team").eq("cost_type", "seat").eq("day", day);
-
-  const facts: ResolvedFact[] = rows.map((r) => ({
-    source: "claude_team",
-    day,
-    costType: "seat",
-    entityKey: r.email,
-    costUsd: r.priceUsd,
-    employeeId: r.employeeId,
-  }));
-  const written = await upsertSpendFacts(supabase, facts);
-
-  // Seat assignments for matched employees.
+  // Seat assignments for matched employees. Membership itself now comes from
+  // the nightly claude_seats sync (Task 4) — this upload only refreshes tiers.
   const assignments = rows
     .filter((r) => r.employeeId)
     .map((r) => ({
@@ -422,6 +410,23 @@ export async function commitClaudeRoster(
       monthly_price_usd: r.priceUsd,
       period_start: day,
     }));
+
+  const matchedEmployeeIds = assignments.map((a) => a.employee_id).filter((id): id is string => !!id);
+  if (matchedEmployeeIds.length) {
+    // The upsert's conflict target is (vendor, employee_id, seat_type, period_start).
+    // If a member's tier changed within the same month, the seat_type differs
+    // from their existing row, so the upsert would ADD a second row for the
+    // same (employee_id, period_start) instead of replacing the old tier —
+    // leaving two rows and making tier resolution ambiguous. Delete exactly
+    // the (employee_id, period_start) keys we're about to (re)write first;
+    // this is a scoped replace of rows we're rewriting, not a window wipe.
+    await supabase
+      .from("seat_assignments")
+      .delete()
+      .eq("vendor", "claude_team")
+      .eq("period_start", day)
+      .in("employee_id", matchedEmployeeIds);
+  }
   if (assignments.length) {
     await supabase.from("seat_assignments").upsert(assignments, { onConflict: "vendor,employee_id,seat_type,period_start" });
   }
@@ -433,6 +438,10 @@ export async function commitClaudeRoster(
     status: "success",
     row_counts: { seats: rows.length, attributed: assignments.length },
   });
+
+  // Tier changes re-price the month immediately; membership itself comes from
+  // the nightly claude_seats sync (entries stay authoritative when present).
+  const written = await rebuildClaudeSeatMonth(supabase, day);
 
   return { written, seats: rows.length, attributed: assignments.length };
 }

@@ -56,9 +56,11 @@ export default async function ImportsPage() {
         </Panel>
 
         <Panel>
-          <h2 className="mb-1 text-sm font-medium">Claude Team — roster (seats)</h2>
+          <h2 className="mb-1 text-sm font-medium">Claude Team — roster (seat tiers)</h2>
           <p className="mb-4 text-xs text-muted">
-            Upload the roster CSV (Name, Email, Role, Status, Seat Tier). Email-matched; priced per tier.
+            Membership syncs nightly from the Okta <strong>access-claude</strong> group. Upload the roster CSV
+            (Name, Email, Role, Status, Seat Tier) only when someone&rsquo;s tier changes — it updates
+            standard/premium assignments and re-prices the current month.
           </p>
           <ClaudeRosterImport />
         </Panel>
