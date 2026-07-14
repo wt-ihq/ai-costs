@@ -127,6 +127,7 @@ export async function upsertSpendFacts(
     requests: f.requests ?? null,
     employee_id: f.employeeId,
     model: f.model ?? "",
+    department: f.department ?? null,
   });
   for (const f of facts) {
     const r = toRow(f);

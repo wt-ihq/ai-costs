@@ -39,6 +39,7 @@ export interface SpendFact {
   apiKeyId?: string | null;
   projectId?: string | null;
   model?: string | null;
+  department?: string | null;
 }
 
 /**
