@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeSeatFacts, UNASSIGNED_SEATS_KEY } from "./seat-months";
+import { computeClaudeSeatFacts, CLAUDE_UNASSIGNED_KEY } from "./seat-months";
 
 const MONTH = "2026-06-01";
 const members = (n: number) =>
@@ -72,5 +73,57 @@ describe("computeSeatFacts", () => {
 
   it("zero-total entry with no members yields no facts (caller removes any stale unassigned fact)", () => {
     expect(computeSeatFacts(MONTH, { seats: 0, priceUsd: 25 }, [], 25)).toEqual([]);
+  });
+});
+
+describe("computeSeatFacts with source/unassignedKey opts", () => {
+  it("stamps the given source and unassigned key", () => {
+    const facts = computeSeatFacts(MONTH, { seats: 2, priceUsd: 19.05 }, [], 19.05, {
+      source: "claude_team",
+      unassignedKey: CLAUDE_UNASSIGNED_KEY.standard,
+    });
+    expect(facts).toEqual([
+      expect.objectContaining({ source: "claude_team", entityKey: "unassigned seats (standard)", costUsd: 38.1 }),
+    ]);
+  });
+
+  it("defaults remain ChatGPT (regression)", () => {
+    const facts = computeSeatFacts(MONTH, { seats: 1, priceUsd: 25 }, [], 25);
+    expect(facts[0]).toMatchObject({ source: "chatgpt_business", entityKey: "unassigned seats" });
+  });
+});
+
+describe("computeClaudeSeatFacts", () => {
+  const std = [{ entityKey: "a@x.com", employeeId: "e1" }, { entityKey: "b@x.com", employeeId: null }];
+  const prem = [{ entityKey: "c@x.com", employeeId: "e3" }];
+
+  it("computes per tier with distinct unassigned keys, cent-exact per tier", () => {
+    const facts = computeClaudeSeatFacts(MONTH, [
+      { seatType: "standard", entry: { seats: 3, priceUsd: 19.05 }, members: std, defaultPriceUsd: 19.05 },
+      { seatType: "premium", entry: { seats: 2, priceUsd: 95.25 }, members: prem, defaultPriceUsd: 95.25 },
+    ]);
+    // standard: 2 members at 19.05 + remainder (3-2)×19.05; premium: 1 member + 1 unassigned
+    expect(facts.filter((f) => f.source === "claude_team")).toHaveLength(facts.length);
+    expect(facts.find((f) => f.entityKey === CLAUDE_UNASSIGNED_KEY.standard)?.costUsd).toBe(19.05);
+    expect(facts.find((f) => f.entityKey === CLAUDE_UNASSIGNED_KEY.premium)?.costUsd).toBe(95.25);
+    const total = Math.round(facts.reduce((s, f) => s + f.costUsd * 100, 0));
+    expect(total).toBe(Math.round((3 * 19.05 + 2 * 95.25) * 100)); // 5715 + 19050
+  });
+
+  it("no entries: each tier's members at that tier's default price", () => {
+    const facts = computeClaudeSeatFacts(MONTH, [
+      { seatType: "standard", entry: null, members: std, defaultPriceUsd: 19.05 },
+      { seatType: "premium", entry: null, members: prem, defaultPriceUsd: 95.25 },
+    ]);
+    expect(facts.find((f) => f.entityKey === "a@x.com")?.costUsd).toBe(19.05);
+    expect(facts.find((f) => f.entityKey === "c@x.com")?.costUsd).toBe(95.25);
+    expect(facts.filter((f) => f.entityKey.startsWith("unassigned seats"))).toHaveLength(0);
+  });
+
+  it("returns [] only when every tier yields [] (zero totals, no members)", () => {
+    expect(computeClaudeSeatFacts(MONTH, [
+      { seatType: "standard", entry: { seats: 0, priceUsd: 19.05 }, members: [], defaultPriceUsd: 19.05 },
+      { seatType: "premium", entry: null, members: [], defaultPriceUsd: 95.25 },
+    ])).toEqual([]);
   });
 });
