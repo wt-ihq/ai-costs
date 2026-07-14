@@ -116,6 +116,15 @@ export async function fetchRecurringEntries(
  * truth). Zero entries is the one intentional full clear — these facts are
  * purely derived, so wiping them cannot lose information (deliberate,
  * documented exception to gotcha #4's spirit).
+ *
+ * The replace window's startDate is the EARLIER of (earliest stored
+ * other-fact, earliest recomputed fact) — not just the recomputed minimum.
+ * If an entry's range shifts forward (start_month edited later, or an early
+ * entry deleted while others remain), previously-materialized facts before
+ * the new earliest day would otherwise fall outside the window and
+ * replaceWindowFacts would never scan them, leaving them as stale spend
+ * forever. Anchoring to the stored minimum too ensures a forward-shifted
+ * entry range still prunes its orphaned early months.
  */
 export async function rebuildRecurringFacts(supabase: SupabaseClient): Promise<number> {
   const entries = await fetchRecurringEntries(supabase);
@@ -126,7 +135,16 @@ export async function rebuildRecurringFacts(supabase: SupabaseClient): Promise<n
     if (error) throw new Error(`rebuildRecurringFacts clear: ${error.message}`);
     return 0;
   }
-  const startDate = facts.reduce((min, f) => (f.day < min ? f.day : min), facts[0].day);
+  const newMin = facts.reduce((min, f) => (f.day < min ? f.day : min), facts[0].day);
+  const { data: earliestExisting, error: earliestError } = await supabase
+    .from("spend_facts")
+    .select("day")
+    .eq("source", "other")
+    .order("day")
+    .limit(1);
+  if (earliestError) throw new Error(`rebuildRecurringFacts earliest: ${earliestError.message}`);
+  const existingMinDay = (earliestExisting?.[0]?.day as string | undefined) ?? null;
+  const startDate = existingMinDay && existingMinDay < newMin ? existingMinDay : newMin;
   const window = { startDate, endDate: throughMonth.slice(0, 8) + "02" }; // exclusive-end just past current month-01
   return replaceWindowFacts(supabase, "other", window, facts);
 }

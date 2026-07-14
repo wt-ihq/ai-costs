@@ -126,13 +126,22 @@ function fakeRecurringDb(recurringRows: Record<string, unknown>[], initialFacts:
         },
         select: () => {
           const filters: ((r: Record<string, unknown>) => boolean)[] = [];
+          let orderCol: string | null = null;
           const q = {
             eq: (c: string, v: unknown) => { filters.push((r) => r[c] === v); return q; },
             gte: (c: string, v: string) => { filters.push((r) => (r[c] as string) >= v); return q; },
             lt: (c: string, v: string) => { filters.push((r) => (r[c] as string) < v); return q; },
-            order: () => q,
+            order: (c: string) => { orderCol = c; return q; },
             range: (from: number, to: number) =>
               Promise.resolve({ data: facts.filter((r) => filters.every((f) => f(r))).slice(from, to + 1), error: null }),
+            // `.order("day").limit(1)` — earliest-existing-day lookup in
+            // rebuildRecurringFacts. Sorts (ascending, by the ordered column)
+            // since callers rely on getting the true minimum, not insertion order.
+            limit: (n: number) => {
+              const matched = facts.filter((r) => filters.every((f) => f(r)));
+              if (orderCol) matched.sort((a, b) => ((a[orderCol!] as string) < (b[orderCol!] as string) ? -1 : 1));
+              return Promise.resolve({ data: matched.slice(0, n), error: null });
+            },
           };
           return q;
         },
@@ -185,5 +194,31 @@ describe("rebuildRecurringFacts", () => {
     expect(written).toBeGreaterThan(0);
     expect(facts.length).toBeGreaterThan(0);
     expect(facts.every((f) => f.source === "other")).toBe(true);
+  });
+
+  it("prunes previously-materialized months that fall before the entry's new (forward-shifted) start", async () => {
+    // Simulates a January-start entry whose start_month was later edited to
+    // March: Jan/Feb facts were materialized under the old range and must be
+    // pruned even though the recomputed window now starts in March.
+    const { client, facts } = fakeRecurringDb(
+      [
+        {
+          id: "r1", tool: "Perplexity", color_slot: 0, department: null, kind: "monthly",
+          amount: 40, currency: "USD", fx_rate: 1, start_month: "2026-03-01", end_month: null,
+        },
+      ],
+      [
+        { source: "other", day: "2026-01-01", cost_type: "seat", entity_key: "perplexity", model: "Perplexity", cost_usd: 40 },
+        { source: "other", day: "2026-02-01", cost_type: "seat", entity_key: "perplexity", model: "Perplexity", cost_usd: 40 },
+        { source: "other", day: "2026-03-01", cost_type: "seat", entity_key: "perplexity", model: "Perplexity", cost_usd: 40 },
+      ],
+    );
+
+    await rebuildRecurringFacts(client);
+
+    const days = facts.filter((f) => f.entity_key === "perplexity").map((f) => f.day).sort();
+    expect(days).not.toContain("2026-01-01");
+    expect(days).not.toContain("2026-02-01");
+    expect(days).toContain("2026-03-01");
   });
 });
