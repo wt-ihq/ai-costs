@@ -1,34 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OktaGroupFetcher } from "@/lib/ingest/sources/okta";
-import { syncChatGptSeats, toSeatMembers } from "./run-chatgpt-seats";
-
-const employees = [
-  { id: "e1", email: "alex.morgan@intenthq.com" },
-  { id: "e2", email: "jamie.lee@intenthq.com" },
-];
-
-describe("toSeatMembers", () => {
-  it("dedupes case-insensitively, resolves employees by exact email, keeps unknowns unattributed", () => {
-    const members = toSeatMembers(
-      ["Alex.Morgan@intenthq.com", "alex.morgan@intenthq.com", "jamie.lee@intenthq.com", "ghost@intenthq.com", "  "],
-      employees,
-    );
-    expect(members).toEqual([
-      { entityKey: "alex.morgan@intenthq.com", employeeId: "e1" },
-      { entityKey: "jamie.lee@intenthq.com", employeeId: "e2" },
-      { entityKey: "ghost@intenthq.com", employeeId: null }, // kept, unattributed (never dropped)
-    ]);
-  });
-});
+import { syncClaudeSeats } from "./run-claude-seats";
 
 /**
- * Stateful fake covering every table syncChatGptSeats touches, modeled on
- * fakeSpendFactsDb in persist.test.ts and extended with table dispatch since
- * this orchestrator hits sync_runs, raw_payloads, employees, seat_month_entries,
- * seat_prices, and spend_facts.
+ * Stateful fake covering every table syncClaudeSeats touches, adapted from
+ * fakeChatGptSeatsDb in run-chatgpt-seats.test.ts (itself modeled on
+ * fakeSpendFactsDb in persist.test.ts) and extended with a seat_assignments
+ * table (select→eq→order→range → empty rows, so resolveClaudeTiers falls back
+ * to "standard" for everyone) since claude_seats also resolves tiers.
  */
-function fakeChatGptSeatsDb(initialSpendFacts: Record<string, unknown>[]) {
+function fakeClaudeSeatsDb(initialSpendFacts: Record<string, unknown>[]) {
   const rows: Record<string, unknown>[] = initialSpendFacts.map((r, i) => ({ id: `seed${i}`, ...r }));
   let nextId = 0;
   let runId = 0;
@@ -103,6 +85,14 @@ function fakeChatGptSeatsDb(initialSpendFacts: Record<string, unknown>[]) {
           return { insert: () => Promise.resolve({ error: null }) };
         case "employees":
           return { select: () => ({ order: () => ({ range: () => Promise.resolve({ data: [], error: null }) }) }) };
+        case "seat_assignments":
+          // resolveClaudeTiers: select().eq().order().range() → no rows, every
+          // member falls back to "standard".
+          return {
+            select: () => ({
+              eq: () => ({ order: () => ({ range: () => Promise.resolve({ data: [], error: null }) }) }),
+            }),
+          };
         case "seat_month_entries":
         case "seat_prices":
           return {
@@ -122,7 +112,7 @@ function fakeChatGptSeatsDb(initialSpendFacts: Record<string, unknown>[]) {
         case "spend_facts":
           return spendFactsTable();
         default:
-          throw new Error(`fakeChatGptSeatsDb: unexpected table "${table}"`);
+          throw new Error(`fakeClaudeSeatsDb: unexpected table "${table}"`);
       }
     },
   } as unknown as SupabaseClient;
@@ -130,26 +120,27 @@ function fakeChatGptSeatsDb(initialSpendFacts: Record<string, unknown>[]) {
   return { client, rows };
 }
 
-describe("syncChatGptSeats — empty group can't wipe the month (gotcha #4)", () => {
+describe("syncClaudeSeats — empty group can't wipe the month (gotcha #4)", () => {
   // Regression lock: this passes today (the behavior already exists via
   // replaceSeatMonth's zero-facts path, which only ever removes a leftover
-  // "unassigned seats" row, never a real member's seat fact). Written to
-  // pin that guarantee so a future refactor of the orchestrator can't
-  // silently reintroduce a window wipe when an Okta group fetch returns [].
+  // "unassigned seats (standard/premium)" row, never a real member's seat
+  // fact). Written to pin that guarantee so a future refactor of the
+  // orchestrator can't silently reintroduce a window wipe when an Okta group
+  // fetch returns [].
   it("leaves an existing member seat fact intact when the fetcher returns no members", async () => {
     const month = new Date().toISOString().slice(0, 7) + "-01";
-    const { client, rows } = fakeChatGptSeatsDb([
+    const { client, rows } = fakeClaudeSeatsDb([
       {
-        source: "chatgpt_business", day: month, cost_type: "seat",
-        entity_key: "alex.morgan@intenthq.com", model: "", cost_usd: 25, employee_id: "e1",
+        source: "claude_team", day: month, cost_type: "seat",
+        entity_key: "alex.morgan@intenthq.com", model: "", cost_usd: 19.05, employee_id: "e1",
       },
     ]);
     const emptyFetcher: OktaGroupFetcher = async () => [];
 
-    const result = await syncChatGptSeats(client, emptyFetcher);
+    const result = await syncClaudeSeats(client, emptyFetcher);
 
     expect(result.rowsWritten).toBe(0);
     const keys = rows.map((r) => `${r.source}|${r.cost_type}|${r.entity_key}`);
-    expect(keys).toContain("chatgpt_business|seat|alex.morgan@intenthq.com"); // survives
+    expect(keys).toContain("claude_team|seat|alex.morgan@intenthq.com"); // survives
   });
 });
