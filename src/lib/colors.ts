@@ -9,6 +9,7 @@ export const VENDOR_COLORS: Record<Vendor, string> = {
   openai: "#10a37f",
   claude_team: "#c084fc",
   chatgpt_business: "#34d399",
+  other: "#8b92a5",
 };
 
 export const COST_TYPE_COLORS: Record<CostType, string> = {
