@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  seriesOrder, treemapByDim,
+  seriesOrder, treemapByDim, SHARED_SEATS,
   scorecardFor, rankTeams, rankPeople, rankAllStaff, lineItems, trendForPeriod, type ShapeFact,
 } from "./shape";
 import { parsePeriod } from "./period";
@@ -150,5 +150,46 @@ describe("seriesOrder", () => {
 
   it("ignores non-numeric fields and series absent from every point", () => {
     expect(seriesOrder([{ label: "May", overage: 5 }], "cost_type")).toEqual(["overage"]);
+  });
+});
+
+describe("rankTeams — Shared seats split", () => {
+  const seatFact = (entityKey: string, costUsd: number): ShapeFact => ({
+    day: "2026-06-01", source: "chatgpt_business", costType: "seat", costUsd,
+    employeeId: null, department: null, fullName: null, entityKey, model: "",
+  });
+
+  it("routes all unassigned-seat key variants to a pinned Shared seats row, not Unattributed", () => {
+    const facts = [
+      ...june, // Eng: 140
+      seatFact("unassigned seats", 500),
+      seatFact("unassigned seats (standard)", 300),
+      seatFact("unassigned seats (premium)", 200),
+      // genuinely unmatched key stays Unattributed
+      { ...seatFact("ghost@nowhere.com", 10) },
+    ];
+    const r = rankTeams(facts, new Map([["Eng", 2]]));
+    expect(r.map((x) => x.id)).toEqual(["Eng", SHARED_SEATS, "Unattributed"]);
+    expect(r[1]).toMatchObject({ label: "Shared seats", total: 1000, href: undefined, perHead: null });
+    expect(r[1].sub).toContain("backfilled");
+    expect(r[2]).toMatchObject({ id: "Unattributed", total: 10 });
+  });
+
+  it("pins pseudo-rows last even when they dwarf real teams", () => {
+    const r = rankTeams([...june, seatFact("unassigned seats", 99999)], new Map([["Eng", 2]]));
+    expect(r[0].id).toBe("Eng");
+    expect(r[r.length - 1].id).toBe(SHARED_SEATS);
+  });
+
+  it("omits zero-total pseudo-rows (no Shared seats row without unassigned facts)", () => {
+    const r = rankTeams(june, new Map([["Eng", 2]]));
+    expect(r.map((x) => x.id)).toEqual(["Eng"]);
+  });
+
+  it("Unattributed keeps the headcount and points at Data Health", () => {
+    const r = rankTeams([...june, seatFact("ghost@nowhere.com", 10)], new Map([["Eng", 2], ["Unattributed", 64]]));
+    const un = r.find((x) => x.id === "Unattributed");
+    expect(un?.sub).toContain("64 people");
+    expect(un?.sub).toContain("Data Health");
   });
 });
