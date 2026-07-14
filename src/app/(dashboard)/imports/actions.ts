@@ -534,6 +534,18 @@ export async function endRecurringCost(id: string, endMonth: string): Promise<{ 
   await requireAdmin();
   if (!MONTH_RE.test(endMonth)) throw new Error(`Invalid end month "${endMonth}".`);
   const supabase = getSupabaseAdminClient();
+
+  const { data: rows, error: fetchError } = await supabase
+    .from("recurring_costs")
+    .select("kind, start_month")
+    .eq("id", id)
+    .limit(1);
+  if (fetchError) throw new Error(`endRecurringCost: ${fetchError.message}`);
+  const row = rows?.[0];
+  if (!row) throw new Error("Entry not found.");
+  if (row.kind === "contract") throw new Error("Contracts can't be ended early — remove and re-add instead.");
+  if (`${endMonth}-01` < row.start_month) throw new Error("End month is before the entry's start month.");
+
   const { error } = await supabase
     .from("recurring_costs")
     .update({ end_month: `${endMonth}-01`, updated_at: new Date().toISOString() })

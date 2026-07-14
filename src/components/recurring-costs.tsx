@@ -107,7 +107,7 @@ export function RecurringCosts({ entries, departments }: { entries: RecurringCos
         kind,
         amount: Number(amount) || 0,
         currency,
-        fxRate: Number(rate) || 1,
+        fxRate: currency === "USD" ? 1 : Number(rate),
         startMonth,
         endMonth: endMonth || null,
       };
