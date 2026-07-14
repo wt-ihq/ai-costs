@@ -10,7 +10,7 @@ export interface SeatMonthEntry {
 }
 
 export interface SeatMember {
-  entityKey: string; // normalized display name (paste) — matches existing seat-fact keys
+  entityKey: string; // lowercased email (Okta-sourced months) or legacy normalized display name (historical paste months)
   employeeId: string | null;
 }
 
