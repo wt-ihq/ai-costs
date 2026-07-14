@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
 import { PageHeader, Panel } from "@/components/ui";
-import { ChatGptImport } from "@/components/chatgpt-import";
 import { ClaudeSpendImport } from "@/components/claude-spend-import";
 import { ClaudeRosterImport } from "@/components/claude-roster-import";
 import { OpenAiCreditsImport } from "@/components/openai-credits-import";
@@ -73,20 +72,12 @@ export default async function ImportsPage() {
         </Panel>
 
         <Panel>
-          <h2 className="mb-1 text-sm font-medium">ChatGPT Business — workspace analytics</h2>
-          <p className="mb-4 text-xs text-muted">
-            Paste the analytics table. Each listed member is a $25 seat — credits shown in the preview are for
-            reference only; paid credit overage comes from the credits CSV below. Fuzzy name-matched (no email).
-          </p>
-          <ChatGptImport />
-        </Panel>
-
-        <Panel>
           <h2 className="mb-1 text-sm font-medium">ChatGPT Business — monthly seats</h2>
           <p className="mb-4 text-xs text-muted">
-            The authoritative seat count and per-seat price for a month (default $25 — override per month if
-            needed). Pasted members share the entered total; seats beyond the pasted members show as
-            &ldquo;unassigned seats&rdquo;. Removing a month reverts it to pasted members × default price.
+            Seat members sync nightly from the Okta <strong>access-chatgpt</strong> group — the month&rsquo;s last
+            sync is its final snapshot. Use this card to override a month&rsquo;s seat count and per-seat price
+            (default $25): members share the entered total, and seats beyond the membership show as
+            &ldquo;unassigned seats&rdquo;. Removing a month reverts it to synced members × default price.
           </p>
           <SeatMonthEntries entries={seatEntries} />
         </Panel>

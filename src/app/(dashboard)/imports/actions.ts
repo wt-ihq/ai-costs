@@ -6,13 +6,11 @@ import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { recentWindow, runAllSyncs, type SyncOutcome } from "@/lib/ingest/run-all";
 import { syncCursor } from "@/lib/ingest/run-cursor";
 import { syncAnthropic, syncOpenAI } from "@/lib/ingest/run-platforms";
-import { parseChatGptMemberTable, normalizeName } from "@/lib/ingest/parsers/chatgpt-clipboard";
 import { parseClaudeSpend } from "@/lib/ingest/parsers/claude-spend";
 import { parseClaudeRoster } from "@/lib/ingest/parsers/claude-roster";
 import { parseOpenAiCreditsCsv, coveredWindow, type CreditUsageFact } from "@/lib/ingest/parsers/openai-credits";
-import { matchByName } from "@/lib/ingest/identity";
-import { loadEmployeeNames, loadEmployeesFull, upsertSpendFacts, replaceWindowFacts, type ResolvedFact } from "@/lib/ingest/persist";
-import { rebuildChatGptSeatMonth, getSeatMonthEntry, replaceSeatMonth, computeSeatFacts, type SeatMember } from "@/lib/ingest/seat-months";
+import { loadEmployeesFull, upsertSpendFacts, replaceWindowFacts, type ResolvedFact } from "@/lib/ingest/persist";
+import { rebuildChatGptSeatMonth } from "@/lib/ingest/seat-months";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** seat_prices as a `${vendor}:${seat_type}` -> USD map. */
@@ -21,94 +19,11 @@ async function loadSeatPrices(supabase: SupabaseClient): Promise<Record<string, 
   return Object.fromEntries((data ?? []).map((p) => [`${p.vendor}:${p.seat_type}`, Number(p.monthly_price_usd)]));
 }
 
-export interface ChatGptPreviewRow {
-  name: string;
-  creditsSpent: number;
-  employeeId: string | null;
-  employeeName: string | null;
-  confidence: "high" | "low" | "none";
-}
-
-export interface ChatGptPreview {
-  rows: ChatGptPreviewRow[];
-  errors: { line: number; message: string }[];
-}
-
-/** Parse the pasted member table and fuzzy-match each member to an employee. */
-export async function previewChatGptImport(text: string): Promise<ChatGptPreview> {
-  await requireAdmin();
-  const supabase = getSupabaseAdminClient();
-  const employees = await loadEmployeeNames(supabase);
-  const byId = new Map(employees.map((e) => [e.id, e.fullName]));
-
-  const { members, errors } = parseChatGptMemberTable(text);
-
-  const rows: ChatGptPreviewRow[] = members.map((m) => {
-    const match = matchByName(m.name, employees);
-    return {
-      name: m.name,
-      creditsSpent: m.creditsSpent,
-      employeeId: match.confidence === "high" ? match.employeeId : null,
-      employeeName: match.employeeId ? byId.get(match.employeeId) ?? null : null,
-      confidence: match.confidence,
-    };
-  });
-
-  return { rows, errors };
-}
-
-export interface ChatGptCommitResult {
+export interface ImportCommitResult {
   written: number;
   attributed: number;
   queued: number;
   seats?: number;
-}
-
-/** Commit reviewed rows: upsert seat facts, identities, and an import log. */
-export async function commitChatGptImport(
-  rows: ChatGptPreviewRow[],
-  asOf: string,
-): Promise<ChatGptCommitResult> {
-  await requireAdmin();
-  const supabase = getSupabaseAdminClient();
-  // Never delete a month when the insert would be empty (gotcha #4).
-  if (!rows.length) throw new Error("Nothing to import — the preview has no rows.");
-  const day = asOf.slice(0, 7) + "-01"; // monthly snapshot, upsert-replace
-  const seatPrice = (await loadSeatPrices(supabase))["chatgpt_business:chatgpt"] ?? 25;
-
-  const empId = (r: ChatGptPreviewRow) => (r.confidence === "high" ? r.employeeId : null);
-
-  // Every listed member holds a seat; the month's manual entry (when present)
-  // is authoritative for the total — computeSeatFacts prices/splits/tops-up.
-  const members: SeatMember[] = rows.map((r) => ({ entityKey: normalizeName(r.name), employeeId: empId(r) }));
-  const entry = await getSeatMonthEntry(supabase, day);
-  const seatFacts = computeSeatFacts(day, entry, members, seatPrice);
-  const written = await replaceSeatMonth(supabase, day, seatFacts);
-
-  // Record confirmed identity mappings (name -> employee).
-  const identities = rows
-    .filter((r) => r.confidence === "high" && r.employeeId)
-    .map((r) => ({
-      vendor: "chatgpt_business" as const,
-      external_id: normalizeName(r.name),
-      employee_id: r.employeeId,
-      match_method: "alias_rule" as const,
-    }));
-  if (identities.length) {
-    await supabase.from("identities").upsert(identities, { onConflict: "vendor,external_id" });
-  }
-
-  const attributed = seatFacts.filter((f) => f.employeeId).length;
-  const queued = rows.length - attributed;
-  await supabase.from("imports").insert({
-    source: "chatgpt_business",
-    kind: "clipboard",
-    data_as_of: asOf,
-    status: "success",
-    row_counts: { members: rows.length, seats: rows.length, attributed, queued },
-  });
-
-  return { written, attributed, queued, seats: rows.length };
 }
 
 // ---- ChatGPT monthly seat entries (manual count × price) --------------------
@@ -380,7 +295,7 @@ export async function previewClaudeSpendImport(
 export async function commitClaudeSpendImport(
   rows: ClaudePreviewRow[],
   asOf: string,
-): Promise<ChatGptCommitResult> {
+): Promise<ImportCommitResult> {
   await requireAdmin();
   const supabase = getSupabaseAdminClient();
   const day = asOf.slice(0, 7) + "-01"; // monthly MTD snapshot, upsert-replace
