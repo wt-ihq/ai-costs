@@ -90,13 +90,32 @@ async function latestPerSource(
 export async function getDataHealth(supabase: SupabaseClient): Promise<DataHealth> {
   const [facts, syncs, imports, emps] = await Promise.all([
     fetchAllSpendFacts(supabase),
-    latestPerSource(supabase, "sync_runs", ["okta", ...VENDORS], "source, finished_at, started_at, status", "started_at"),
+    // "chatgpt_seats" (the Okta group sync) has no spend-fact/vendor row of its
+    // own — it's folded onto the chatgpt_business row below — but its sync_runs
+    // rows must still be fetched or a failed run is invisible on Data Health.
+    latestPerSource(supabase, "sync_runs", ["okta", ...VENDORS, "chatgpt_seats"], "source, finished_at, started_at, status", "started_at"),
     latestPerSource(supabase, "imports", VENDORS, "source, data_as_of, created_at", "created_at"),
     fetchEmployeesAll(supabase, "id, full_name"),
   ]);
 
   const lastSync = new Map<string, { at: string | null; status: string }>();
   for (const [source, s] of syncs) lastSync.set(source, { at: (s.finished_at ?? s.started_at) as string, status: s.status as string });
+
+  /**
+   * chatgpt_business has no sync of its own (manual-import only) apart from the
+   * chatgpt_seats Okta-group sync that now populates its seat facts. Fold the
+   * two signals together by picking whichever ran later, so a failed
+   * chatgpt_seats run (group missing/renamed/no permission) surfaces as a
+   * failure on the chatgpt_business row instead of nowhere.
+   */
+  function syncFor(source: Vendor): { at: string | null; status: string } | undefined {
+    if (source !== "chatgpt_business") return lastSync.get(source);
+    const business = lastSync.get("chatgpt_business");
+    const seats = lastSync.get("chatgpt_seats");
+    if (!business) return seats;
+    if (!seats) return business;
+    return (seats.at ?? "") >= (business.at ?? "") ? seats : business;
+  }
 
   const lastImport = new Map<string, string>();
   for (const [source, i] of imports) lastImport.set(source, i.data_as_of as string);
@@ -131,8 +150,8 @@ export async function getDataHealth(supabase: SupabaseClient): Promise<DataHealt
       source,
       factCount: count.get(source) ?? 0,
       latestDay: latest.get(source) ?? null,
-      lastSyncAt: lastSync.get(source)?.at ?? null,
-      lastSyncStatus: lastSync.get(source)?.status ?? null,
+      lastSyncAt: syncFor(source)?.at ?? null,
+      lastSyncStatus: syncFor(source)?.status ?? null,
       lastImportAsOf: lastImport.get(source) ?? null,
     })),
     unmatched: [...unmatched.values()].sort((a, b) => b.total - a.total),

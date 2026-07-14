@@ -88,11 +88,6 @@ export async function loadProjectOwners(supabase: SupabaseClient): Promise<Map<s
   return new Map(rows.map((p) => [p.external_id, p.owner_override ?? p.owner_employee_id]));
 }
 
-/** Employees with names, for ChatGPT's no-email fuzzy matching. */
-export async function loadEmployeeNames(supabase: SupabaseClient) {
-  return selectAllRows<{ id: string; fullName: string }>(supabase, "employees", "id, fullName:full_name", "loadEmployeeNames");
-}
-
 /** Employees with email + name, paginated (gotcha #1) — for email-keyed import previews. */
 export async function loadEmployeesFull(supabase: SupabaseClient) {
   return selectAllRows<{ id: string; email: string; fullName: string }>(

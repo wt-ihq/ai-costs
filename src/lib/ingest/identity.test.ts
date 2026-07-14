@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchByName, matchIdentity } from "./identity";
+import { matchIdentity } from "./identity";
 
 const employees = [
   { id: "e1", email: "alice@intenthq.com" },
@@ -33,49 +33,6 @@ describe("matchIdentity", () => {
     expect(matchIdentity(undefined, employees)).toEqual({
       employeeId: null,
       method: "unmatched",
-    });
-  });
-});
-
-const named = [
-  { id: "g", fullName: "Gareth Jones" },
-  { id: "f", fullName: "Fernando Mora" },
-  { id: "j1", fullName: "James Stocker" },
-  { id: "j2", fullName: "James Allum" },
-];
-
-describe("matchByName (ChatGPT, no email)", () => {
-  it("matches an abbreviated 'First L' name with high confidence when unique", () => {
-    expect(matchByName("Gareth J", named)).toEqual({
-      employeeId: "g",
-      method: "alias_rule",
-      confidence: "high",
-    });
-  });
-
-  it("matches an exact full name with high confidence", () => {
-    expect(matchByName("Fernando Mora", named)).toMatchObject({
-      employeeId: "f",
-      confidence: "high",
-    });
-  });
-
-  it("queues an ambiguous first-name collision rather than guessing", () => {
-    // two Jameses -> "James" alone is ambiguous (low = queued), but "James S" is unique
-    expect(matchByName("James", named)).toMatchObject({
-      employeeId: null,
-      confidence: "low",
-    });
-    expect(matchByName("James S", named)).toMatchObject({
-      employeeId: "j1",
-      confidence: "high",
-    });
-  });
-
-  it("returns none for an unknown name", () => {
-    expect(matchByName("Nobody Here", named)).toMatchObject({
-      employeeId: null,
-      confidence: "none",
     });
   });
 });

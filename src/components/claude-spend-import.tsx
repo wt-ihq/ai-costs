@@ -5,7 +5,7 @@ import {
   previewClaudeSpendImport,
   commitClaudeSpendImport,
   type ClaudePreview,
-  type ChatGptCommitResult,
+  type ImportCommitResult,
 } from "@/app/(dashboard)/imports/actions";
 import { formatUsd, cn, localDateISO } from "@/lib/utils";
 
@@ -16,7 +16,7 @@ export function ClaudeSpendImport() {
   const [rate, setRate] = useState("1.27");
   const [asOf, setAsOf] = useState(() => localDateISO());
   const [preview, setPreview] = useState<ClaudePreview | null>(null);
-  const [result, setResult] = useState<ChatGptCommitResult | null>(null);
+  const [result, setResult] = useState<ImportCommitResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 

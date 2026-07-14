@@ -25,7 +25,7 @@ export interface CoverageCell {
 
 export interface CoverageMonthRow {
   month: string; // YYYY-MM
-  chatgptSeats: CoverageCell | null; // chatgpt_business seats (paste import)
+  chatgptSeats: CoverageCell | null; // chatgpt_business seats (Okta sync / manual entry)
   chatgptCredits: CoverageCell | null; // chatgpt_business overage (credits CSV)
   claudeSpend: CoverageCell | null; // claude_team overage
   claudeSeats: CoverageCell | null; // claude_team seats
