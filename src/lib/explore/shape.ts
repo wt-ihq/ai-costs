@@ -178,7 +178,7 @@ export function rankTeams(rows: ShapeFact[], headcounts: Map<string, number>): R
       total: Math.round(sum(unattributed) * 100) / 100,
       href: undefined,
       perHead: null,
-      sub: `${head ? `${head} people · ` : ""}unmatched keys — see Data Health`,
+      sub: `${head ? `${head} people without a department · ` : ""}unmatched keys — see Data Health`,
       segments: segmentsByDim(unattributed),
     });
   }

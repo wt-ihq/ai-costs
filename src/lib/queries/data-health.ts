@@ -41,6 +41,22 @@ export interface UnmatchedEntity {
   rows: number;
 }
 
+/**
+ * By-design person-less entity keys. They carry real spend but must never be
+ * offered for assignment — attributing them to an individual would be wrong.
+ */
+export function isPseudoEntity(entityKey: string): boolean {
+  return entityKey.startsWith("unassigned seats") || entityKey === "unkeyed" || entityKey === "org";
+}
+
+/** One-line explanation for a pseudo-entity, shown beside its spend. */
+export function pseudoExplanation(entityKey: string): string {
+  if (entityKey.startsWith("unassigned seats")) return "Seat spend beyond known members — backfilled months without member data";
+  if (entityKey === "unkeyed") return "Anthropic days with cost but no per-key usage rows to allocate";
+  if (entityKey === "org") return "OpenAI org-level costs not tied to a project";
+  return "";
+}
+
 /** The identity spine (Okta) — has no spend facts, but its own freshness. */
 export interface IdentityHealth {
   label: string;
@@ -53,7 +69,11 @@ export interface DataHealth {
   identity: IdentityHealth;
   sources: SourceHealth[];
   unmatched: UnmatchedEntity[];
+  /** Person-less spend (unassigned seats, unkeyed, org) — informational, not assignable. */
+  pseudo: UnmatchedEntity[];
   employees: { id: string; name: string }[];
+  /** Employees with no Okta department — their spend lands in Explore's Unattributed. */
+  noDepartment: { id: string; name: string; left: boolean }[];
 }
 
 const VENDORS = Object.keys(VENDOR_LABEL) as Vendor[];
@@ -96,7 +116,7 @@ export async function getDataHealth(supabase: SupabaseClient): Promise<DataHealt
     // on Data Health.
     latestPerSource(supabase, "sync_runs", ["okta", ...VENDORS, "chatgpt_seats", "claude_seats"], "source, finished_at, started_at, status", "started_at"),
     latestPerSource(supabase, "imports", VENDORS, "source, data_as_of, created_at", "created_at"),
-    fetchEmployeesAll(supabase, "id, full_name"),
+    fetchEmployeesAll(supabase, "id, full_name, department, employment_status"),
   ]);
 
   const lastSync = new Map<string, { at: string | null; status: string }>();
@@ -126,21 +146,34 @@ export async function getDataHealth(supabase: SupabaseClient): Promise<DataHealt
   const count = new Map<string, number>();
   const latest = new Map<string, string>();
   const unmatched = new Map<string, UnmatchedEntity>();
+  const pseudo = new Map<string, UnmatchedEntity>();
   for (const f of facts ?? []) {
     count.set(f.source, (count.get(f.source) ?? 0) + 1);
     if (!latest.get(f.source) || (f.day as string) > latest.get(f.source)!) latest.set(f.source, f.day as string);
     if (f.employee_id == null) {
+      // Person-less pseudo-entities are shown for transparency but excluded
+      // from the assignable queue — assigning them to a person would be wrong.
+      const bucket = isPseudoEntity(f.entity_key) ? pseudo : unmatched;
       const k = `${f.source}:${f.entity_key}`;
-      const u = unmatched.get(k) ?? { source: f.source as Vendor, entityKey: f.entity_key as string, total: 0, rows: 0 };
+      const u = bucket.get(k) ?? { source: f.source as Vendor, entityKey: f.entity_key as string, total: 0, rows: 0 };
       u.total += Number(f.cost_usd);
       u.rows += 1;
-      unmatched.set(k, u);
+      bucket.set(k, u);
     }
   }
 
   const employees = emps
     .map((e) => ({ id: e.id as string, name: (e.full_name as string | null) ?? "(unnamed)" }))
     .sort((a, b) => a.name.localeCompare(b.name));
+
+  const noDepartment = emps
+    .filter((e) => e.department == null)
+    .map((e) => ({
+      id: e.id as string,
+      name: (e.full_name as string | null) ?? "(unnamed)",
+      left: ["deprovisioned", "suspended"].includes((e.employment_status as string | null) ?? ""),
+    }))
+    .sort((a, b) => Number(a.left) - Number(b.left) || a.name.localeCompare(b.name));
 
   return {
     identity: {
@@ -158,6 +191,8 @@ export async function getDataHealth(supabase: SupabaseClient): Promise<DataHealt
       lastImportAsOf: lastImport.get(source) ?? null,
     })),
     unmatched: [...unmatched.values()].sort((a, b) => b.total - a.total),
+    pseudo: [...pseudo.values()].sort((a, b) => b.total - a.total),
     employees,
+    noDepartment,
   };
 }

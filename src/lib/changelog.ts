@@ -22,6 +22,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "You can backfill any month's Claude seat costs per tier, entered in £ with your exchange rate (stored alongside the $ conversion).",
       "The most recent price you enter becomes the default seat price for later months — for both Claude and ChatGPT.",
       "Explore's team list now shows backfilled seat months as their own 'Shared seats' row instead of swelling 'Unattributed' — what's left in Unattributed is genuinely unmatched and worth fixing (see Data Health).",
+      "Data Health no longer offers to assign person-less spend (unassigned seats, org-level costs) to individuals — it moved to its own explained list, and a new section shows exactly who has no department in Okta.",
     ],
   },
   {
