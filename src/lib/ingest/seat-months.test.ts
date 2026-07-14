@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { computeSeatFacts, replaceSeatMonth, UNASSIGNED_SEATS_KEY } from "./seat-months";
+import { computeSeatFacts, replaceSeatMonth, UNASSIGNED_SEATS_KEY, pickTier } from "./seat-months";
 import { computeClaudeSeatFacts, CLAUDE_UNASSIGNED_KEY } from "./seat-months";
 
 const MONTH = "2026-06-01";
@@ -185,5 +185,19 @@ describe("computeClaudeSeatFacts", () => {
       { seatType: "standard", entry: { seats: 0, priceUsd: 19.05 }, members: [], defaultPriceUsd: 19.05 },
       { seatType: "premium", entry: null, members: [], defaultPriceUsd: 95.25 },
     ])).toEqual([]);
+  });
+});
+
+describe("pickTier", () => {
+  const a = (seatType: string, periodStart: string) => ({ seatType, periodStart });
+  it("picks the assignment with the greatest period_start ≤ the month", () => {
+    expect(pickTier([a("standard", "2026-01-01"), a("premium", "2026-04-01"), a("standard", "2026-08-01")], "2026-06-01")).toBe("premium");
+  });
+  it("falls back to the latest assignment when all are after the month", () => {
+    expect(pickTier([a("premium", "2026-08-01"), a("standard", "2026-09-01")], "2026-06-01")).toBe("standard");
+  });
+  it("defaults to standard with no assignments or unknown tier strings", () => {
+    expect(pickTier([], "2026-06-01")).toBe("standard");
+    expect(pickTier([a("unassigned", "2026-01-01")], "2026-06-01")).toBe("standard");
   });
 });

@@ -228,3 +228,35 @@ export async function rebuildChatGptSeatMonth(
 
   return replaceSeatMonth(supabase, month, computeSeatFacts(month, entry, members, defaultPriceUsd));
 }
+
+/** premium only when the winning assignment says so; anything else is standard. */
+export function pickTier(assignments: { seatType: string; periodStart: string }[], month: string): ClaudeTier {
+  if (assignments.length === 0) return "standard";
+  const atOrBefore = assignments.filter((x) => x.periodStart <= month);
+  const pool = atOrBefore.length ? atOrBefore : assignments;
+  const winner = pool.reduce((best, x) => (x.periodStart > best.periodStart ? x : best));
+  return winner.seatType === "premium" ? "premium" : "standard";
+}
+
+/** employee_id → tier for a month, from seat_assignments (paginated, gotcha #1). */
+export async function resolveClaudeTiers(supabase: SupabaseClient, month: string): Promise<Map<string, ClaudeTier>> {
+  const byEmployee = new Map<string, { seatType: string; periodStart: string }[]>();
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from("seat_assignments")
+      .select("employee_id, seat_type, period_start")
+      .eq("vendor", "claude_team")
+      .order("id")
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(`resolveClaudeTiers: ${error.message}`);
+    for (const r of data ?? []) {
+      if (!r.employee_id) continue;
+      const list = byEmployee.get(r.employee_id as string) ?? [];
+      list.push({ seatType: r.seat_type as string, periodStart: r.period_start as string });
+      byEmployee.set(r.employee_id as string, list);
+    }
+    if (!data || data.length < PAGE) break;
+  }
+  return new Map([...byEmployee.entries()].map(([id, list]) => [id, pickTier(list, month)]));
+}
