@@ -12,12 +12,15 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-07-14",
-    title: "ChatGPT seats sync themselves",
+    title: "Seats sync themselves",
     items: [
       "ChatGPT seat members now come straight from Okta (the access-chatgpt group), refreshed nightly — the end-of-month membership becomes that month's seat count, with exact person attribution. The analytics-table paste is gone.",
       "Your manual monthly seat entry still wins when present — synced members share the entered total.",
       "The API platforms are now labelled 'Anthropic API' and 'OpenAI API' to distinguish them from Claude Team and ChatGPT Business.",
       "Seat cost now always sits at the base of Explore's stacked bars and leads the team/person split bars, so charts read consistently (fixed cost first, usage on top).",
+      "Claude seat members now sync nightly from Okta (the access-claude group), with each person's standard or premium tier applied automatically — the roster CSV is only needed when a tier changes.",
+      "You can backfill any month's Claude seat costs per tier, entered in £ with your exchange rate (stored alongside the $ conversion).",
+      "The most recent price you enter becomes the default seat price for later months — for both Claude and ChatGPT.",
     ],
   },
   {
