@@ -17,6 +17,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "ChatGPT seat members now come straight from Okta (the access-chatgpt group), refreshed nightly — the end-of-month membership becomes that month's seat count, with exact person attribution. The analytics-table paste is gone.",
       "Your manual monthly seat entry still wins when present — synced members share the entered total.",
       "The API platforms are now labelled 'Anthropic API' and 'OpenAI API' to distinguish them from Claude Team and ChatGPT Business.",
+      "Seat cost now always sits at the base of Explore's stacked bars and leads the team/person split bars, so charts read consistently (fixed cost first, usage on top).",
     ],
   },
   {

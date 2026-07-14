@@ -1,6 +1,6 @@
 import type { Vendor, CostType } from "@/lib/types";
 import { VENDOR_COLORS, COST_TYPE_COLORS } from "@/lib/colors";
-import { VENDOR_LABEL, COST_TYPE_LABEL } from "@/lib/types";
+import { VENDOR_LABEL, COST_TYPE_LABEL, COST_TYPE_ORDER } from "@/lib/types";
 import type { Dim, TrendPoint, TreemapNode, RankRow, RankSegment, Scorecard } from "./types";
 import { enumerateBuckets, type Period, type Bucket } from "./period";
 
@@ -34,14 +34,39 @@ function totalsBy(rows: ShapeFact[], key: (r: ShapeFact) => string): Map<string,
   return m;
 }
 
-/** Per-row spend split for both dims, each sorted desc (for the color bars). */
+/** Sort comparator for a dim: vendors by value desc, cost types canonical (seat first). */
+const dimCompare = (dim: Dim) => (a: { key: string; value: number }, b: { key: string; value: number }) =>
+  dim === "cost_type"
+    ? COST_TYPE_ORDER.indexOf(a.key as CostType) - COST_TYPE_ORDER.indexOf(b.key as CostType)
+    : b.value - a.value;
+
+/** Per-row spend split for both dims (for the color bars): vendors sorted desc, cost types canonical. */
 function segmentsByDim(rows: ShapeFact[]): Record<Dim, RankSegment[]> {
   const build = (dim: Dim): RankSegment[] =>
     [...totalsBy(rows, (r) => dimKey(r, dim)).entries()]
       .filter(([, v]) => v > 0)
       .map(([key, value]) => ({ key, value: Math.round(value * 100) / 100 }))
-      .sort((a, b) => b.value - a.value);
+      .sort(dimCompare(dim));
   return { vendor: build("vendor"), cost_type: build("cost_type") };
+}
+
+/**
+ * Stack order for the trend chart's series, from ALL data points (every dim
+ * value that appears in any bucket). Cost types stack canonically (seat at the
+ * base); vendors stack by total desc. First series renders at the bottom.
+ */
+export function seriesOrder(data: TrendPoint[], dim: Dim): string[] {
+  const totals = new Map<string, number>();
+  for (const p of data) {
+    for (const [k, v] of Object.entries(p)) {
+      if (k === "label" || typeof v !== "number") continue;
+      totals.set(k, (totals.get(k) ?? 0) + v);
+    }
+  }
+  return [...totals.entries()]
+    .map(([key, value]) => ({ key, value }))
+    .sort(dimCompare(dim))
+    .map(({ key }) => key);
 }
 
 /** Group period-scoped facts by an entity key (dept or employee id). */
