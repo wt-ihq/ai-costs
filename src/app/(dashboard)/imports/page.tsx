@@ -31,14 +31,17 @@ export default async function ImportsPage() {
   const defaultRate = typeof lastRate === "number" && lastRate > 0 ? lastRate : 0.04;
   const { data: seatMonths } = await supabase
     .from("seat_month_entries")
-    .select("month, seats, price_usd")
-    .eq("vendor", "chatgpt_business")
+    .select("vendor, seat_type, month, seats, price_usd, price_gbp, fx_rate")
     .order("month", { ascending: false })
-    .limit(36);
+    .limit(72);
   const seatEntries: SeatMonthEntryRow[] = (seatMonths ?? []).map((r) => ({
+    vendor: r.vendor as string,
+    seatType: r.seat_type as string,
     month: (r.month as string).slice(0, 7),
     seats: Number(r.seats),
     priceUsd: Number(r.price_usd),
+    priceGbp: r.price_gbp === null ? null : Number(r.price_gbp),
+    fxRate: r.fx_rate === null ? null : Number(r.fx_rate),
   }));
   return (
     <>
@@ -74,12 +77,12 @@ export default async function ImportsPage() {
         </Panel>
 
         <Panel>
-          <h2 className="mb-1 text-sm font-medium">ChatGPT Business — monthly seats</h2>
+          <h2 className="mb-1 text-sm font-medium">Monthly seats (ChatGPT &amp; Claude)</h2>
           <p className="mb-4 text-xs text-muted">
-            Seat members sync nightly from the Okta <strong>access-chatgpt</strong> group — the month&rsquo;s last
-            sync is its final snapshot. Use this card to override a month&rsquo;s seat count and per-seat price
-            (default $25): members share the entered total, and seats beyond the membership show as
-            &ldquo;unassigned seats&rdquo;. Removing a month reverts it to synced members × default price.
+            The authoritative seat counts and prices for a month — synced members share the entered totals,
+            extra seats show as &ldquo;unassigned seats&rdquo;. ChatGPT is priced in $; Claude in £ (converted
+            at your rate). The most recent entry&rsquo;s price becomes the default for later months without
+            their own entry. Removing an entry reverts that tier to synced members × default price.
           </p>
           <SeatMonthEntries entries={seatEntries} />
         </Panel>
