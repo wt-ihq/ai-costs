@@ -55,6 +55,33 @@ describe("fetchOktaGroupMembers", () => {
     expect(calls.some((u) => u.includes("/groups/g1/"))).toBe(false); // look-alike never fetched
   });
 
+  it("follows pagination on the groups listing before filtering by exact name", async () => {
+    stubEnv();
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      calls.push(url);
+      if (url.includes("/api/v1/groups?") && !url.includes("after=")) {
+        // Page 1: only the look-alike group; the exact match is on page 2.
+        return jsonRes(
+          [{ id: "g1", profile: { name: "access-chatgpt-admins" } }],
+          '<https://example.okta.com/api/v1/groups?q=access-chatgpt&limit=100&after=g2>; rel="next"',
+        );
+      }
+      if (url.includes("/api/v1/groups?") && url.includes("after=g2")) {
+        // Page 2: the exact-name match.
+        return jsonRes([{ id: "g2", profile: { name: "access-chatgpt" } }]);
+      }
+      if (url.includes("/groups/g2/users")) {
+        return jsonRes([{ profile: { email: "Alex.Morgan@intenthq.com" } }]);
+      }
+      throw new Error(`unexpected url ${url}`);
+    }));
+
+    const members = await fetchOktaGroupMembers("access-chatgpt");
+    expect(members).toEqual([{ email: "alex.morgan@intenthq.com" }]);
+    expect(calls.some((u) => u.includes("/groups/g2/users"))).toBe(true);
+  });
+
   it("throws when the group is not found", async () => {
     stubEnv();
     vi.stubGlobal("fetch", vi.fn(async () => jsonRes([{ id: "g1", profile: { name: "other" } }])));

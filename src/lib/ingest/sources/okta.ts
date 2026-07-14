@@ -76,11 +76,13 @@ export const fetchOktaGroupMembers: OktaGroupFetcher = async (groupName) => {
   if (!org || !token) throw new Error("OKTA_ORG_URL / OKTA_API_TOKEN not set");
   const base = org.replace(/\/+$/, "");
 
-  const { page: groups } = await getPage<OktaGroup>(
-    `${base}/api/v1/groups?q=${encodeURIComponent(groupName)}&limit=100`,
-    token,
-    "groups",
-  );
+  const groups: OktaGroup[] = [];
+  let groupsUrl: string | null = `${base}/api/v1/groups?q=${encodeURIComponent(groupName)}&limit=100`;
+  while (groupsUrl) {
+    const { page, next }: { page: OktaGroup[]; next: string | null } = await getPage<OktaGroup>(groupsUrl, token, "groups");
+    groups.push(...page);
+    groupsUrl = next;
+  }
   const matches = groups.filter((g) => g.profile?.name === groupName);
   if (matches.length === 0) throw new Error(`Okta group "${groupName}" not found`);
   if (matches.length > 1) throw new Error(`Okta group "${groupName}" is ambiguous (${matches.length} exact matches)`);
