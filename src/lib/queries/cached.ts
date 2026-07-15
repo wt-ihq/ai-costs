@@ -1,8 +1,12 @@
 import { unstable_cache } from "next/cache";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getCompanyScope, getPersonScope, getSearchIndex, getTeamScope } from "./explore";
+import { packScope } from "@/lib/explore/build";
 import { getDataHealth } from "./data-health";
 import { getImportCoverageScope } from "./import-coverage";
+import { getModelUsageScope } from "./cursor-models";
+import { getCursorTopModelScope } from "./cursor-top-model";
+import { getCursorSpendScope } from "./cursor-spend";
 
 /**
  * Single invalidation tag for every derived-from-spend-facts read. The data
@@ -47,21 +51,24 @@ function instrumented<A extends unknown[], R>(name: string, fn: (...args: A) => 
   };
 }
 
+// Scopes are cached (and shipped to the client) in PACKED form — the raw
+// company scope's 1.9MB exceeded the data-cache item cap, silently disabling
+// caching, and every byte here is also RSC payload the browser must download.
 export const getCompanyScopeCached = instrumented(
   "scope-company",
-  async () => getCompanyScope(getSupabaseAdminClient()),
+  async () => packScope(await getCompanyScope(getSupabaseAdminClient())),
   ["scope-company"],
 );
 
 export const getTeamScopeCached = instrumented(
   "scope-team",
-  async (team: string) => getTeamScope(getSupabaseAdminClient(), team),
+  async (team: string) => packScope(await getTeamScope(getSupabaseAdminClient(), team)),
   ["scope-team"],
 );
 
 export const getPersonScopeCached = instrumented(
   "scope-person",
-  async (employeeId: string) => getPersonScope(getSupabaseAdminClient(), employeeId),
+  async (employeeId: string) => packScope(await getPersonScope(getSupabaseAdminClient(), employeeId)),
   ["scope-person"],
 );
 
@@ -81,4 +88,24 @@ export const getImportCoverageScopeCached = instrumented(
   "import-coverage",
   async () => getImportCoverageScope(getSupabaseAdminClient()),
   ["import-coverage"],
+);
+
+// Cursor usage page readers — all rebuilt by the nightly cron (which busts
+// FACTS_TAG), so they cache exactly like the explore scopes.
+export const getModelUsageScopeCached = instrumented(
+  "cursor-model-usage",
+  async () => getModelUsageScope(getSupabaseAdminClient()),
+  ["cursor-model-usage"],
+);
+
+export const getCursorTopModelScopeCached = instrumented(
+  "cursor-top-model",
+  async () => getCursorTopModelScope(getSupabaseAdminClient()),
+  ["cursor-top-model"],
+);
+
+export const getCursorSpendScopeCached = instrumented(
+  "cursor-spend",
+  async () => getCursorSpendScope(getSupabaseAdminClient()),
+  ["cursor-spend"],
 );

@@ -1,5 +1,6 @@
 import type { Dim, ExploreData } from "./types";
 import type { Period } from "./period";
+import { packFacts, unpackFacts, type PackedFacts } from "./pack";
 import {
   trendForPeriod, treemapByDim, scorecardFor,
   rankTeams, rankPeople, rankTools, lineItems, rankAllStaff, type ShapeFact,
@@ -13,6 +14,27 @@ export type RawScope =
   | { kind: "company"; title: string; earliest: string; facts: ShapeFact[]; headcounts: Record<string, number>; employees: { id: string; fullName: string | null; department: string | null }[]; toolColors: Record<string, string> }
   | { kind: "team"; title: string; earliest: string; facts: ShapeFact[]; team: string; employees: { id: string; fullName: string | null }[]; toolColors: Record<string, string> }
   | { kind: "person"; title: string; earliest: string; facts: ShapeFact[]; toolColors: Record<string, string> };
+
+/**
+ * The wire/cache form of a RawScope: facts packed into string tables + index
+ * tuples (see pack.ts). ~70% smaller — fits the data-cache item cap and cuts
+ * the RSC payload; the client unpacks once and shapes as usual.
+ */
+export type PackedScope = Omit<Extract<RawScope, { kind: "company" }>, "facts"> & { packed: PackedFacts }
+  | Omit<Extract<RawScope, { kind: "team" }>, "facts"> & { packed: PackedFacts }
+  | Omit<Extract<RawScope, { kind: "person" }>, "facts"> & { packed: PackedFacts };
+
+/** Pack a scope for the cache/wire boundary. */
+export function packScope(scope: RawScope): PackedScope {
+  const { facts, ...rest } = scope;
+  return { ...rest, packed: packFacts(facts) };
+}
+
+/** Restore a full RawScope client-side (memoize the call — unpacking 10k+ facts isn't free). */
+export function unpackScope(scope: PackedScope): RawScope {
+  const { packed, ...rest } = scope;
+  return { ...rest, facts: unpackFacts(packed) } as RawScope;
+}
 
 const sumAll = (rows: ShapeFact[]) => Math.round(rows.reduce((s, r) => s + r.costUsd, 0) * 100) / 100;
 const inPeriod = (p: Period) => (r: ShapeFact) => r.day >= p.from && r.day < p.toExclusive;

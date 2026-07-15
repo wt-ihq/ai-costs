@@ -5,7 +5,7 @@ import type { Dim } from "@/lib/explore/types";
 import { dimColorFor, dimLabel } from "@/lib/explore/shape";
 import type { ToolColors } from "@/lib/explore/shape";
 import { parsePeriod, allTimePeriod, type Period } from "@/lib/explore/period";
-import { buildExploreData, type RawScope } from "@/lib/explore/build";
+import { buildExploreData, unpackScope, type PackedScope, type RawScope } from "@/lib/explore/build";
 import { matchesVendorKey, parseVendorParam, vendorsInFacts, type VendorKey } from "@/lib/explore/vendor-filter";
 import { cn } from "@/lib/utils";
 import { Scorecards } from "./scorecards";
@@ -79,16 +79,19 @@ function VendorChips({
 }
 
 export function ExploreView({
-  scope,
+  scope: packedScope,
   initialPeriodParam,
   initialDim,
   initialVendorParam,
 }: {
-  scope: RawScope;
+  scope: PackedScope;
   initialPeriodParam?: string;
   initialDim: Dim;
   initialVendorParam?: string;
 }) {
+  // Scopes cross the wire packed (string tables + tuples — ~70% smaller);
+  // unpack ONCE, then everything below works on plain facts as before.
+  const scope: RawScope = useMemo(() => unpackScope(packedScope), [packedScope]);
   const vendors = useMemo(() => vendorsInFacts(scope.facts), [scope.facts]);
 
   const [period, setPeriod] = useState<Period>(() =>
