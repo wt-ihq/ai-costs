@@ -232,25 +232,27 @@ export function rankPeople(
 }
 
 /**
- * Department-attributed "other" tool facts have no employee to pin them to
- * (recurring costs are billed to the team, not a person) — they render as
- * their own "Tools" list on team pages, one row per tool, never mixed in
- * with people.
+ * Department-attributed, person-less costs have no employee to pin them to
+ * (recurring tools and Vercel projects are billed to the team, not a
+ * person) — they render as their own "Tools & infrastructure" list on team
+ * pages: "other" rows grouped by tool (model), Vercel rows grouped by
+ * project (entityKey), never mixed in with people.
  */
 export function rankTools(rows: ShapeFact[], toolColors?: ToolColors): RankRow[] {
-  const byModel = groupBy(
-    rows.filter((r) => r.source === "other" && !r.employeeId),
-    (r) => r.model,
-  );
-  return [...byModel.entries()]
-    .map(([model, toolRows]) => ({
-      id: `tool:${model}`,
-      label: model,
-      total: Math.round(sum(toolRows) * 100) / 100,
-      href: undefined,
-      sub: "recurring tool subscription",
-      segments: segmentsByDim(toolRows, toolColors),
-    }))
+  const personLess = rows.filter((r) => (r.source === "other" || r.source === "vercel") && !r.employeeId);
+  const byKey = groupBy(personLess, (r) => (r.source === "vercel" ? `vercel:${r.entityKey}` : `other:${r.model}`));
+  return [...byKey.entries()]
+    .map(([key, toolRows]) => {
+      const isVercel = key.startsWith("vercel:");
+      return {
+        id: `tool:${key}`,
+        label: key.slice(key.indexOf(":") + 1),
+        total: Math.round(sum(toolRows) * 100) / 100,
+        href: undefined,
+        sub: isVercel ? "Vercel project" : "recurring tool subscription",
+        segments: segmentsByDim(toolRows, toolColors),
+      };
+    })
     .sort((a, b) => b.total - a.total);
 }
 

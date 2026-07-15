@@ -39,11 +39,11 @@ export function RankedPanel({ ranked, allStaff, dim, linkQuery }: { ranked: Expl
         <h2 className="mb-4 text-sm font-medium">{TITLE[ranked.kind]}</h2>
       )}
       <RankedList rows={rows} dim={dim} linkQuery={linkQuery} />
-      {/* Department-attributed recurring tools — their own list, never mixed
-          in with people. */}
+      {/* Department-attributed recurring tools + Vercel projects — their own
+          list, never mixed in with people. */}
       {ranked.kind === "person" && (ranked.tools?.length ?? 0) > 0 && (
         <>
-          <h2 className="mb-4 mt-6 text-sm font-medium">Tools</h2>
+          <h2 className="mb-4 mt-6 text-sm font-medium">Tools & infrastructure</h2>
           <RankedList rows={ranked.tools!} dim={dim} linkQuery={linkQuery} />
         </>
       )}

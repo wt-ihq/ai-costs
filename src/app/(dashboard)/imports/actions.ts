@@ -6,6 +6,7 @@ import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { recentWindow, runAllSyncs, type SyncOutcome } from "@/lib/ingest/run-all";
 import { syncCursor } from "@/lib/ingest/run-cursor";
 import { syncAnthropic, syncOpenAI } from "@/lib/ingest/run-platforms";
+import { syncVercel } from "@/lib/ingest/run-vercel";
 import { parseClaudeSpend } from "@/lib/ingest/parsers/claude-spend";
 import { parseClaudeRoster } from "@/lib/ingest/parsers/claude-roster";
 import { parseOpenAiCreditsCsv, coveredWindow, type CreditUsageFact } from "@/lib/ingest/parsers/openai-credits";
@@ -568,6 +569,47 @@ export async function deleteRecurringCost(id: string): Promise<{ written: number
   return { written };
 }
 
+// ---- Vercel project → department mapping ------------------------------------
+
+/** Assign (or clear) a project's department and re-attach its existing facts. */
+export async function assignVercelProjectDepartment(
+  projectId: string,
+  department: string | null,
+): Promise<{ factsUpdated: number }> {
+  await requireAdmin();
+  const supabase = getSupabaseAdminClient();
+  const dept = department?.trim() || null;
+
+  const { data: rows, error: readErr } = await supabase
+    .from("vercel_projects").select("project_name").eq("project_id", projectId).limit(1);
+  if (readErr) throw new Error(`assignVercelProjectDepartment: ${readErr.message}`);
+  const projectName = rows?.[0]?.project_name as string | undefined;
+  if (!projectName) throw new Error("Project not found.");
+
+  const { error: updErr } = await supabase
+    .from("vercel_projects")
+    .update({ department: dept, updated_at: new Date().toISOString() })
+    .eq("project_id", projectId);
+  if (updErr) throw new Error(`assignVercelProjectDepartment: ${updErr.message}`);
+
+  // Re-attach history in place: backfilled months aren't re-synced nightly,
+  // so the department must follow the mapping immediately. Eventually
+  // consistent with a concurrently-running sync (its stale map read may
+  // revert the CURRENT month until the next run re-derives it). Known gap:
+  // facts keyed under a project's PRE-RENAME name aren't matched here —
+  // follow-up: key facts by ProjectId (stable) with the name display-only.
+  const { error: factErr, count } = await supabase
+    .from("spend_facts")
+    .update({ department: dept }, { count: "exact" })
+    .eq("source", "vercel")
+    .eq("entity_key", projectName);
+  if (factErr) throw new Error(`assignVercelProjectDepartment facts: ${factErr.message}`);
+
+  revalidatePath("/imports");
+  revalidatePath("/");
+  return { factsUpdated: count ?? 0 };
+}
+
 // ---- Automated sync: manual trigger + backfill ------------------------------
 
 /** Run all sources now (the cron pipeline, on demand). */
@@ -603,6 +645,7 @@ export async function backfillSync(months: number): Promise<BackfillResult> {
       ["cursor", () => syncCursor(supabase, window)],
       ["anthropic", () => syncAnthropic(supabase, window)],
       ["openai", () => syncOpenAI(supabase, window)],
+      ["vercel", () => syncVercel(supabase, window)],
     ] as const) {
       try {
         written += (await fn()).rowsWritten;
