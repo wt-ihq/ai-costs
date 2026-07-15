@@ -20,7 +20,7 @@ describe("computeRecurringFacts", () => {
     const facts = computeRecurringFacts([entry({})], THROUGH);
     expect(facts.map((f) => f.day)).toEqual(["2026-05-01", "2026-06-01", "2026-07-01"]);
     expect(facts[0]).toMatchObject({
-      source: "other", costType: "seat", costUsd: 40,
+      source: "other", costType: "subscription", costUsd: 40,
       entityKey: "perplexity|Data Science", model: "Perplexity",
       department: "Data Science", employeeId: null,
     });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  seriesOrder, treemapByDim, SHARED_SEATS,
+  seriesOrder, treemapByDim, SHARED_SEATS, rankTools,
   scorecardFor, rankTeams, rankPeople, rankAllStaff, lineItems, trendForPeriod, type ShapeFact,
   dimLabel, dimColorFor,
 } from "./shape";
@@ -224,15 +224,46 @@ describe("tool-aware vendor dimension", () => {
     expect(seg).toMatchObject({ value: 100, color: OTHER_TOOL_PALETTE[2] });
   });
 
-  it("rankPeople appends a non-person row per tool for department-attributed facts", () => {
-    const r = rankPeople([...june, toolFact("Perplexity", 100, "Eng")], "Eng", [{ id: "a", fullName: "A" }], toolColors);
-    const tool = r.find((x) => x.label === "Perplexity");
-    expect(tool).toMatchObject({ total: 100, href: undefined });
-    expect(tool?.sub).toContain("recurring");
+  it("department-attributed tool facts surface via rankTools, not rankPeople", () => {
+    // Superseded behavior: tools used to be appended inside rankPeople; they
+    // now render as their own "Tools" list (see the subscription describe).
+    const people = rankPeople([...june, toolFact("Perplexity", 100, "Eng")], "Eng", [{ id: "a", fullName: "A" }], toolColors);
+    expect(people.find((x) => x.label === "Perplexity")).toBeUndefined();
+    const tools = rankTools([toolFact("Perplexity", 100, "Eng")], toolColors);
+    expect(tools[0]).toMatchObject({ label: "Perplexity", total: 100, href: undefined });
   });
 
   it("trend series include per-tool keys", () => {
     const pts = trendForPeriod([toolFact("Perplexity", 100)], parsePeriod("2026-06", NOW2), "vendor");
     expect(pts.find((p) => p["other:Perplexity"] !== undefined)).toBeTruthy();
+  });
+});
+
+describe("subscription cost type", () => {
+  const subFact = (costUsd: number, department = "Eng"): ShapeFact => ({
+    day: "2026-06-01", source: "other", costType: "subscription", costUsd,
+    employeeId: null, department, fullName: null, entityKey: "openrouter|" + department, model: "OpenRouter",
+  });
+
+  it("scorecardFor splits subscription out of seat", () => {
+    const sc = scorecardFor([...june, subFact(1863)]);
+    expect(sc).toMatchObject({ seat: 40, subscription: 1863, overage: 0, metered: 100 });
+  });
+
+  it("stacks canonically: seat → subscription → overage → metered", () => {
+    const pts: TrendPoint[] = [{ label: "Jun", metered: 5, subscription: 1863, seat: 40, overage: 1 }];
+    expect(seriesOrder(pts, "cost_type")).toEqual(["seat", "subscription", "overage", "metered"]);
+  });
+
+  it("rankPeople returns humans only; rankTools returns the tool rows", () => {
+    const people = rankPeople([...june, subFact(1863)], "Eng", [{ id: "a", fullName: "A" }]);
+    expect(people.find((r) => r.label === "OpenRouter")).toBeUndefined();
+    expect(people.find((r) => r.label === "A")).toBeTruthy();
+
+    const tools = rankTools([...june, subFact(1863), subFact(37)], { OpenRouter: "#60a5fa" });
+    expect(tools).toHaveLength(1);
+    expect(tools[0]).toMatchObject({ label: "OpenRouter", total: 1900, href: undefined });
+    expect(tools[0].sub).toContain("recurring");
+    expect(tools[0].segments?.vendor[0].color).toBe("#60a5fa");
   });
 });

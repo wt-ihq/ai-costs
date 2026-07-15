@@ -55,7 +55,7 @@ export function computeRecurringFacts(entries: RecurringEntry[], throughMonth: s
       const f = byKey.get(k) ?? {
         source: "other" as const,
         day: month,
-        costType: "seat" as const,
+        costType: "subscription" as const,
         entityKey,
         costUsd: 0,
         model: e.tool,

@@ -35,6 +35,7 @@ export interface RankRow {
 export interface Scorecard {
   total: number;
   seat: number;
+  subscription: number;
   overage: number;
   metered: number;
 }
@@ -47,7 +48,8 @@ export interface ExploreData {
   scorecard: Scorecard;
   trend: Record<Dim, TrendPoint[]>;
   treemap: Record<Dim, TreemapNode[]>;
-  ranked: { kind: "team" | "person" | "lineitem"; rows: RankRow[] };
+  /** `tools`: department-attributed recurring tools, shown as their own list on team pages. */
+  ranked: { kind: "team" | "person" | "lineitem"; rows: RankRow[]; tools?: RankRow[] };
   allStaff?: RankRow[];
 }
 
