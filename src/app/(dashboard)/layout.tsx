@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 import { Nav } from "@/components/nav";
 import { SearchBox } from "@/components/explore/search-box";
 import { WhatsNew } from "@/components/whats-new";
@@ -18,15 +19,18 @@ export default async function DashboardLayout({
     <div className="flex min-h-screen">
       <aside className="flex w-60 shrink-0 flex-col gap-6 border-r border-border bg-surface px-4 py-6">
         <div className="px-3">
-          <Image
-            src="/intenthq-logo.png"
-            alt="Intent HQ — Customer Intelligence Lab"
-            width={2248}
-            height={544}
-            priority
-            className="mb-3 h-auto w-36"
-          />
-          <div className="text-sm font-semibold tracking-tight">AI Spend &amp; Usage</div>
+          {/* Logo + app name link home (/ redirects to Explore). */}
+          <Link href="/" className="block">
+            <Image
+              src="/intenthq-logo.png"
+              alt="Intent HQ — Customer Intelligence Lab"
+              width={2248}
+              height={544}
+              priority
+              className="mb-3 h-auto w-36"
+            />
+            <div className="text-sm font-semibold tracking-tight">AI Spend &amp; Usage</div>
+          </Link>
         </div>
         <Nav isAdmin={isAdmin} />
       </aside>
