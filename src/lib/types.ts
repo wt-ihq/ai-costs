@@ -6,6 +6,7 @@ export type Vendor =
   | "openai"
   | "claude_team"
   | "chatgpt_business"
+  | "vercel"
   | "other";
 
 export type CostType = "seat" | "subscription" | "overage" | "metered";
@@ -61,6 +62,7 @@ export const VENDOR_LABEL: Record<Vendor, string> = {
   openai: "OpenAI API",
   claude_team: "Claude Team",
   chatgpt_business: "ChatGPT Business",
+  vercel: "Vercel",
   other: "Other tools",
 };
 
