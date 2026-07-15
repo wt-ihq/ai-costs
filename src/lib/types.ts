@@ -8,7 +8,7 @@ export type Vendor =
   | "chatgpt_business"
   | "other";
 
-export type CostType = "seat" | "overage" | "metered";
+export type CostType = "seat" | "subscription" | "overage" | "metered";
 
 export type MatchMethod = "exact_email" | "alias_rule" | "manual" | "unmatched";
 
@@ -67,12 +67,14 @@ export const VENDOR_LABEL: Record<Vendor, string> = {
 /** "metered" = pay-as-you-go API usage; shown as "API" in the UI. */
 export const COST_TYPE_LABEL: Record<CostType, string> = {
   seat: "Seat",
+  subscription: "Subscription",
   overage: "Overage",
   metered: "API",
 };
 
 /**
  * Canonical display order for cost-type compositions (stacked bars, segmented
- * bars): the fixed seat cost sits at the base, usage-driven spend on top.
+ * bars): fixed costs (seats, then tool subscriptions) sit at the base,
+ * usage-driven spend on top.
  */
-export const COST_TYPE_ORDER: CostType[] = ["seat", "overage", "metered"];
+export const COST_TYPE_ORDER: CostType[] = ["seat", "subscription", "overage", "metered"];

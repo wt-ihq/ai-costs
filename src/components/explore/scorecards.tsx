@@ -21,12 +21,13 @@ function Card({ label, value, delay, hero }: { label: string; value: string; del
 
 export function Scorecards({ totalToDate, sc, periodLabel }: { totalToDate: number; sc: Scorecard; periodLabel: string }) {
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
       <Card label="Total to date" value={formatUsd(totalToDate)} delay={0} hero />
       <Card label={periodLabel} value={formatUsd(sc.total)} delay={0.04} />
       <Card label="Seat" value={formatUsd(sc.seat)} delay={0.08} />
-      <Card label="Overage" value={formatUsd(sc.overage)} delay={0.12} />
-      <Card label="API" value={formatUsd(sc.metered)} delay={0.16} />
+      <Card label="Subscription" value={formatUsd(sc.subscription)} delay={0.12} />
+      <Card label="Overage" value={formatUsd(sc.overage)} delay={0.16} />
+      <Card label="API" value={formatUsd(sc.metered)} delay={0.2} />
     </div>
   );
 }

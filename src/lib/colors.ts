@@ -14,6 +14,7 @@ export const VENDOR_COLORS: Record<Vendor, string> = {
 
 export const COST_TYPE_COLORS: Record<CostType, string> = {
   seat: "#6ea8fe",
+  subscription: "#a78bfa",
   overage: "#f472b6",
   metered: "#34d399",
 };

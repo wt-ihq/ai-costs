@@ -2,7 +2,7 @@ import type { Dim, ExploreData } from "./types";
 import type { Period } from "./period";
 import {
   trendForPeriod, treemapByDim, scorecardFor,
-  rankTeams, rankPeople, lineItems, rankAllStaff, type ShapeFact,
+  rankTeams, rankPeople, rankTools, lineItems, rankAllStaff, type ShapeFact,
 } from "./shape";
 
 /**
@@ -38,7 +38,7 @@ export function buildExploreData(scope: RawScope, period: Period): ExploreData {
     };
   }
   if (scope.kind === "team") {
-    return { ...base, ranked: { kind: "person", rows: rankPeople(cur, scope.team, scope.employees, scope.toolColors) } };
+    return { ...base, ranked: { kind: "person", rows: rankPeople(cur, scope.team, scope.employees, scope.toolColors), tools: rankTools(cur, scope.toolColors) } };
   }
   return { ...base, ranked: { kind: "lineitem", rows: lineItems(cur) } };
 }

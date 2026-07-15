@@ -137,7 +137,7 @@ export function treemapByDim(rows: ShapeFact[], dim: Dim | "model", topN = 12, t
 }
 
 export function scorecardFor(rows: ShapeFact[]): Scorecard {
-  const split = { seat: 0, overage: 0, metered: 0 } as Record<CostType, number>;
+  const split = { seat: 0, subscription: 0, overage: 0, metered: 0 } as Record<CostType, number>;
   for (const r of rows) split[r.costType] += r.costUsd;
   return { total: sum(rows), ...split };
 }
@@ -218,33 +218,40 @@ export function rankPeople(
   }
   const byEmp = groupBy(rows, (r) => r.employeeId);
   const nameById = new Map(employees.map((e) => [e.id, e.fullName ?? "(unknown)"]));
-  const people: RankRow[] = [...agg.entries()].map(([id, a]) => ({
-    id,
-    label: nameById.get(id) ?? "(unknown)",
-    total: Math.round(a.total * 100) / 100,
-    idle: a.seat > 0 && a.activity === 0,
-    sub: a.seat > 0 && a.activity === 0 ? "idle seat" : undefined,
-    href: `/explore/${teamSlug(teamDept)}/${id}`,
-    segments: segmentsByDim(byEmp.get(id) ?? [], toolColors),
-  }));
+  return [...agg.entries()]
+    .map(([id, a]) => ({
+      id,
+      label: nameById.get(id) ?? "(unknown)",
+      total: Math.round(a.total * 100) / 100,
+      idle: a.seat > 0 && a.activity === 0,
+      sub: a.seat > 0 && a.activity === 0 ? "idle seat" : undefined,
+      href: `/explore/${teamSlug(teamDept)}/${id}`,
+      segments: segmentsByDim(byEmp.get(id) ?? [], toolColors),
+    }))
+    .sort((a, b) => b.total - a.total);
+}
 
-  // Department-attributed "other" tool facts have no employee to pin them to
-  // (recurring costs are billed to the team, not a person) — surface them as
-  // non-person rows, one per tool, alongside the people.
-  const toolRowsByModel = groupBy(
+/**
+ * Department-attributed "other" tool facts have no employee to pin them to
+ * (recurring costs are billed to the team, not a person) — they render as
+ * their own "Tools" list on team pages, one row per tool, never mixed in
+ * with people.
+ */
+export function rankTools(rows: ShapeFact[], toolColors?: ToolColors): RankRow[] {
+  const byModel = groupBy(
     rows.filter((r) => r.source === "other" && !r.employeeId),
     (r) => r.model,
   );
-  const tools: RankRow[] = [...toolRowsByModel.entries()].map(([model, toolRows]) => ({
-    id: `tool:${model}`,
-    label: model,
-    total: Math.round(sum(toolRows) * 100) / 100,
-    href: undefined,
-    sub: "recurring tool",
-    segments: segmentsByDim(toolRows, toolColors),
-  }));
-
-  return [...people, ...tools].sort((a, b) => b.total - a.total);
+  return [...byModel.entries()]
+    .map(([model, toolRows]) => ({
+      id: `tool:${model}`,
+      label: model,
+      total: Math.round(sum(toolRows) * 100) / 100,
+      href: undefined,
+      sub: "recurring tool subscription",
+      segments: segmentsByDim(toolRows, toolColors),
+    }))
+    .sort((a, b) => b.total - a.total);
 }
 
 /** Company-wide: every employee with their (period-scoped) spend, roster-driven. */
