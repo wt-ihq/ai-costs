@@ -152,8 +152,9 @@ export async function getDataHealth(supabase: SupabaseClient): Promise<DataHealt
   for (const f of facts ?? []) {
     count.set(f.source, (count.get(f.source) ?? 0) + 1);
     if (!latest.get(f.source) || (f.day as string) > latest.get(f.source)!) latest.set(f.source, f.day as string);
-    // recurring tool costs are deliberate manual entries — never assignable
-    if (f.source === "other") continue;
+    // recurring tool costs and Vercel project charges are department-attributed
+    // — never assignable to a person
+    if (f.source === "other" || f.source === "vercel") continue;
     if (f.employee_id == null) {
       // Person-less pseudo-entities are shown for transparency but excluded
       // from the assignable queue — assigning them to a person would be wrong.

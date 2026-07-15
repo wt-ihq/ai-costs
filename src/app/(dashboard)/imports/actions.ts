@@ -6,6 +6,7 @@ import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { recentWindow, runAllSyncs, type SyncOutcome } from "@/lib/ingest/run-all";
 import { syncCursor } from "@/lib/ingest/run-cursor";
 import { syncAnthropic, syncOpenAI } from "@/lib/ingest/run-platforms";
+import { syncVercel } from "@/lib/ingest/run-vercel";
 import { parseClaudeSpend } from "@/lib/ingest/parsers/claude-spend";
 import { parseClaudeRoster } from "@/lib/ingest/parsers/claude-roster";
 import { parseOpenAiCreditsCsv, coveredWindow, type CreditUsageFact } from "@/lib/ingest/parsers/openai-credits";
@@ -603,6 +604,7 @@ export async function backfillSync(months: number): Promise<BackfillResult> {
       ["cursor", () => syncCursor(supabase, window)],
       ["anthropic", () => syncAnthropic(supabase, window)],
       ["openai", () => syncOpenAI(supabase, window)],
+      ["vercel", () => syncVercel(supabase, window)],
     ] as const) {
       try {
         written += (await fn()).rowsWritten;
