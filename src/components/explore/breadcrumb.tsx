@@ -11,6 +11,9 @@ export function Breadcrumb() {
   const crumbs = [{ href: `/explore${q}`, label: "Company" }];
   if (parts[1]) crumbs.push({ href: `/explore/${parts[1]}${q}`, label: safeDecodeURIComponent(parts[1]) });
   if (parts[2]) crumbs.push({ href: `/explore/${parts[1]}/${parts[2]}${q}`, label: "Individual" });
+  // A lone "Company" crumb right above the "Company" H1 says nothing — the
+  // trail only earns its place once there's somewhere to go back to.
+  if (crumbs.length < 2) return null;
   return (
     <nav className="flex items-center gap-2 text-sm text-muted">
       {crumbs.map((c, i) => (
