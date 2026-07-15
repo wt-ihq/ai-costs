@@ -1,6 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
+import { FACTS_TAG } from "@/lib/queries/cached";
 import { requireAdmin } from "@/lib/auth-guard";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { recentWindow, runAllSyncs, type SyncOutcome } from "@/lib/ingest/run-all";
@@ -84,6 +85,7 @@ export async function saveSeatMonthEntries(
   if (error) throw new Error(`saveSeatMonthEntries: ${error.message}`);
 
   const written = await rebuildSeatMonth(supabase, vendor, day);
+  updateTag(FACTS_TAG);
   revalidatePath("/imports");
   revalidatePath("/");
   return { written };
@@ -109,6 +111,7 @@ export async function deleteSeatMonthEntry(
   if (error) throw new Error(`deleteSeatMonthEntry: ${error.message}`);
 
   const written = await rebuildSeatMonth(supabase, vendor, day);
+  updateTag(FACTS_TAG);
   revalidatePath("/imports");
   revalidatePath("/");
   return { written };
@@ -261,6 +264,7 @@ export async function commitOpenAiCreditsImport(
   });
 
   revalidatePath("/");
+  updateTag(FACTS_TAG);
   revalidatePath("/imports");
   return { written, attributed, queued: resolved.length - attributed, from: minDay, to: maxDay };
 }
@@ -365,6 +369,9 @@ export async function commitClaudeSpendImport(
     row_counts: { withSpend: facts.length, attributed, queued: facts.length - attributed },
   });
 
+  updateTag(FACTS_TAG);
+  revalidatePath("/imports");
+  revalidatePath("/");
   return { written, attributed, queued: facts.length - attributed };
 }
 
@@ -477,6 +484,9 @@ export async function commitClaudeRoster(
   // the nightly claude_seats sync (entries stay authoritative when present).
   const written = await rebuildClaudeSeatMonth(supabase, day);
 
+  updateTag(FACTS_TAG);
+  revalidatePath("/imports");
+  revalidatePath("/");
   return { written, seats: rows.length, attributed: assignments.length };
 }
 
@@ -526,6 +536,7 @@ export async function saveRecurringCost(input: RecurringCostInput): Promise<{ wr
   if (error) throw new Error(`saveRecurringCost: ${error.message}`);
 
   const written = await rebuildRecurringFacts(supabase);
+  updateTag(FACTS_TAG);
   revalidatePath("/imports");
   revalidatePath("/");
   return { written };
@@ -553,6 +564,7 @@ export async function endRecurringCost(id: string, endMonth: string): Promise<{ 
     .eq("id", id);
   if (error) throw new Error(`endRecurringCost: ${error.message}`);
   const written = await rebuildRecurringFacts(supabase);
+  updateTag(FACTS_TAG);
   revalidatePath("/imports");
   revalidatePath("/");
   return { written };
@@ -564,6 +576,7 @@ export async function deleteRecurringCost(id: string): Promise<{ written: number
   const { error } = await supabase.from("recurring_costs").delete().eq("id", id);
   if (error) throw new Error(`deleteRecurringCost: ${error.message}`);
   const written = await rebuildRecurringFacts(supabase);
+  updateTag(FACTS_TAG);
   revalidatePath("/imports");
   revalidatePath("/");
   return { written };
@@ -605,6 +618,7 @@ export async function assignVercelProjectDepartment(
     .eq("entity_key", projectName);
   if (factErr) throw new Error(`assignVercelProjectDepartment facts: ${factErr.message}`);
 
+  updateTag(FACTS_TAG);
   revalidatePath("/imports");
   revalidatePath("/");
   return { factsUpdated: count ?? 0 };
@@ -617,6 +631,7 @@ export async function triggerSync(): Promise<Record<string, SyncOutcome>> {
   await requireAdmin();
   const supabase = getSupabaseAdminClient();
   const results = await runAllSyncs(supabase, recentWindow(new Date()));
+  updateTag(FACTS_TAG);
   revalidatePath("/data-health");
   revalidatePath("/");
   return results;
@@ -655,6 +670,7 @@ export async function backfillSync(months: number): Promise<BackfillResult> {
     }
   }
 
+  updateTag(FACTS_TAG);
   revalidatePath("/data-health");
   revalidatePath("/");
   return { months: n, written, errors };

@@ -1,5 +1,6 @@
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getDataHealth, pseudoExplanation } from "@/lib/queries/data-health";
+import { pseudoExplanation } from "@/lib/queries/data-health";
+import { getDataHealthCached } from "@/lib/queries/cached";
 import { getCursorReconciliation } from "@/lib/queries/cursor-reconciliation";
 import { PageHeader, Panel } from "@/components/ui";
 import { UnmatchedQueue } from "@/components/unmatched-queue";
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
 export default async function DataHealthPage() {
   const supabase = getSupabaseAdminClient();
   const [{ identity, sources, unmatched, pseudo, employees, noDepartment }, reconciliation] = await Promise.all([
-    getDataHealth(supabase),
+    getDataHealthCached(),
     getCursorReconciliation(supabase),
   ]);
   const now = new Date();

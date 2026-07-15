@@ -1,5 +1,4 @@
-import { getSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getPersonScope } from "@/lib/queries/explore";
+import { getPersonScopeCached } from "@/lib/queries/cached";
 import { ExploreView } from "@/components/explore/explore-view";
 import { PageHeader } from "@/components/ui";
 import type { Dim } from "@/lib/explore/types";
@@ -10,7 +9,7 @@ export default async function PersonPage({ params, searchParams }: { params: Pro
   const { person } = await params;
   const sp = await searchParams;
   const dim: Dim = sp.dim === "cost_type" ? "cost_type" : "vendor";
-  const scope = await getPersonScope(getSupabaseAdminClient(), person);
+  const scope = await getPersonScopeCached(person);
   return (
     <>
       <PageHeader title={scope.title} subtitle="Individual spend — where it occurs and when." />
