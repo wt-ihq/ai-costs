@@ -10,6 +10,7 @@ import { buildImportCoverage, getImportCoverageScope } from "@/lib/queries/impor
 import { ImportCoverage } from "@/components/import-coverage";
 import { SeatMonthEntries, type SeatMonthEntryRow } from "@/components/seat-month-entries";
 import { RecurringCosts, type RecurringCostRow } from "@/components/recurring-costs";
+import { VercelProjects, type VercelProjectRow } from "@/components/vercel-projects";
 import { fetchRecurringEntries, monthsBetween } from "@/lib/ingest/recurring";
 import { OTHER_TOOL_PALETTE } from "@/lib/colors";
 import { fetchEmployeesAll } from "@/lib/queries/common";
@@ -59,6 +60,16 @@ export default async function ImportsPage() {
     };
   });
   const departments = [...new Set((await fetchEmployeesAll(supabase, "department")).map((e) => e.department as string | null).filter(Boolean))].sort() as string[];
+  const { data: vercelRows } = await supabase
+    .from("vercel_projects")
+    .select("project_id, project_name, department")
+    .order("project_name")
+    .limit(200); // bounded: grows by projects, not rows-per-day
+  const vercelProjects: VercelProjectRow[] = (vercelRows ?? []).map((r) => ({
+    projectId: r.project_id as string,
+    projectName: r.project_name as string,
+    department: (r.department as string) ?? null,
+  }));
   return (
     <>
       <PageHeader
@@ -111,6 +122,16 @@ export default async function ImportsPage() {
             appears as its own vendor in Explore. Price change? End the entry and add a new one.
           </p>
           <RecurringCosts entries={recurringRows} departments={departments} />
+        </Panel>
+
+        <Panel>
+          <h2 className="mb-1 text-sm font-medium">Vercel projects</h2>
+          <p className="mb-4 text-xs text-muted">
+            Vercel spend syncs nightly per project. Assign each project to a department to place its cost on
+            that team&rsquo;s row — unassigned projects (and team-level charges like the plan fee) show under
+            Unattributed. Projects appear here automatically after each sync.
+          </p>
+          <VercelProjects projects={vercelProjects} departments={departments} />
         </Panel>
 
         <Panel>
