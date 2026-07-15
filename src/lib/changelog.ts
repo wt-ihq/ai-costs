@@ -11,6 +11,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-07-15",
+    title: "Vercel spend, synced daily",
+    items: [
+      "Vercel hosting costs now flow in automatically from Vercel's billing API — plan charges as Subscription, usage as API, per project per day.",
+      "Assign each Vercel project to a department on the Imports page and its cost lands on that team's row; team pages list projects under 'Tools & infrastructure' beside recurring tools.",
+    ],
+  },
+  {
     date: "2026-07-14",
     title: "Seats sync themselves",
     items: [
