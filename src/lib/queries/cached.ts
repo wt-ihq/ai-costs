@@ -20,38 +20,65 @@ export const FACTS_TAG = "facts";
 
 const OPTS = { tags: [FACTS_TAG], revalidate: 3600 };
 
-export const getCompanyScopeCached = unstable_cache(
+/**
+ * Diagnostic wrapper: a "[cache] MISS <name> …" line logs only when the
+ * cached function body actually executes; the outer line always logs total
+ * time. A HIT therefore shows as a fast total with no MISS line — and the
+ * payload size tells us whether entries exceed the data-cache item cap
+ * (which silently disables caching). Cheap enough to keep permanently.
+ */
+function instrumented<A extends unknown[], R>(name: string, fn: (...args: A) => Promise<R>, keyParts: string[]) {
+  const cached = unstable_cache(
+    async (...args: A) => {
+      const t0 = Date.now();
+      const result = await fn(...args);
+      const bytes = Buffer.byteLength(JSON.stringify(result));
+      console.log(`[cache] MISS ${name} computed=${Date.now() - t0}ms size=${(bytes / 1024).toFixed(0)}kB`);
+      return result;
+    },
+    keyParts,
+    OPTS,
+  );
+  return async (...args: A): Promise<R> => {
+    const t0 = Date.now();
+    const result = await cached(...args);
+    console.log(`[cache] ${name} total=${Date.now() - t0}ms`);
+    return result;
+  };
+}
+
+export const getCompanyScopeCached = instrumented(
+  "scope-company",
   async () => getCompanyScope(getSupabaseAdminClient()),
   ["scope-company"],
-  OPTS,
 );
 
-export const getTeamScopeCached = unstable_cache(
+export const getTeamScopeCached = instrumented(
+  "scope-team",
   async (team: string) => getTeamScope(getSupabaseAdminClient(), team),
   ["scope-team"],
-  OPTS,
 );
 
-export const getPersonScopeCached = unstable_cache(
+export const getPersonScopeCached = instrumented(
+  "scope-person",
   async (employeeId: string) => getPersonScope(getSupabaseAdminClient(), employeeId),
   ["scope-person"],
-  OPTS,
 );
 
-export const getSearchIndexCached = unstable_cache(
+export const getSearchIndexCached = instrumented(
+  "search-index",
   async () => getSearchIndex(getSupabaseAdminClient()),
   ["search-index"],
-  OPTS,
 );
 
-export const getDataHealthCached = unstable_cache(
+export const getDataHealthCached = instrumented(
+  "data-health",
   async () => getDataHealth(getSupabaseAdminClient()),
   ["data-health"],
-  OPTS,
 );
 
-export const getImportCoverageScopeCached = unstable_cache(
+export const getImportCoverageScopeCached = instrumented(
+  "import-coverage",
   async () => getImportCoverageScope(getSupabaseAdminClient()),
   ["import-coverage"],
-  OPTS,
 );
