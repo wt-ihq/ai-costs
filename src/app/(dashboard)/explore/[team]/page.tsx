@@ -1,5 +1,4 @@
-import { getSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getTeamScope } from "@/lib/queries/explore";
+import { getTeamScopeCached } from "@/lib/queries/cached";
 import { ExploreView } from "@/components/explore/explore-view";
 import { PageHeader } from "@/components/ui";
 import { safeDecodeURIComponent } from "@/lib/utils";
@@ -12,7 +11,7 @@ export default async function TeamPage({ params, searchParams }: { params: Promi
   const sp = await searchParams;
   const teamName = safeDecodeURIComponent(team);
   const dim: Dim = sp.dim === "cost_type" ? "cost_type" : "vendor";
-  const scope = await getTeamScope(getSupabaseAdminClient(), teamName);
+  const scope = await getTeamScopeCached(teamName);
   return (
     <>
       <PageHeader title={teamName} subtitle="Team spend — drill into a person." />

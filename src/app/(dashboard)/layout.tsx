@@ -2,8 +2,7 @@ import Image from "next/image";
 import { Nav } from "@/components/nav";
 import { SearchBox } from "@/components/explore/search-box";
 import { WhatsNew } from "@/components/whats-new";
-import { getSearchIndex } from "@/lib/queries/explore";
-import { getSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getSearchIndexCached } from "@/lib/queries/cached";
 import { requireRole } from "@/lib/auth-guard";
 
 export default async function DashboardLayout({
@@ -13,7 +12,7 @@ export default async function DashboardLayout({
 }) {
   const role = await requireRole();
   const isAdmin = role === "admin";
-  const searchIndex = await getSearchIndex(getSupabaseAdminClient());
+  const searchIndex = await getSearchIndexCached();
 
   return (
     <div className="flex min-h-screen">

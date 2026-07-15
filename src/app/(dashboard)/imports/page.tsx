@@ -6,7 +6,8 @@ import { OpenAiCreditsImport } from "@/components/openai-credits-import";
 import { SyncControls } from "@/components/sync-controls";
 import { getRole } from "@/lib/auth-guard";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
-import { buildImportCoverage, getImportCoverageScope } from "@/lib/queries/import-coverage";
+import { buildImportCoverage } from "@/lib/queries/import-coverage";
+import { getImportCoverageScopeCached } from "@/lib/queries/cached";
 import { ImportCoverage } from "@/components/import-coverage";
 import { SeatMonthEntries, type SeatMonthEntryRow } from "@/components/seat-month-entries";
 import { RecurringCosts, type RecurringCostRow } from "@/components/recurring-costs";
@@ -19,7 +20,7 @@ export default async function ImportsPage() {
   // The nav only hides the link for viewers; the page itself must enforce it.
   if ((await getRole()) !== "admin") notFound();
   const supabase = getSupabaseAdminClient();
-  const { facts, imports } = await getImportCoverageScope(supabase);
+  const { facts, imports } = await getImportCoverageScopeCached();
   const coverage = buildImportCoverage(facts, imports, new Date().toISOString().slice(0, 7));
   // Last successful credits-CSV import: drives the card's "imported through"
   // line and the rate prefill. Single row — no pagination needed.

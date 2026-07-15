@@ -44,15 +44,19 @@ async function fetchScope(
 }
 
 export async function getCompanyScope(supabase: SupabaseClient): Promise<RawScope> {
-  const { rows, earliest } = await fetchScope(supabase);
-  const emps = await fetchEmployeesAll(supabase, "id, full_name, department");
+  // Independent reads run concurrently — sequential awaits added whole
+  // round-trips of latency per page view.
+  const [{ rows, earliest }, emps, toolColors] = await Promise.all([
+    fetchScope(supabase),
+    fetchEmployeesAll(supabase, "id, full_name, department"),
+    getToolColors(supabase),
+  ]);
   const employees = emps.map((e) => ({ id: e.id as string, fullName: e.full_name as string | null, department: e.department as string | null }));
   const headcounts: Record<string, number> = {};
   for (const e of employees) {
     const d = e.department ?? UNATTRIBUTED;
     headcounts[d] = (headcounts[d] ?? 0) + 1;
   }
-  const toolColors = await getToolColors(supabase);
   return { kind: "company", title: "Company", earliest, facts: rows, headcounts, employees, toolColors };
 }
 
@@ -64,12 +68,14 @@ export async function getTeamScope(supabase: SupabaseClient, team: string): Prom
   const isUnattributed = team === UNATTRIBUTED;
   const emps = await fetchEmployeesAll(supabase, "id, full_name", { department: isUnattributed ? null : team });
   const employees = emps.map((e) => ({ id: e.id as string, fullName: e.full_name as string | null }));
-  const { rows: facts, earliest } = await fetchScope(supabase, {
-    employeeIds: employees.map((e) => e.id),
-    includeNullEmployee: isUnattributed,
-    department: isUnattributed ? undefined : team,
-  });
-  const toolColors = await getToolColors(supabase);
+  const [{ rows: facts, earliest }, toolColors] = await Promise.all([
+    fetchScope(supabase, {
+      employeeIds: employees.map((e) => e.id),
+      includeNullEmployee: isUnattributed,
+      department: isUnattributed ? undefined : team,
+    }),
+    getToolColors(supabase),
+  ]);
   return { kind: "team", title: team, earliest, facts, team, employees, toolColors };
 }
 
@@ -113,8 +119,10 @@ export async function getSearchIndex(supabase: SupabaseClient): Promise<SearchIt
 }
 
 export async function getPersonScope(supabase: SupabaseClient, employeeId: string): Promise<RawScope> {
-  const { rows: facts, earliest } = await fetchScope(supabase, { employeeIds: [employeeId] });
-  const { data: emp } = await supabase.from("employees").select("full_name").eq("id", employeeId).single();
-  const toolColors = await getToolColors(supabase);
+  const [{ rows: facts, earliest }, { data: emp }, toolColors] = await Promise.all([
+    fetchScope(supabase, { employeeIds: [employeeId] }),
+    supabase.from("employees").select("full_name").eq("id", employeeId).single(),
+    getToolColors(supabase),
+  ]);
   return { kind: "person", title: (emp?.full_name as string) ?? "Unknown", earliest, facts, toolColors };
 }

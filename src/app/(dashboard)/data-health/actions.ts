@@ -1,6 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
+import { FACTS_TAG } from "@/lib/queries/cached";
 import { requireAdmin } from "@/lib/auth-guard";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { Vendor } from "@/lib/types";
@@ -39,6 +40,7 @@ export async function assignUnmatched(
     { onConflict: isEmail ? "vendor,external_email" : "vendor,external_id" },
   );
 
+  updateTag(FACTS_TAG);
   revalidatePath("/data-health");
   return { updated: data?.length ?? 0 };
 }

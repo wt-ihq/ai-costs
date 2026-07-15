@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isCronAuthorized } from "@/lib/cron-auth";
 import { monthToDate, runAllSyncs } from "@/lib/ingest/run-all";
 import { reattributeUnmatched } from "@/lib/ingest/reattribute";
+import { FACTS_TAG } from "@/lib/queries/cached";
 
 export const dynamic = "force-dynamic";
 // Backfills fan out over many vendor calls with retry backoff — give the
@@ -43,6 +45,9 @@ export async function GET(req: Request) {
   } catch (err) {
     reattribution = { error: err instanceof Error ? err.message : String(err) };
   }
+
+  // The sync (and reattribution) rewrote facts — serve fresh data from here on.
+  revalidateTag(FACTS_TAG, "max");
 
   return NextResponse.json({ ranAt: new Date().toISOString(), window, results, reattribution });
 }
