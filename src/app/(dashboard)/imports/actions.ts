@@ -593,7 +593,11 @@ export async function assignVercelProjectDepartment(
   if (updErr) throw new Error(`assignVercelProjectDepartment: ${updErr.message}`);
 
   // Re-attach history in place: backfilled months aren't re-synced nightly,
-  // so the department must follow the mapping immediately.
+  // so the department must follow the mapping immediately. Eventually
+  // consistent with a concurrently-running sync (its stale map read may
+  // revert the CURRENT month until the next run re-derives it). Known gap:
+  // facts keyed under a project's PRE-RENAME name aren't matched here —
+  // follow-up: key facts by ProjectId (stable) with the name display-only.
   const { error: factErr, count } = await supabase
     .from("spend_facts")
     .update({ department: dept }, { count: "exact" })

@@ -27,7 +27,13 @@ async function loadVercelDepartments(supabase: SupabaseClient): Promise<Map<stri
   return new Map((data ?? []).filter((r) => r.department).map((r) => [r.project_name as string, r.department as string]));
 }
 
-/** Vercel FOCUS billing → spend facts, month-to-date snapshot like the other metered sources. */
+/**
+ * Vercel FOCUS billing → spend facts, month-to-date snapshot like the other
+ * metered sources. Department attribution is eventually consistent: a mapping
+ * assigned mid-sync may be overwritten for the current month by this run's
+ * stale map read, and heals on the next run (assignments re-attach history
+ * in place; syncs re-derive the current month from the committed map).
+ */
 export async function syncVercel(
   supabase: SupabaseClient,
   window: DateWindow,
