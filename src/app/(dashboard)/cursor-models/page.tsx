@@ -1,7 +1,4 @@
-import { getSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getModelUsageScope } from "@/lib/queries/cursor-models";
-import { getCursorTopModelScope } from "@/lib/queries/cursor-top-model";
-import { getCursorSpendScope } from "@/lib/queries/cursor-spend";
+import { getModelUsageScopeCached, getCursorTopModelScopeCached, getCursorSpendScopeCached } from "@/lib/queries/cached";
 import { CursorModelsView } from "@/components/cursor-models/cursor-models-view";
 import { TeamsModelView } from "@/components/cursor-models/teams-model-view";
 import { EnterpriseLocked } from "@/components/cursor-models/enterprise-locked";
@@ -12,14 +9,13 @@ export const dynamic = "force-dynamic";
 
 export default async function CursorModelsPage({ searchParams }: { searchParams: Promise<{ period?: string }> }) {
   const sp = await searchParams;
-  const supabase = getSupabaseAdminClient();
   const header = (
     <PageHeader title="Cursor usage" subtitle="Cursor model adoption and spend by model, team, and person." />
   );
 
   // Enterprise: full per-model message volume from the Analytics API.
   if (CURSOR_ANALYTICS_ENABLED) {
-    const scope = await getModelUsageScope(supabase);
+    const scope = await getModelUsageScopeCached();
     return (
       <>
         {header}
@@ -31,8 +27,8 @@ export default async function CursorModelsPage({ searchParams }: { searchParams:
   // Teams plan: fall back to the per-user most-used-model signal if we have it;
   // otherwise show the Enterprise-only state.
   const [topModel, spend] = await Promise.all([
-    getCursorTopModelScope(supabase),
-    getCursorSpendScope(supabase),
+    getCursorTopModelScopeCached(),
+    getCursorSpendScopeCached(),
   ]);
   return (
     <>

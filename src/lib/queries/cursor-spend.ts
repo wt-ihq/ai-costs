@@ -26,33 +26,43 @@ export async function getCursorSpendScope(supabase: SupabaseClient): Promise<Cur
   const from = (firstDay ?? now.toISOString().slice(0, 10)).slice(0, 7) + "-01";
   const toExclusive = nextMonth(now.toISOString().slice(0, 7));
 
+  // Count-first pagination: the first page carries the exact total so the
+  // rest fetch CONCURRENTLY instead of serially.
   const PAGE = 1000;
-  const rows: CursorSpendRow[] = [];
-  for (let offset = 0; ; offset += PAGE) {
-    const { data, error } = await supabase
+  const page = (withCount: boolean) =>
+    supabase
       .from("spend_facts")
-      .select("day, cost_type, model, cost_usd, employees(full_name)")
+      .select("day, cost_type, model, cost_usd, employees(full_name)", withCount ? { count: "exact" } : undefined)
       .eq("source", "cursor")
       .in("cost_type", ["seat", "overage"])
       .gte("day", from)
       .lt("day", toExclusive)
       // id tiebreaker keeps page boundaries stable across queries.
       .order("day")
-      .order("id")
-      .range(offset, offset + PAGE - 1);
-    if (error) throw new Error(`getCursorSpendScope: ${error.message}`);
-    if (!data || data.length === 0) break;
-    for (const r of data) {
-      const emp = Array.isArray(r.employees) ? r.employees[0] : r.employees;
-      rows.push({
-        day: r.day as string,
-        costType: r.cost_type as "seat" | "overage",
-        model: (r.model as string) ?? "",
-        costUsd: Number(r.cost_usd),
-        personName: (emp as { full_name: string | null } | undefined)?.full_name ?? null,
-      });
+      .order("id");
+
+  const { data: first, count, error } = await page(true).range(0, PAGE - 1);
+  if (error) throw new Error(`getCursorSpendScope: ${error.message}`);
+  const raw: Record<string, unknown>[] = [...((first as Record<string, unknown>[]) ?? [])];
+  const total = count ?? raw.length;
+  if (total > PAGE) {
+    const rest = await Promise.all(
+      Array.from({ length: Math.ceil(total / PAGE) - 1 }, (_, i) => page(false).range((i + 1) * PAGE, (i + 2) * PAGE - 1)),
+    );
+    for (const p of rest) {
+      if (p.error) throw new Error(`getCursorSpendScope: ${p.error.message}`);
+      raw.push(...((p.data as Record<string, unknown>[]) ?? []));
     }
-    if (data.length < PAGE) break;
   }
+  const rows: CursorSpendRow[] = raw.map((r) => {
+    const emp = Array.isArray(r.employees) ? r.employees[0] : r.employees;
+    return {
+      day: r.day as string,
+      costType: r.cost_type as "seat" | "overage",
+      model: (r.model as string) ?? "",
+      costUsd: Number(r.cost_usd),
+      personName: (emp as { full_name: string | null } | undefined)?.full_name ?? null,
+    };
+  });
   return { rows };
 }

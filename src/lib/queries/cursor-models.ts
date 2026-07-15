@@ -33,22 +33,31 @@ export async function getModelUsageScope(supabase: SupabaseClient): Promise<Mode
   const from = (firstDay ?? now.toISOString().slice(0, 10)).slice(0, 7) + "-01";
   const toExclusive = nextMonth(now.toISOString().slice(0, 7));
 
+  // Count-first pagination: the first page carries the exact total so the
+  // rest fetch CONCURRENTLY (sequential round-trips made this page slow).
   const PAGE = 1000;
-  const raw: Record<string, unknown>[] = [];
-  for (let offset = 0; ; offset += PAGE) {
-    const { data: page, error } = await supabase
+  const page = (withCount: boolean) =>
+    supabase
       .from("cursor_model_usage")
-      .select("day, model, messages, employee_id, employees(full_name, department)")
+      .select("day, model, messages, employee_id, employees(full_name, department)", withCount ? { count: "exact" } : undefined)
       .gte("day", from)
       .lt("day", toExclusive)
       // id tiebreaker keeps page boundaries stable across queries.
       .order("day")
-      .order("id")
-      .range(offset, offset + PAGE - 1);
-    if (error) throw new Error(`getModelUsageScope: ${error.message}`);
-    if (!page || page.length === 0) break;
-    raw.push(...(page as Record<string, unknown>[]));
-    if (page.length < PAGE) break;
+      .order("id");
+
+  const { data: first, count, error } = await page(true).range(0, PAGE - 1);
+  if (error) throw new Error(`getModelUsageScope: ${error.message}`);
+  const raw: Record<string, unknown>[] = [...((first as Record<string, unknown>[]) ?? [])];
+  const total = count ?? raw.length;
+  if (total > PAGE) {
+    const rest = await Promise.all(
+      Array.from({ length: Math.ceil(total / PAGE) - 1 }, (_, i) => page(false).range((i + 1) * PAGE, (i + 2) * PAGE - 1)),
+    );
+    for (const p of rest) {
+      if (p.error) throw new Error(`getModelUsageScope: ${p.error.message}`);
+      raw.push(...((p.data as Record<string, unknown>[]) ?? []));
+    }
   }
 
   const rows: ModelUsageRow[] = raw.map((r) => {

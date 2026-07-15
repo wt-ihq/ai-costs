@@ -28,22 +28,31 @@ export async function getCursorTopModelScope(supabase: SupabaseClient): Promise<
   const from = (firstDay ?? now.toISOString().slice(0, 10)).slice(0, 7) + "-01";
   const toExclusive = nextMonth(now.toISOString().slice(0, 7));
 
+  // Count-first pagination: the first page carries the exact total so the
+  // rest fetch CONCURRENTLY instead of serially.
   const PAGE = 1000;
-  const raw: Record<string, unknown>[] = [];
-  for (let offset = 0; ; offset += PAGE) {
-    const { data, error } = await supabase
+  const page = (withCount: boolean) =>
+    supabase
       .from("cursor_top_model")
-      .select("day, model, entity_key, employee_id, employees(full_name, department)")
+      .select("day, model, entity_key, employee_id, employees(full_name, department)", withCount ? { count: "exact" } : undefined)
       .gte("day", from)
       .lt("day", toExclusive)
       // id tiebreaker keeps page boundaries stable across queries.
       .order("day")
-      .order("id")
-      .range(offset, offset + PAGE - 1);
-    if (error) throw new Error(`getCursorTopModelScope: ${error.message}`);
-    if (!data || data.length === 0) break;
-    raw.push(...(data as Record<string, unknown>[]));
-    if (data.length < PAGE) break;
+      .order("id");
+
+  const { data: first, count, error } = await page(true).range(0, PAGE - 1);
+  if (error) throw new Error(`getCursorTopModelScope: ${error.message}`);
+  const raw: Record<string, unknown>[] = [...((first as Record<string, unknown>[]) ?? [])];
+  const total = count ?? raw.length;
+  if (total > PAGE) {
+    const rest = await Promise.all(
+      Array.from({ length: Math.ceil(total / PAGE) - 1 }, (_, i) => page(false).range((i + 1) * PAGE, (i + 2) * PAGE - 1)),
+    );
+    for (const p of rest) {
+      if (p.error) throw new Error(`getCursorTopModelScope: ${p.error.message}`);
+      raw.push(...((p.data as Record<string, unknown>[]) ?? []));
+    }
   }
 
   const rows: TopModelRow[] = raw.map((r) => {
