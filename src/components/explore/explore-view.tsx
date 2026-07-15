@@ -108,6 +108,15 @@ export function ExploreView({
   );
   const data = useMemo(() => buildExploreData({ ...scope, facts }, period), [scope, facts, period]);
 
+  // Projections only make sense looking forward: the tile shows when the
+  // selected period includes today; the dashed trend extension only on
+  // month-granularity charts (Year / All).
+  const includesToday = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return period.from <= today && today < period.toExclusive;
+  }, [period]);
+  const monthGranularity = period.granularity === "year" || period.granularity === "all";
+
   // A single-vendor "by vendor" chart is one flat color — show cost type
   // instead. `dim` is preserved and restored when the filter clears.
   const effectiveDim: Dim = vendor === "all" ? dim : "cost_type";
@@ -135,12 +144,22 @@ export function ExploreView({
         </div>
       </div>
 
-      <Scorecards totalToDate={data.totalToDate} sc={data.scorecard} periodLabel={data.period.label} />
+      <Scorecards
+        totalToDate={data.totalToDate}
+        sc={data.scorecard}
+        periodLabel={data.period.label}
+        projection={includesToday ? data.projection.monthEnd : null}
+      />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="rounded-xl border border-border bg-surface p-5">
           <h2 className="mb-4 text-sm font-medium">Trend · {data.period.label}</h2>
-          <TrendChart data={data.trend[effectiveDim]} dim={effectiveDim} toolColors={scope.toolColors} />
+          <TrendChart
+            data={data.trend[effectiveDim]}
+            dim={effectiveDim}
+            toolColors={scope.toolColors}
+            projection={monthGranularity ? data.projection.trend : undefined}
+          />
         </section>
 
         <section className="rounded-xl border border-border bg-surface p-5">

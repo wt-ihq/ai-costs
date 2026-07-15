@@ -1,6 +1,7 @@
 import type { Dim, ExploreData } from "./types";
 import type { Period } from "./period";
 import { packFacts, unpackFacts, type PackedFacts } from "./pack";
+import { projectMonthEnd, projectTrend } from "./project";
 import {
   trendForPeriod, treemapByDim, scorecardFor,
   rankTeams, rankPeople, rankTools, lineItems, rankAllStaff, type ShapeFact,
@@ -41,7 +42,7 @@ const inPeriod = (p: Period) => (r: ShapeFact) => r.day >= p.from && r.day < p.t
 const bothDims = <T,>(fn: (d: Dim) => T): Record<Dim, T> => ({ vendor: fn("vendor"), cost_type: fn("cost_type") });
 
 /** Pure: shape a scope into the per-period view. Runs client-side on every period change. */
-export function buildExploreData(scope: RawScope, period: Period): ExploreData {
+export function buildExploreData(scope: RawScope, period: Period, now: Date = new Date()): ExploreData {
   const cur = scope.facts.filter(inPeriod(period));
   const base = {
     title: scope.title,
@@ -51,6 +52,7 @@ export function buildExploreData(scope: RawScope, period: Period): ExploreData {
     scorecard: scorecardFor(cur),
     trend: bothDims((d) => trendForPeriod(scope.facts, period, d)),
     treemap: bothDims((d) => treemapByDim(cur, d, 12, scope.toolColors)),
+    projection: { monthEnd: projectMonthEnd(scope.facts, now), trend: projectTrend(scope.facts, now) },
   };
   if (scope.kind === "company") {
     return {

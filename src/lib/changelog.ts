@@ -12,8 +12,10 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-07-15",
-    title: "Vercel spend, synced daily",
+    title: "Projected spend + Vercel sync",
     items: [
+      "New 'Projected' tile on Explore: a month-end forecast for the current month (seats and subscriptions counted exactly, usage projected from the recent daily rate) with a comparison to last month.",
+      "Year and All-time trend charts now extend three months ahead with a dashed projection line, so growth is visible before the money is spent.",
       "Vercel hosting costs now flow in automatically from Vercel's billing API — plan charges as Subscription, usage as API, per project per day.",
       "Assign each Vercel project to a department on the Imports page and its cost lands on that team's row; team pages list projects under 'Tools & infrastructure' beside recurring tools.",
       "Pages load much faster: the dashboard now caches its data between changes instead of re-reading everything on every view — syncs and imports refresh it instantly.",

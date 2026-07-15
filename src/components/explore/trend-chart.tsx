@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Bar, BarChart, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Dim, TrendPoint } from "@/lib/explore/types";
 import { dimColorFor, dimLabel, seriesOrder } from "@/lib/explore/shape";
 import type { ToolColors } from "@/lib/explore/shape";
@@ -25,22 +25,28 @@ export function TrendChart({
   dim,
   height = 280,
   toolColors,
+  projection,
 }: {
   data: TrendPoint[];
   dim: Dim;
   height?: number;
   toolColors?: ToolColors;
+  /** Forward month buckets carrying only a `projected` key — appended after the actuals. */
+  projection?: TrendPoint[];
 }) {
+  const points = useMemo(() => (projection?.length ? [...data, ...projection] : data), [data, projection]);
+
   // Stacked series from ALL the data points (every dim value that appears in
   // any bucket): vendors by total desc, cost types canonical (seat at the base).
-  const series = useMemo(() => seriesOrder(data, dim), [data, dim]);
+  // `projected` is drawn as its own dashed line, never as a bar.
+  const series = useMemo(() => seriesOrder(points, dim).filter((k) => k !== "projected"), [points, dim]);
 
   const color = (k: string) => dimColorFor(dim, k, toolColors);
   const label = (k: string) => dimLabel(dim, k);
 
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <BarChart data={data} margin={{ left: 8, right: 8, top: 8 }}>
+      <ComposedChart data={points} margin={{ left: 8, right: 8, top: 8 }}>
         {/* Auto-thin ticks based on available width: shows every label when
             there's room, drops some only when they'd actually overlap. Keep
             minTickGap small so short labels (e.g. "Jan") all show on wide
@@ -57,7 +63,21 @@ export function TrendChart({
         {series.map((k) => (
           <Bar key={k} dataKey={k} name={label(k)} stackId="1" fill={color(k)} radius={[2, 2, 0, 0]} maxBarSize={48} isAnimationActive />
         ))}
-      </BarChart>
+        {projection && projection.length > 0 && (
+          // Dashed neutral line with hollow dots — a projection must never
+          // read as actuals.
+          <Line
+            dataKey="projected"
+            name="Projected"
+            stroke="#8b92a5"
+            strokeWidth={2}
+            strokeDasharray="6 4"
+            dot={{ r: 3, stroke: "#8b92a5", strokeWidth: 1.5, fill: "#14171f" }}
+            connectNulls={false}
+            isAnimationActive
+          />
+        )}
+      </ComposedChart>
     </ResponsiveContainer>
   );
 }

@@ -51,6 +51,8 @@ export interface ExploreData {
   /** `tools`: department-attributed recurring tools, shown as their own list on team pages. */
   ranked: { kind: "team" | "person" | "lineitem"; rows: RankRow[]; tools?: RankRow[] };
   allStaff?: RankRow[];
+  /** Month-end forecast + dashed trend extension, from the same filtered facts. */
+  projection: { monthEnd: import("./project").MonthEndProjection | null; trend: TrendPoint[] };
 }
 
 export type { Vendor, CostType, Period, Granularity };
