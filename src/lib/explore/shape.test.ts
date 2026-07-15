@@ -267,3 +267,21 @@ describe("subscription cost type", () => {
     expect(tools[0].segments?.vendor[0].color).toBe("#60a5fa");
   });
 });
+
+describe("rankTools with Vercel projects", () => {
+  const vercelFact = (entityKey: string, costUsd: number): ShapeFact => ({
+    day: "2026-07-01", source: "vercel", costType: "metered", costUsd,
+    employeeId: null, department: "Technology", fullName: null, entityKey, model: "Function Invocations",
+  });
+
+  it("lists Vercel projects beside recurring tools, each with the right sub", () => {
+    const rows = rankTools([
+      vercelFact("ai-costs", 12.5), vercelFact("ai-costs", 2.5),
+      { day: "2026-07-01", source: "other", costType: "subscription", costUsd: 100, employeeId: null, department: "Technology", fullName: null, entityKey: "openrouter|Technology", model: "OpenRouter" },
+    ]);
+    expect(rows.map((r) => r.label)).toEqual(["OpenRouter", "ai-costs"]); // total desc
+    expect(rows.find((r) => r.label === "ai-costs")).toMatchObject({ total: 15, href: undefined });
+    expect(rows.find((r) => r.label === "ai-costs")?.sub).toBe("Vercel project");
+    expect(rows.find((r) => r.label === "OpenRouter")?.sub).toContain("recurring");
+  });
+});
