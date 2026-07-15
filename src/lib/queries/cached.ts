@@ -22,6 +22,14 @@ import { getCursorSpendScope } from "./cursor-spend";
  */
 export const FACTS_TAG = "facts";
 
+/**
+ * Cache-key version — MUST be bumped whenever the SHAPE of any cached value
+ * changes. unstable_cache entries survive deployments, so without a version
+ * bump a new build can read an old-shaped entry and crash (this bit us when
+ * scopes switched to the packed format).
+ */
+const CACHE_VERSION = "v2";
+
 const OPTS = { tags: [FACTS_TAG], revalidate: 3600 };
 
 /**
@@ -57,37 +65,37 @@ function instrumented<A extends unknown[], R>(name: string, fn: (...args: A) => 
 export const getCompanyScopeCached = instrumented(
   "scope-company",
   async () => packScope(await getCompanyScope(getSupabaseAdminClient())),
-  ["scope-company"],
+  ["scope-company", CACHE_VERSION],
 );
 
 export const getTeamScopeCached = instrumented(
   "scope-team",
   async (team: string) => packScope(await getTeamScope(getSupabaseAdminClient(), team)),
-  ["scope-team"],
+  ["scope-team", CACHE_VERSION],
 );
 
 export const getPersonScopeCached = instrumented(
   "scope-person",
   async (employeeId: string) => packScope(await getPersonScope(getSupabaseAdminClient(), employeeId)),
-  ["scope-person"],
+  ["scope-person", CACHE_VERSION],
 );
 
 export const getSearchIndexCached = instrumented(
   "search-index",
   async () => getSearchIndex(getSupabaseAdminClient()),
-  ["search-index"],
+  ["search-index", CACHE_VERSION],
 );
 
 export const getDataHealthCached = instrumented(
   "data-health",
   async () => getDataHealth(getSupabaseAdminClient()),
-  ["data-health"],
+  ["data-health", CACHE_VERSION],
 );
 
 export const getImportCoverageScopeCached = instrumented(
   "import-coverage",
   async () => getImportCoverageScope(getSupabaseAdminClient()),
-  ["import-coverage"],
+  ["import-coverage", CACHE_VERSION],
 );
 
 // Cursor usage page readers — all rebuilt by the nightly cron (which busts
@@ -95,17 +103,17 @@ export const getImportCoverageScopeCached = instrumented(
 export const getModelUsageScopeCached = instrumented(
   "cursor-model-usage",
   async () => getModelUsageScope(getSupabaseAdminClient()),
-  ["cursor-model-usage"],
+  ["cursor-model-usage", CACHE_VERSION],
 );
 
 export const getCursorTopModelScopeCached = instrumented(
   "cursor-top-model",
   async () => getCursorTopModelScope(getSupabaseAdminClient()),
-  ["cursor-top-model"],
+  ["cursor-top-model", CACHE_VERSION],
 );
 
 export const getCursorSpendScopeCached = instrumented(
   "cursor-spend",
   async () => getCursorSpendScope(getSupabaseAdminClient()),
-  ["cursor-spend"],
+  ["cursor-spend", CACHE_VERSION],
 );
