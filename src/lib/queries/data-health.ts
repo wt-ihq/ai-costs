@@ -4,23 +4,35 @@ import { fetchEmployeesAll } from "./common";
 
 interface HealthFact { source: string; day: string; entity_key: string; cost_usd: number; employee_id: string | null }
 
-/** Every spend fact (counts/unmatched), paging past PostgREST's 1000-row cap. */
+/**
+ * Every spend fact (counts/unmatched), paging past PostgREST's 1000-row cap.
+ * The first page carries the exact total so the rest fetch concurrently
+ * (sequential round-trips made this page multi-second); the `day, id`
+ * ordering keeps the disjoint ranges deterministic.
+ */
 async function fetchAllSpendFacts(supabase: SupabaseClient): Promise<HealthFact[]> {
   const PAGE = 1000;
-  const rows: HealthFact[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await supabase
+  const page = (withCount: boolean) =>
+    supabase
       .from("spend_facts")
-      .select("source, day, entity_key, cost_usd, employee_id")
+      .select("source, day, entity_key, cost_usd, employee_id", withCount ? { count: "exact" } : undefined)
       // id tiebreaker: `day` alone has thousands of ties, so page boundaries
       // could duplicate/skip rows between queries.
       .order("day")
-      .order("id")
-      .range(from, from + PAGE - 1);
-    if (error) throw new Error(`getDataHealth: ${error.message}`);
-    if (!data || data.length === 0) break;
-    rows.push(...(data as HealthFact[]));
-    if (data.length < PAGE) break;
+      .order("id");
+
+  const { data: first, count, error } = await page(true).range(0, PAGE - 1);
+  if (error) throw new Error(`getDataHealth: ${error.message}`);
+  const rows: HealthFact[] = [...((first as HealthFact[]) ?? [])];
+  const total = count ?? rows.length;
+  if (total > PAGE) {
+    const rest = await Promise.all(
+      Array.from({ length: Math.ceil(total / PAGE) - 1 }, (_, i) => page(false).range((i + 1) * PAGE, (i + 2) * PAGE - 1)),
+    );
+    for (const p of rest) {
+      if (p.error) throw new Error(`getDataHealth: ${p.error.message}`);
+      rows.push(...((p.data as HealthFact[]) ?? []));
+    }
   }
   return rows;
 }
