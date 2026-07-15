@@ -71,6 +71,8 @@ export interface FactFilter {
   employeeIds: string[];
   /** Also include facts with no employee attribution (the "Unattributed" pseudo-team). */
   includeNullEmployee?: boolean;
+  /** Also include person-less facts attributed to this department (recurring tool costs). */
+  department?: string;
 }
 
 /** Fetch facts from `fromMonth` (YYYY-MM-01) up to `toExclusive` (YYYY-MM-01). */
@@ -80,7 +82,7 @@ export async function fetchFactsInRange(
   toExclusive: string,
   filter?: FactFilter,
 ): Promise<EnrichedFact[]> {
-  if (filter && filter.employeeIds.length === 0 && !filter.includeNullEmployee) return [];
+  if (filter && filter.employeeIds.length === 0 && !filter.includeNullEmployee && !filter.department) return [];
   // PostgREST caps each request at 1000 rows; a multi-month range now holds
   // thousands of facts (esp. Cursor per-event overage), so paginate until
   // exhausted — otherwise the dashboard silently undercounts spend. `day` has
@@ -92,14 +94,20 @@ export async function fetchFactsInRange(
   for (let from = 0; ; from += PAGE) {
     let q = supabase
       .from("spend_facts")
-      .select("day, source, cost_type, cost_usd, requests, entity_key, model, employee_id, employees(full_name, department)")
+      .select("day, source, cost_type, cost_usd, requests, entity_key, model, employee_id, department, employees(full_name, department)")
       .gte("day", fromMonth)
       .lt("day", toExclusive);
     if (filter) {
-      if (filter.employeeIds.length === 0) {
-        q = q.is("employee_id", null);
+      const ids = filter.employeeIds.join(",");
+      if (filter.department) {
+        // Team scope: employees' facts OR person-less facts pinned to the team.
+        const deptEq = `department.eq."${filter.department.replace(/"/g, '')}"`;
+        q = filter.employeeIds.length ? q.or(`employee_id.in.(${ids}),${deptEq}`) : q.or(deptEq);
       } else if (filter.includeNullEmployee) {
-        q = q.or(`employee_id.is.null,employee_id.in.(${filter.employeeIds.join(",")})`);
+        // Unattributed scope: no employee AND no department attribution.
+        q = filter.employeeIds.length
+          ? q.or(`employee_id.in.(${ids}),and(employee_id.is.null,department.is.null)`)
+          : q.is("employee_id", null).is("department", null);
       } else {
         q = q.in("employee_id", filter.employeeIds);
       }
@@ -123,7 +131,7 @@ export async function fetchFactsInRange(
       model: (r.model as string) ?? "",
       employeeId: (r.employee_id as string | null) ?? null,
       fullName: emp?.full_name ?? null,
-      department: emp?.department ?? null,
+      department: (r.department as string | null) ?? emp?.department ?? null,
     };
   });
 }

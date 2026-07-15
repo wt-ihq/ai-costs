@@ -5,7 +5,8 @@ export type Vendor =
   | "anthropic"
   | "openai"
   | "claude_team"
-  | "chatgpt_business";
+  | "chatgpt_business"
+  | "other";
 
 export type CostType = "seat" | "overage" | "metered";
 
@@ -38,6 +39,7 @@ export interface SpendFact {
   apiKeyId?: string | null;
   projectId?: string | null;
   model?: string | null;
+  department?: string | null;
 }
 
 /**
@@ -59,6 +61,7 @@ export const VENDOR_LABEL: Record<Vendor, string> = {
   openai: "OpenAI API",
   claude_team: "Claude Team",
   chatgpt_business: "ChatGPT Business",
+  other: "Other tools",
 };
 
 /** "metered" = pay-as-you-go API usage; shown as "API" in the UI. */

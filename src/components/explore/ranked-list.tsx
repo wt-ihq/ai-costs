@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { motion, useReducedMotion } from "motion/react";
 import type { Dim, RankRow } from "@/lib/explore/types";
-import { dimColor } from "@/lib/explore/shape";
 import { formatUsd, cn } from "@/lib/utils";
 
 function Row({ r, max, i, dim, linkQuery }: { r: RankRow; max: number; i: number; dim: Dim; linkQuery?: string }) {
@@ -35,7 +34,7 @@ function Row({ r, max, i, dim, linkQuery }: { r: RankRow; max: number; i: number
         {r.total > 0 && (segs.length > 0 ? (
           <div className="flex h-full gap-0.5" style={{ width: `${pct}%` }}>
             {segs.map((s) => (
-              <div key={s.key} className="h-full rounded-full" style={{ width: `${(s.value / r.total) * 100}%`, background: dimColor(dim, s.key) }} />
+              <div key={s.key} className="h-full rounded-full" style={{ width: `${(s.value / r.total) * 100}%`, background: s.color }} />
             ))}
           </div>
         ) : (

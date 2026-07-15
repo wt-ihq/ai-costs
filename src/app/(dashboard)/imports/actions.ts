@@ -11,6 +11,7 @@ import { parseClaudeRoster } from "@/lib/ingest/parsers/claude-roster";
 import { parseOpenAiCreditsCsv, coveredWindow, type CreditUsageFact } from "@/lib/ingest/parsers/openai-credits";
 import { loadEmployeesFull, upsertSpendFacts, replaceWindowFacts, type ResolvedFact } from "@/lib/ingest/persist";
 import { rebuildChatGptSeatMonth, rebuildClaudeSeatMonth } from "@/lib/ingest/seat-months";
+import { fetchRecurringEntries, rebuildRecurringFacts, pickColorSlot } from "@/lib/ingest/recurring";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** seat_prices as a `${vendor}:${seat_type}` -> USD map. */
@@ -476,6 +477,95 @@ export async function commitClaudeRoster(
   const written = await rebuildClaudeSeatMonth(supabase, day);
 
   return { written, seats: rows.length, attributed: assignments.length };
+}
+
+// ---- Recurring costs for other AI tools -------------------------------------
+
+export interface RecurringCostInput {
+  tool: string;
+  department: string | null;
+  kind: "monthly" | "contract";
+  amount: number;
+  currency: "USD" | "GBP" | "EUR";
+  fxRate: number;
+  startMonth: string; // YYYY-MM
+  endMonth: string | null;
+}
+
+export async function saveRecurringCost(input: RecurringCostInput): Promise<{ written: number }> {
+  await requireAdmin();
+  const tool = input.tool.trim();
+  if (!tool) throw new Error("Tool name is required.");
+  if (!MONTH_RE.test(input.startMonth)) throw new Error(`Invalid start month "${input.startMonth}".`);
+  if (input.endMonth && !MONTH_RE.test(input.endMonth)) throw new Error(`Invalid end month "${input.endMonth}".`);
+  if (input.kind === "contract" && !input.endMonth) throw new Error("Contracts need an end month.");
+  if (input.endMonth && input.endMonth < input.startMonth) throw new Error("End month is before start month.");
+  if (!Number.isFinite(input.amount) || input.amount < 0) throw new Error("Amount must be a number ≥ 0.");
+  const fxRate = input.currency === "USD" ? 1 : input.fxRate;
+  if (!Number.isFinite(fxRate) || fxRate <= 0) throw new Error("A conversion rate > 0 is required.");
+  const supabase = getSupabaseAdminClient();
+
+  const existing = await fetchRecurringEntries(supabase);
+  const colorSlot = pickColorSlot(
+    existing.map((e) => ({ tool: e.tool, colorSlot: e.colorSlot })),
+    tool,
+  );
+
+  const { error } = await supabase.from("recurring_costs").insert({
+    tool,
+    color_slot: colorSlot,
+    department: input.department?.trim() || null,
+    kind: input.kind,
+    amount: input.amount,
+    currency: input.currency,
+    fx_rate: fxRate,
+    start_month: `${input.startMonth}-01`,
+    end_month: input.endMonth ? `${input.endMonth}-01` : null,
+  });
+  if (error) throw new Error(`saveRecurringCost: ${error.message}`);
+
+  const written = await rebuildRecurringFacts(supabase);
+  revalidatePath("/imports");
+  revalidatePath("/");
+  return { written };
+}
+
+export async function endRecurringCost(id: string, endMonth: string): Promise<{ written: number }> {
+  await requireAdmin();
+  if (!MONTH_RE.test(endMonth)) throw new Error(`Invalid end month "${endMonth}".`);
+  const supabase = getSupabaseAdminClient();
+
+  const { data: rows, error: fetchError } = await supabase
+    .from("recurring_costs")
+    .select("kind, start_month")
+    .eq("id", id)
+    .limit(1);
+  if (fetchError) throw new Error(`endRecurringCost: ${fetchError.message}`);
+  const row = rows?.[0];
+  if (!row) throw new Error("Entry not found.");
+  if (row.kind === "contract") throw new Error("Contracts can't be ended early — remove and re-add instead.");
+  if (`${endMonth}-01` < row.start_month) throw new Error("End month is before the entry's start month.");
+
+  const { error } = await supabase
+    .from("recurring_costs")
+    .update({ end_month: `${endMonth}-01`, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw new Error(`endRecurringCost: ${error.message}`);
+  const written = await rebuildRecurringFacts(supabase);
+  revalidatePath("/imports");
+  revalidatePath("/");
+  return { written };
+}
+
+export async function deleteRecurringCost(id: string): Promise<{ written: number }> {
+  await requireAdmin();
+  const supabase = getSupabaseAdminClient();
+  const { error } = await supabase.from("recurring_costs").delete().eq("id", id);
+  if (error) throw new Error(`deleteRecurringCost: ${error.message}`);
+  const written = await rebuildRecurringFacts(supabase);
+  revalidatePath("/imports");
+  revalidatePath("/");
+  return { written };
 }
 
 // ---- Automated sync: manual trigger + backfill ------------------------------

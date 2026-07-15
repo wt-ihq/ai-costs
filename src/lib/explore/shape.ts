@@ -20,14 +20,29 @@ export interface ShapeFact {
 export const UNATTRIBUTED = "Unattributed";
 /** Pseudo-team for backfilled seat months with no member data — by nature not team-attributable. */
 export const SHARED_SEATS = "Shared seats";
+/** Vendor-dim key prefix for `source === "other"` facts: `other:${model}` (per-tool, not per-vendor). */
+export const OTHER_KEY_PREFIX = "other:";
 
-const dimKey = (r: ShapeFact, dim: Dim): string => (dim === "vendor" ? r.source : r.costType);
-const labelFor = (dim: Dim, key: string) =>
-  dim === "vendor" ? VENDOR_LABEL[key as Vendor] ?? key : COST_TYPE_LABEL[key as CostType] ?? key;
-const colorFor = (dim: Dim, key: string) =>
-  dim === "vendor" ? VENDOR_COLORS[key as Vendor] ?? "#6ea8fe" : COST_TYPE_COLORS[key as CostType] ?? "#6ea8fe";
-/** Color for a dim value — exported for the ranked-list segmented bars. */
-export const dimColor = colorFor;
+/** User-assigned colors for "other" (recurring, non-integrated) tools, keyed by tool/model name. */
+export type ToolColors = Record<string, string>;
+
+const dimKey = (r: ShapeFact, dim: Dim): string =>
+  dim === "vendor" ? (r.source === "other" ? `${OTHER_KEY_PREFIX}${r.model}` : r.source) : r.costType;
+
+/** Human label for a dim value. Vendor-dim "other:<tool>" keys resolve to the tool name verbatim. */
+export function dimLabel(dim: Dim, key: string): string {
+  if (dim === "vendor" && key.startsWith(OTHER_KEY_PREFIX)) return key.slice(OTHER_KEY_PREFIX.length);
+  return dim === "vendor" ? VENDOR_LABEL[key as Vendor] ?? key : COST_TYPE_LABEL[key as CostType] ?? key;
+}
+
+/** Color for a dim value — exported for the ranked-list segmented bars. Vendor-dim "other:<tool>"
+ * keys resolve through the caller-supplied toolColors map, falling back to the generic "other" grey. */
+export function dimColorFor(dim: Dim, key: string, toolColors?: ToolColors): string {
+  if (dim === "vendor" && key.startsWith(OTHER_KEY_PREFIX)) {
+    return toolColors?.[key.slice(OTHER_KEY_PREFIX.length)] ?? VENDOR_COLORS.other;
+  }
+  return dim === "vendor" ? VENDOR_COLORS[key as Vendor] ?? "#6ea8fe" : COST_TYPE_COLORS[key as CostType] ?? "#6ea8fe";
+}
 const teamSlug = (dept: string) => encodeURIComponent(dept);
 const sum = (rows: ShapeFact[]) => rows.reduce((s, r) => s + r.costUsd, 0);
 
@@ -44,11 +59,11 @@ const dimCompare = (dim: Dim) => (a: { key: string; value: number }, b: { key: s
     : b.value - a.value;
 
 /** Per-row spend split for both dims (for the color bars): vendors sorted desc, cost types canonical. */
-function segmentsByDim(rows: ShapeFact[]): Record<Dim, RankSegment[]> {
+function segmentsByDim(rows: ShapeFact[], toolColors?: ToolColors): Record<Dim, RankSegment[]> {
   const build = (dim: Dim): RankSegment[] =>
     [...totalsBy(rows, (r) => dimKey(r, dim)).entries()]
       .filter(([, v]) => v > 0)
-      .map(([key, value]) => ({ key, value: Math.round(value * 100) / 100 }))
+      .map(([key, value]) => ({ key, value: Math.round(value * 100) / 100, color: dimColorFor(dim, key, toolColors) }))
       .sort(dimCompare(dim));
   return { vendor: build("vendor"), cost_type: build("cost_type") };
 }
@@ -106,16 +121,16 @@ function bucketKey(day: string, period: Period, buckets: Bucket[]): string {
 }
 
 /** Treemap nodes for a dim (or model), top-N by spend + an "Other" bucket. */
-export function treemapByDim(rows: ShapeFact[], dim: Dim | "model", topN = 12): TreemapNode[] {
+export function treemapByDim(rows: ShapeFact[], dim: Dim | "model", topN = 12, toolColors?: ToolColors): TreemapNode[] {
   const keyFn = dim === "model" ? (r: ShapeFact) => r.model || "(no model)" : (r: ShapeFact) => dimKey(r, dim);
   const totals = [...totalsBy(rows, keyFn).entries()].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
   const head = totals.slice(0, topN);
   const rest = totals.slice(topN).reduce((s, [, v]) => s + v, 0);
   const nodes: TreemapNode[] = head.map(([key, value]) => ({
     key,
-    label: dim === "model" ? key : labelFor(dim, key),
+    label: dim === "model" ? key : dimLabel(dim, key),
     value: Math.round(value * 100) / 100,
-    color: dim === "model" ? "#6ea8fe" : colorFor(dim, key),
+    color: dim === "model" ? "#6ea8fe" : dimColorFor(dim, key, toolColors),
   }));
   if (rest > 0) nodes.push({ key: "__other__", label: "Other", value: Math.round(rest * 100) / 100, color: "#3a4150" });
   return nodes;
@@ -135,7 +150,7 @@ export function scorecardFor(rows: ShapeFact[]): Scorecard {
  *     with the `unassigned seats` prefix) — by nature not team-attributable.
  *   - "Unattributed": unmatched entity keys + employees with no department.
  */
-export function rankTeams(rows: ShapeFact[], headcounts: Map<string, number>): RankRow[] {
+export function rankTeams(rows: ShapeFact[], headcounts: Map<string, number>, toolColors?: ToolColors): RankRow[] {
   const shared = rows.filter((r) => r.entityKey.startsWith(UNASSIGNED_PREFIX));
   const attributable = rows.filter((r) => !r.entityKey.startsWith(UNASSIGNED_PREFIX));
 
@@ -154,7 +169,7 @@ export function rankTeams(rows: ShapeFact[], headcounts: Map<string, number>): R
         href: `/explore/${teamSlug(dept)}`,
         perHead: head === 0 ? null : Math.round((total / head) * 100) / 100,
         sub: head ? `${head} people` : undefined,
-        segments: segmentsByDim(facts),
+        segments: segmentsByDim(facts, toolColors),
       };
     })
     .sort((a, b) => b.total - a.total);
@@ -167,7 +182,7 @@ export function rankTeams(rows: ShapeFact[], headcounts: Map<string, number>): R
       href: undefined,
       perHead: null,
       sub: "backfilled seat months — no member data",
-      segments: segmentsByDim(shared),
+      segments: segmentsByDim(shared, toolColors),
     });
   }
   if (unattributed.length > 0) {
@@ -179,7 +194,7 @@ export function rankTeams(rows: ShapeFact[], headcounts: Map<string, number>): R
       href: undefined,
       perHead: null,
       sub: `${head ? `${head} people without a department · ` : ""}unmatched keys — see Data Health`,
-      segments: segmentsByDim(unattributed),
+      segments: segmentsByDim(unattributed, toolColors),
     });
   }
   return teams;
@@ -190,6 +205,7 @@ export function rankPeople(
   rows: ShapeFact[],
   teamDept: string,
   employees: { id: string; fullName: string | null }[],
+  toolColors?: ToolColors,
 ): RankRow[] {
   const agg = new Map<string, { total: number; seat: number; activity: number }>();
   for (const r of rows) {
@@ -202,23 +218,40 @@ export function rankPeople(
   }
   const byEmp = groupBy(rows, (r) => r.employeeId);
   const nameById = new Map(employees.map((e) => [e.id, e.fullName ?? "(unknown)"]));
-  return [...agg.entries()]
-    .map(([id, a]) => ({
-      id,
-      label: nameById.get(id) ?? "(unknown)",
-      total: Math.round(a.total * 100) / 100,
-      idle: a.seat > 0 && a.activity === 0,
-      sub: a.seat > 0 && a.activity === 0 ? "idle seat" : undefined,
-      href: `/explore/${teamSlug(teamDept)}/${id}`,
-      segments: segmentsByDim(byEmp.get(id) ?? []),
-    }))
-    .sort((a, b) => b.total - a.total);
+  const people: RankRow[] = [...agg.entries()].map(([id, a]) => ({
+    id,
+    label: nameById.get(id) ?? "(unknown)",
+    total: Math.round(a.total * 100) / 100,
+    idle: a.seat > 0 && a.activity === 0,
+    sub: a.seat > 0 && a.activity === 0 ? "idle seat" : undefined,
+    href: `/explore/${teamSlug(teamDept)}/${id}`,
+    segments: segmentsByDim(byEmp.get(id) ?? [], toolColors),
+  }));
+
+  // Department-attributed "other" tool facts have no employee to pin them to
+  // (recurring costs are billed to the team, not a person) — surface them as
+  // non-person rows, one per tool, alongside the people.
+  const toolRowsByModel = groupBy(
+    rows.filter((r) => r.source === "other" && !r.employeeId),
+    (r) => r.model,
+  );
+  const tools: RankRow[] = [...toolRowsByModel.entries()].map(([model, toolRows]) => ({
+    id: `tool:${model}`,
+    label: model,
+    total: Math.round(sum(toolRows) * 100) / 100,
+    href: undefined,
+    sub: "recurring tool",
+    segments: segmentsByDim(toolRows, toolColors),
+  }));
+
+  return [...people, ...tools].sort((a, b) => b.total - a.total);
 }
 
 /** Company-wide: every employee with their (period-scoped) spend, roster-driven. */
 export function rankAllStaff(
   rows: ShapeFact[],
   employees: { id: string; fullName: string | null; department: string | null }[],
+  toolColors?: ToolColors,
 ): RankRow[] {
   const byEmp = groupBy(rows, (r) => r.employeeId);
   return employees
@@ -231,7 +264,7 @@ export function rankAllStaff(
         total: Math.round(sum(facts) * 100) / 100,
         sub: dept,
         href: `/explore/${teamSlug(dept)}/${e.id}`,
-        segments: segmentsByDim(facts),
+        segments: segmentsByDim(facts, toolColors),
       };
     })
     .sort((a, b) => b.total - a.total);

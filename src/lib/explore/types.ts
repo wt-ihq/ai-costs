@@ -17,6 +17,7 @@ export interface TreemapNode {
 export interface RankSegment {
   key: string; // vendor or cost_type value
   value: number; // USD
+  color: string;
 }
 
 export interface RankRow {

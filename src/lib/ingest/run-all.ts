@@ -6,6 +6,7 @@ import { syncAnthropic, syncOpenAI } from "@/lib/ingest/run-platforms";
 import { syncOkta } from "@/lib/ingest/run-okta";
 import { syncChatGptSeats } from "@/lib/ingest/run-chatgpt-seats";
 import { syncClaudeSeats } from "@/lib/ingest/run-claude-seats";
+import { syncRecurring } from "@/lib/ingest/recurring";
 import type { DateWindow } from "@/lib/ingest/sources/anthropic";
 
 export type SyncOutcome = { ok: true; rowsWritten: number } | { ok: false; error: string };
@@ -44,6 +45,7 @@ export async function runAllSyncs(
     run("openai", () => syncOpenAI(supabase, window)),
     run("chatgpt_seats", () => syncChatGptSeats(supabase)),
     run("claude_seats", () => syncClaudeSeats(supabase)),
+    run("recurring", () => syncRecurring(supabase)),
   ]);
   return results;
 }

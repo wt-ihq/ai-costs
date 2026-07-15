@@ -10,9 +10,9 @@ import {
  * which re-derives the per-period views in-memory (no refetch on period change).
  */
 export type RawScope =
-  | { kind: "company"; title: string; earliest: string; facts: ShapeFact[]; headcounts: Record<string, number>; employees: { id: string; fullName: string | null; department: string | null }[] }
-  | { kind: "team"; title: string; earliest: string; facts: ShapeFact[]; team: string; employees: { id: string; fullName: string | null }[] }
-  | { kind: "person"; title: string; earliest: string; facts: ShapeFact[] };
+  | { kind: "company"; title: string; earliest: string; facts: ShapeFact[]; headcounts: Record<string, number>; employees: { id: string; fullName: string | null; department: string | null }[]; toolColors: Record<string, string> }
+  | { kind: "team"; title: string; earliest: string; facts: ShapeFact[]; team: string; employees: { id: string; fullName: string | null }[]; toolColors: Record<string, string> }
+  | { kind: "person"; title: string; earliest: string; facts: ShapeFact[]; toolColors: Record<string, string> };
 
 const sumAll = (rows: ShapeFact[]) => Math.round(rows.reduce((s, r) => s + r.costUsd, 0) * 100) / 100;
 const inPeriod = (p: Period) => (r: ShapeFact) => r.day >= p.from && r.day < p.toExclusive;
@@ -28,13 +28,17 @@ export function buildExploreData(scope: RawScope, period: Period): ExploreData {
     totalToDate: sumAll(scope.facts),
     scorecard: scorecardFor(cur),
     trend: bothDims((d) => trendForPeriod(scope.facts, period, d)),
-    treemap: bothDims((d) => treemapByDim(cur, d)),
+    treemap: bothDims((d) => treemapByDim(cur, d, 12, scope.toolColors)),
   };
   if (scope.kind === "company") {
-    return { ...base, ranked: { kind: "team", rows: rankTeams(cur, new Map(Object.entries(scope.headcounts))) }, allStaff: rankAllStaff(cur, scope.employees) };
+    return {
+      ...base,
+      ranked: { kind: "team", rows: rankTeams(cur, new Map(Object.entries(scope.headcounts)), scope.toolColors) },
+      allStaff: rankAllStaff(cur, scope.employees, scope.toolColors),
+    };
   }
   if (scope.kind === "team") {
-    return { ...base, ranked: { kind: "person", rows: rankPeople(cur, scope.team, scope.employees) } };
+    return { ...base, ranked: { kind: "person", rows: rankPeople(cur, scope.team, scope.employees, scope.toolColors) } };
   }
   return { ...base, ranked: { kind: "lineitem", rows: lineItems(cur) } };
 }

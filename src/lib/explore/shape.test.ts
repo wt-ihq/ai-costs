@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   seriesOrder, treemapByDim, SHARED_SEATS,
   scorecardFor, rankTeams, rankPeople, rankAllStaff, lineItems, trendForPeriod, type ShapeFact,
+  dimLabel, dimColorFor,
 } from "./shape";
 import { parsePeriod } from "./period";
 import type { TrendPoint } from "./types";
 import { VENDOR_LABEL } from "@/lib/types";
+import { OTHER_TOOL_PALETTE } from "@/lib/colors";
 
 const rows: ShapeFact[] = [
   { day: "2026-05-03", source: "cursor", costType: "seat", costUsd: 40, employeeId: "a", department: "Eng", fullName: "A", entityKey: "a@x", model: "" },
@@ -48,13 +50,13 @@ describe("rankTeams", () => {
   it("attaches a spend split: vendors sorted desc, cost types in canonical order", () => {
     const r = rankTeams(june, new Map([["Eng", 2]]));
     // vendor split: anthropic 100 > cursor 40 (by value)
-    expect(r[0].segments?.vendor).toEqual([
+    expect(r[0].segments?.vendor).toMatchObject([
       { key: "anthropic", value: 100 },
       { key: "cursor", value: 40 },
     ]);
     // cost_type split: canonical seat → overage → metered, NOT by value —
     // seat leads even though metered (100) outweighs it (40).
-    expect(r[0].segments?.cost_type).toEqual([
+    expect(r[0].segments?.cost_type).toMatchObject([
       { key: "seat", value: 40 },
       { key: "metered", value: 100 },
     ]);
@@ -191,5 +193,46 @@ describe("rankTeams — Shared seats split", () => {
     const un = r.find((x) => x.id === "Unattributed");
     expect(un?.sub).toContain("64 people without a department");
     expect(un?.sub).toContain("Data Health");
+  });
+});
+
+describe("tool-aware vendor dimension", () => {
+  const toolFact = (model: string, costUsd: number, department = "Data Science"): ShapeFact => ({
+    day: "2026-06-01", source: "other", costType: "seat", costUsd,
+    employeeId: null, department, fullName: null, entityKey: model.toLowerCase() + "|" + department, model,
+  });
+  const toolColors = { Perplexity: OTHER_TOOL_PALETTE[2] };
+
+  it("keys, labels, and colors other-facts by tool", () => {
+    expect(dimLabel("vendor", "other:Perplexity")).toBe("Perplexity");
+    expect(dimLabel("vendor", "cursor")).toBe("Cursor");
+    expect(dimColorFor("vendor", "other:Perplexity", toolColors)).toBe(OTHER_TOOL_PALETTE[2]);
+    expect(dimColorFor("vendor", "other:Unknown", toolColors)).toBe("#8b92a5"); // fallback grey
+  });
+
+  it("treemap gives each tool its own node", () => {
+    const t = treemapByDim([toolFact("Perplexity", 100), toolFact("ElevenLabs", 40)], "vendor", 12, toolColors);
+    expect(t.map((n) => n.label).sort()).toEqual(["ElevenLabs", "Perplexity"]);
+    expect(t.find((n) => n.label === "Perplexity")?.color).toBe(OTHER_TOOL_PALETTE[2]);
+  });
+
+  it("rankTeams lands tool spend on the chosen department with colored segments", () => {
+    const r = rankTeams([...june, toolFact("Perplexity", 100, "Eng")], new Map([["Eng", 2]]), toolColors);
+    expect(r[0].id).toBe("Eng");
+    expect(r[0].total).toBe(240);
+    const seg = r[0].segments?.vendor.find((s) => s.key === "other:Perplexity");
+    expect(seg).toMatchObject({ value: 100, color: OTHER_TOOL_PALETTE[2] });
+  });
+
+  it("rankPeople appends a non-person row per tool for department-attributed facts", () => {
+    const r = rankPeople([...june, toolFact("Perplexity", 100, "Eng")], "Eng", [{ id: "a", fullName: "A" }], toolColors);
+    const tool = r.find((x) => x.label === "Perplexity");
+    expect(tool).toMatchObject({ total: 100, href: undefined });
+    expect(tool?.sub).toContain("recurring");
+  });
+
+  it("trend series include per-tool keys", () => {
+    const pts = trendForPeriod([toolFact("Perplexity", 100)], parsePeriod("2026-06", NOW2), "vendor");
+    expect(pts.find((p) => p["other:Perplexity"] !== undefined)).toBeTruthy();
   });
 });

@@ -9,6 +9,10 @@ import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { buildImportCoverage, getImportCoverageScope } from "@/lib/queries/import-coverage";
 import { ImportCoverage } from "@/components/import-coverage";
 import { SeatMonthEntries, type SeatMonthEntryRow } from "@/components/seat-month-entries";
+import { RecurringCosts, type RecurringCostRow } from "@/components/recurring-costs";
+import { fetchRecurringEntries, monthsBetween } from "@/lib/ingest/recurring";
+import { OTHER_TOOL_PALETTE } from "@/lib/colors";
+import { fetchEmployeesAll } from "@/lib/queries/common";
 
 export default async function ImportsPage() {
   // The nav only hides the link for viewers; the page itself must enforce it.
@@ -43,6 +47,18 @@ export default async function ImportsPage() {
     priceGbp: r.price_gbp === null ? null : Number(r.price_gbp),
     fxRate: r.fx_rate === null ? null : Number(r.fx_rate),
   }));
+  const recurringRaw = await fetchRecurringEntries(supabase);
+  const recurringRows: RecurringCostRow[] = recurringRaw.map((e) => {
+    const months = e.kind === "contract" ? monthsBetween(e.startMonth, e.endMonth!).length : 1;
+    const usd = Math.round(e.amount * e.fxRate * 100) / 100;
+    return {
+      id: e.id, tool: e.tool, color: OTHER_TOOL_PALETTE[e.colorSlot % OTHER_TOOL_PALETTE.length],
+      department: e.department, kind: e.kind, amount: e.amount, currency: e.currency, fxRate: e.fxRate,
+      startMonth: e.startMonth.slice(0, 7), endMonth: e.endMonth?.slice(0, 7) ?? null,
+      monthlyUsd: e.kind === "contract" ? Math.round((usd / months) * 100) / 100 : usd,
+    };
+  });
+  const departments = [...new Set((await fetchEmployeesAll(supabase, "department")).map((e) => e.department as string | null).filter(Boolean))].sort() as string[];
   return (
     <>
       <PageHeader
@@ -85,6 +101,16 @@ export default async function ImportsPage() {
             their own entry. Removing an entry reverts that tier to synced members × default price.
           </p>
           <SeatMonthEntries entries={seatEntries} />
+        </Panel>
+
+        <Panel>
+          <h2 className="mb-1 text-sm font-medium">Other AI tools — recurring costs</h2>
+          <p className="mb-4 text-xs text-muted">
+            Tools the dashboard doesn&rsquo;t track automatically. Monthly prices repeat until ended; up-front
+            contracts spread evenly across their months. Costs land on the chosen department and each tool
+            appears as its own vendor in Explore. Price change? End the entry and add a new one.
+          </p>
+          <RecurringCosts entries={recurringRows} departments={departments} />
         </Panel>
 
         <Panel>

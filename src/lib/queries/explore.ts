@@ -2,8 +2,19 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { earliestFactDay, fetchEmployeesAll, fetchFactsInRange, type EnrichedFact, type FactFilter } from "./common";
 import { UNATTRIBUTED, type ShapeFact } from "@/lib/explore/shape";
 import type { RawScope } from "@/lib/explore/build";
+import { OTHER_TOOL_PALETTE } from "@/lib/colors";
 
 const asShape = (f: EnrichedFact): ShapeFact => f as unknown as ShapeFact;
+
+/** tool display name → stable hex, from recurring_costs color slots. */
+export async function getToolColors(supabase: SupabaseClient): Promise<Record<string, string>> {
+  // `.limit(1000)` is a bounded read over a table that grows by a handful of rows a year — acceptable.
+  const { data, error } = await supabase.from("recurring_costs").select("tool, color_slot").limit(1000);
+  if (error) throw new Error(`getToolColors: ${error.message}`);
+  const out: Record<string, string> = {};
+  for (const r of data ?? []) out[r.tool as string] = OTHER_TOOL_PALETTE[Number(r.color_slot) % OTHER_TOOL_PALETTE.length];
+  return out;
+}
 
 function nextMonth(m: string): string {
   const [y, mo] = m.split("-").map(Number);
@@ -41,7 +52,8 @@ export async function getCompanyScope(supabase: SupabaseClient): Promise<RawScop
     const d = e.department ?? UNATTRIBUTED;
     headcounts[d] = (headcounts[d] ?? 0) + 1;
   }
-  return { kind: "company", title: "Company", earliest, facts: rows, headcounts, employees };
+  const toolColors = await getToolColors(supabase);
+  return { kind: "company", title: "Company", earliest, facts: rows, headcounts, employees, toolColors };
 }
 
 export async function getTeamScope(supabase: SupabaseClient, team: string): Promise<RawScope> {
@@ -55,8 +67,10 @@ export async function getTeamScope(supabase: SupabaseClient, team: string): Prom
   const { rows: facts, earliest } = await fetchScope(supabase, {
     employeeIds: employees.map((e) => e.id),
     includeNullEmployee: isUnattributed,
+    department: isUnattributed ? undefined : team,
   });
-  return { kind: "team", title: team, earliest, facts, team, employees };
+  const toolColors = await getToolColors(supabase);
+  return { kind: "team", title: team, earliest, facts, team, employees, toolColors };
 }
 
 export interface SearchItem {
@@ -101,5 +115,6 @@ export async function getSearchIndex(supabase: SupabaseClient): Promise<SearchIt
 export async function getPersonScope(supabase: SupabaseClient, employeeId: string): Promise<RawScope> {
   const { rows: facts, earliest } = await fetchScope(supabase, { employeeIds: [employeeId] });
   const { data: emp } = await supabase.from("employees").select("full_name").eq("id", employeeId).single();
-  return { kind: "person", title: (emp?.full_name as string) ?? "Unknown", earliest, facts };
+  const toolColors = await getToolColors(supabase);
+  return { kind: "person", title: (emp?.full_name as string) ?? "Unknown", earliest, facts, toolColors };
 }
