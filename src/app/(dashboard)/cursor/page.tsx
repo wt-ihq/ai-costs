@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export default async function CursorModelsPage({ searchParams }: { searchParams: Promise<{ period?: string }> }) {
   const sp = await searchParams;
   const header = (
-    <PageHeader title="Cursor usage" subtitle="Cursor model adoption and spend by model, team, and person." />
+    <PageHeader title="Cursor usage & spend" subtitle="Cursor model adoption and spend by model, team, and person." />
   );
 
   // Enterprise: full per-model message volume from the Analytics API.
