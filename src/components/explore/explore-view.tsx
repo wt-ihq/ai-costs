@@ -148,7 +148,7 @@ export function ExploreView({
         totalToDate={data.totalToDate}
         sc={data.scorecard}
         periodLabel={data.period.label}
-        projection={includesToday ? data.projection.monthEnd : null}
+        projection={includesToday ? data.projection.periodEnd : null}
       />
 
       <div className="grid gap-4 lg:grid-cols-2">

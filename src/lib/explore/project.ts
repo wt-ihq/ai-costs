@@ -13,13 +13,21 @@ import type { TrendPoint } from "./types";
 const FIXED = new Set(["seat", "subscription"]);
 const LAG_DAYS = 2;
 const SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
-export interface MonthEndProjection {
-  month: string; // YYYY-MM being projected
+/** The slice of a Period the projection needs (month/all collapse to the current month). */
+export interface ProjectionPeriod {
+  granularity: "month" | "quarter" | "year" | "all";
+  from: string; // YYYY-MM-DD inclusive
+  toExclusive: string; // YYYY-MM-DD exclusive
+  label: string; // "July 2026" | "Q3 2026" | "2026" | "All time"
+}
+
+export interface PeriodProjection {
+  label: string; // "July" | "Q3 2026" | "2026"
+  compareLabel: "last month" | "last quarter" | "last year";
   projectedUsd: number;
-  fixedUsd: number;
-  variableMtdUsd: number;
-  lastMonthUsd: number | null; // previous month's actual total
+  prevPeriodUsd: number | null; // previous period's actual total
   deltaPct: number | null;
   basis: "run-rate" | "previous-month";
 }
@@ -31,51 +39,89 @@ const daysInMonth = (ym: string) => {
   const [y, m] = ym.split("-").map(Number);
   return new Date(Date.UTC(y, m, 0)).getUTCDate();
 };
-const prevMonthOf = (ym: string) => {
+const addMonths = (ym: string, k: number) => {
   const [y, m] = ym.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 7);
+  return new Date(Date.UTC(y, m - 1 + k, 1)).toISOString().slice(0, 7);
 };
+const sum = (facts: ShapeFact[]) => facts.reduce((s, f) => s + f.costUsd, 0);
+const inRange = (facts: ShapeFact[], from: string, toExclusive: string) =>
+  facts.filter((f) => f.day >= from && f.day < toExclusive);
 
-/** Month-end forecast for `now`'s month, from (already period/vendor-filtered) facts. */
-export function projectMonthEnd(facts: ShapeFact[], now: Date): MonthEndProjection | null {
+/**
+ * Forecast for the END OF THE SELECTED PERIOD (month, quarter, or year;
+ * "all" collapses to the current month), from already period/vendor-filtered
+ * facts. Months elapsed within the period count as actuals; the current
+ * month projects fixed + run-rate; future months in the period assume the
+ * current fixed level plus the run rate. Comparison is against the previous
+ * period of the same length. Only call with a period that includes `now`.
+ */
+export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: ProjectionPeriod): PeriodProjection | null {
   const month = monthOf(now);
-  const prevMonth = prevMonthOf(month);
+  const prevMonth = addMonths(month, -1);
   const inMonth = facts.filter((f) => f.day.slice(0, 7) === month);
-  const inPrev = facts.filter((f) => f.day.slice(0, 7) === prevMonth);
-  if (inMonth.length === 0 && inPrev.length === 0) return null;
+  const inPrevMonth = facts.filter((f) => f.day.slice(0, 7) === prevMonth);
+  if (inMonth.length === 0 && inPrevMonth.length === 0) return null;
 
-  const fixedUsd = round2(inMonth.filter((f) => !isVariable(f)).reduce((s, f) => s + f.costUsd, 0));
-  const variableMtdUsd = round2(inMonth.filter(isVariable).reduce((s, f) => s + f.costUsd, 0));
+  const fixedUsd = sum(inMonth.filter((f) => !isVariable(f)));
+  const variableMtdUsd = sum(inMonth.filter(isVariable));
 
   // Run-rate window: [month start, now − LAG_DAYS], as day-of-month numbers.
   const cutoff = new Date(now.getTime() - LAG_DAYS * 86_400_000);
   const windowDays = monthOf(cutoff) === month ? cutoff.getUTCDate() : 0;
   const cutoffDay = `${month}-${String(windowDays).padStart(2, "0")}`;
-  const variableWindowUsd = inMonth
-    .filter(isVariable)
-    .filter((f) => windowDays > 0 && f.day <= cutoffDay)
-    .reduce((s, f) => s + f.costUsd, 0);
+  const variableWindowUsd = sum(
+    inMonth.filter(isVariable).filter((f) => windowDays > 0 && f.day <= cutoffDay),
+  );
 
   let rate: number;
-  let basis: MonthEndProjection["basis"];
+  let basis: PeriodProjection["basis"];
   if (windowDays >= 3) {
     rate = variableWindowUsd / windowDays;
     basis = "run-rate";
   } else {
-    rate = inPrev.filter(isVariable).reduce((s, f) => s + f.costUsd, 0) / daysInMonth(prevMonth);
+    rate = sum(inPrevMonth.filter(isVariable)) / daysInMonth(prevMonth);
     basis = "previous-month";
   }
 
   const remainingDays = daysInMonth(month) - windowDays;
   // The lag days are projected, not dropped — but anything that DID post in
   // them still counts: never project below the actuals already on record.
-  const projectedUsd = round2(fixedUsd + Math.max(variableMtdUsd, variableWindowUsd + rate * remainingDays));
+  const currentMonthUsd = fixedUsd + Math.max(variableMtdUsd, variableWindowUsd + rate * remainingDays);
 
-  const lastMonthTotal = inPrev.reduce((s, f) => s + f.costUsd, 0);
-  const lastMonthUsd = inPrev.length ? round2(lastMonthTotal) : null;
-  const deltaPct = lastMonthUsd && lastMonthUsd !== 0 ? round2(((projectedUsd - lastMonthUsd) / lastMonthUsd) * 100) : null;
+  const spansMonths = period.granularity === "quarter" || period.granularity === "year";
+  let projectedUsd: number;
+  let label: string;
+  let compareLabel: PeriodProjection["compareLabel"];
+  let prevFrom: string;
+  let prevToExclusive: string;
 
-  return { month, projectedUsd, fixedUsd, variableMtdUsd, lastMonthUsd, deltaPct, basis };
+  if (spansMonths) {
+    // Elapsed months are actuals; future months assume the current fixed
+    // level (seats/subscriptions are flat unless changed) plus the run rate.
+    const pastActualUsd = sum(inRange(facts, period.from, `${month}-01`));
+    let futureUsd = 0;
+    for (let m = addMonths(month, 1); `${m}-01` < period.toExclusive; m = addMonths(m, 1)) {
+      futureUsd += fixedUsd + rate * daysInMonth(m);
+    }
+    projectedUsd = round2(pastActualUsd + currentMonthUsd + futureUsd);
+    label = period.label;
+    compareLabel = period.granularity === "quarter" ? "last quarter" : "last year";
+    const span = period.granularity === "quarter" ? 3 : 12;
+    prevToExclusive = period.from;
+    prevFrom = `${addMonths(period.from.slice(0, 7), -span)}-01`;
+  } else {
+    projectedUsd = round2(currentMonthUsd);
+    label = FULL[Number(month.slice(5)) - 1];
+    compareLabel = "last month";
+    prevFrom = `${prevMonth}-01`;
+    prevToExclusive = `${month}-01`;
+  }
+
+  const prevFacts = inRange(facts, prevFrom, prevToExclusive);
+  const prevPeriodUsd = prevFacts.length ? round2(sum(prevFacts)) : null;
+  const deltaPct = prevPeriodUsd ? round2(((projectedUsd - prevPeriodUsd) / prevPeriodUsd) * 100) : null;
+
+  return { label, compareLabel, projectedUsd, prevPeriodUsd, deltaPct, basis };
 }
 
 /**

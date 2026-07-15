@@ -52,7 +52,7 @@ export interface ExploreData {
   ranked: { kind: "team" | "person" | "lineitem"; rows: RankRow[]; tools?: RankRow[] };
   allStaff?: RankRow[];
   /** Month-end forecast + dashed trend extension, from the same filtered facts. */
-  projection: { monthEnd: import("./project").MonthEndProjection | null; trend: TrendPoint[] };
+  projection: { periodEnd: import("./project").PeriodProjection | null; trend: TrendPoint[] };
 }
 
 export type { Vendor, CostType, Period, Granularity };
