@@ -89,12 +89,20 @@ export async function fetchFactsInRange(
   // thousands of ties, so order by the unique id as well — without the
   // tiebreaker a page boundary inside one day can duplicate or skip rows
   // (especially if the cron upserts mid-read).
+  //
+  // The FIRST page also fetches the exact total, so the remaining pages fire
+  // CONCURRENTLY — a dozen sequential round-trips made the company page
+  // multi-second. Disjoint ordered ranges keep the result deterministic; a
+  // write racing between pages could still shift a boundary row, exactly as
+  // it could under the old sequential loop.
   const PAGE = 1000;
-  const data: Record<string, unknown>[] = [];
-  for (let from = 0; ; from += PAGE) {
+  const makeQuery = (withCount: boolean) => {
     let q = supabase
       .from("spend_facts")
-      .select("day, source, cost_type, cost_usd, requests, entity_key, model, employee_id, department, employees(full_name, department)")
+      .select(
+        "day, source, cost_type, cost_usd, requests, entity_key, model, employee_id, department, employees(full_name, department)",
+        withCount ? { count: "exact" } : undefined,
+      )
       .gte("day", fromMonth)
       .lt("day", toExclusive);
     if (filter) {
@@ -112,11 +120,22 @@ export async function fetchFactsInRange(
         q = q.in("employee_id", filter.employeeIds);
       }
     }
-    const { data: page, error } = await q.order("day").order("id").range(from, from + PAGE - 1);
-    if (error) throw new Error(`fetchFactsInRange: ${error.message}`);
-    if (!page || page.length === 0) break;
-    data.push(...(page as Record<string, unknown>[]));
-    if (page.length < PAGE) break;
+    return q.order("day").order("id");
+  };
+
+  const { data: firstPage, count, error } = await makeQuery(true).range(0, PAGE - 1);
+  if (error) throw new Error(`fetchFactsInRange: ${error.message}`);
+  const data: Record<string, unknown>[] = [...((firstPage as Record<string, unknown>[]) ?? [])];
+  const total = count ?? data.length;
+  if (total > PAGE) {
+    const pageCount = Math.ceil(total / PAGE);
+    const rest = await Promise.all(
+      Array.from({ length: pageCount - 1 }, (_, i) => makeQuery(false).range((i + 1) * PAGE, (i + 2) * PAGE - 1)),
+    );
+    for (const p of rest) {
+      if (p.error) throw new Error(`fetchFactsInRange: ${p.error.message}`);
+      data.push(...((p.data as Record<string, unknown>[]) ?? []));
+    }
   }
   return data.map((r) => {
     const e = Array.isArray(r.employees) ? r.employees[0] : r.employees;
