@@ -26,7 +26,6 @@ export interface RankRow {
   total: number;
   sub?: string;
   href?: string;
-  idle?: boolean;
   perHead?: number | null;
   /** Spend split for the color-coded bar, precomputed for both dims. */
   segments?: Record<Dim, RankSegment[]>;

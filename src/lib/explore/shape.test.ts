@@ -64,12 +64,12 @@ describe("rankTeams", () => {
 });
 
 describe("rankPeople", () => {
-  it("ranks people, flags idle seats, links to individual", () => {
-    const idleRows: ShapeFact[] = [
+  it("ranks people and links to the individual", () => {
+    const rows: ShapeFact[] = [
       { day: "2026-06-01", source: "claude_team", costType: "seat", costUsd: 30, employeeId: "b", department: "Eng", fullName: "Bob", entityKey: "b@x", model: "" },
     ];
-    const r = rankPeople(idleRows, "Eng", [{ id: "b", fullName: "Bob" }]);
-    expect(r[0]).toMatchObject({ id: "b", label: "Bob", total: 30, idle: true });
+    const r = rankPeople(rows, "Eng", [{ id: "b", fullName: "Bob" }]);
+    expect(r[0]).toMatchObject({ id: "b", label: "Bob", total: 30 });
     expect(r[0].href).toBe("/explore/Eng/b");
   });
 });

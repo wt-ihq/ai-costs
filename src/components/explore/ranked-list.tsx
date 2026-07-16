@@ -18,10 +18,7 @@ function Row({ r, max, i, dim, linkQuery }: { r: RankRow; max: number; i: number
     >
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
-          <div className="truncate text-sm font-medium">
-            {r.label}
-            {r.idle && <span className="ml-2 rounded bg-pink-500/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-pink-300">idle seat</span>}
-          </div>
+          <div className="truncate text-sm font-medium">{r.label}</div>
           {r.sub && <div className="truncate text-xs text-muted">{r.sub}</div>}
         </div>
         <div className="shrink-0 text-right">

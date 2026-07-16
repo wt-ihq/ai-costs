@@ -17,6 +17,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "New 'Projected' tile on Explore: a forecast to the end of the selected period — month, quarter, or year — with a comparison to the previous one. Seats and subscriptions are counted exactly; usage is projected from the recent daily rate.",
       "Year and All-time trend charts now extend three months ahead with a dashed projection line, so growth is visible before the money is spent.",
       "The Teams list can now be sorted by cost per head as well as total spend.",
+      "Removed the 'idle seat' tag from People lists — plan usage isn't metered, so having no usage-based spend doesn't mean a seat is unused.",
       "Vercel hosting costs now flow in automatically from Vercel's billing API — plan charges as Subscription, usage as API, per project per day.",
       "Assign each Vercel project to a department on the Imports page and its cost lands on that team's row; team pages list projects under 'Tools & infrastructure' beside recurring tools.",
       "Pages load much faster: the dashboard now caches its data between changes instead of re-reading everything on every view — syncs and imports refresh it instantly.",

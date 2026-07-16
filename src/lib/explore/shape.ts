@@ -207,24 +207,20 @@ export function rankPeople(
   employees: { id: string; fullName: string | null }[],
   toolColors?: ToolColors,
 ): RankRow[] {
-  const agg = new Map<string, { total: number; seat: number; activity: number }>();
+  // No idleness flag here: seat-plan usage isn't metered, so "no usage-based
+  // spend" says nothing about whether the person actually uses the tool.
+  const agg = new Map<string, number>();
   for (const r of rows) {
     if (!r.employeeId) continue;
-    const a = agg.get(r.employeeId) ?? { total: 0, seat: 0, activity: 0 };
-    a.total += r.costUsd;
-    if (r.costType === "seat") a.seat += r.costUsd;
-    else a.activity += r.costUsd;
-    agg.set(r.employeeId, a);
+    agg.set(r.employeeId, (agg.get(r.employeeId) ?? 0) + r.costUsd);
   }
   const byEmp = groupBy(rows, (r) => r.employeeId);
   const nameById = new Map(employees.map((e) => [e.id, e.fullName ?? "(unknown)"]));
   return [...agg.entries()]
-    .map(([id, a]) => ({
+    .map(([id, total]) => ({
       id,
       label: nameById.get(id) ?? "(unknown)",
-      total: Math.round(a.total * 100) / 100,
-      idle: a.seat > 0 && a.activity === 0,
-      sub: a.seat > 0 && a.activity === 0 ? "idle seat" : undefined,
+      total: Math.round(total * 100) / 100,
       href: `/explore/${teamSlug(teamDept)}/${id}`,
       segments: segmentsByDim(byEmp.get(id) ?? [], toolColors),
     }))
