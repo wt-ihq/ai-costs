@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { motion, useReducedMotion } from "motion/react";
 import type { Dim, RankRow } from "@/lib/explore/types";
+import { dimLabel } from "@/lib/explore/shape";
 import { formatUsd, cn } from "@/lib/utils";
 
 function Row({ r, max, i, dim, linkQuery }: { r: RankRow; max: number; i: number; dim: Dim; linkQuery?: string }) {
@@ -26,12 +27,21 @@ function Row({ r, max, i, dim, linkQuery }: { r: RankRow; max: number; i: number
           {r.perHead != null && <div className="text-xs text-muted">{formatUsd(r.perHead)}/head</div>}
         </div>
       </div>
-      {/* Thin full-saturation split bar — same colors as the charts. */}
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2">
+      {/* Thin full-saturation split bar — same colors as the charts. Hover
+          names each segment (the bar itself carries no labels). */}
+      <div
+        className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2"
+        title={segs.length > 0 ? segs.map((s) => `${dimLabel(dim, s.key)} ${formatUsd(s.value)}`).join(" · ") : undefined}
+      >
         {r.total > 0 && (segs.length > 0 ? (
           <div className="flex h-full gap-0.5" style={{ width: `${pct}%` }}>
             {segs.map((s) => (
-              <div key={s.key} className="h-full rounded-full" style={{ width: `${(s.value / r.total) * 100}%`, background: s.color }} />
+              <div
+                key={s.key}
+                className="h-full rounded-full"
+                style={{ width: `${(s.value / r.total) * 100}%`, background: s.color }}
+                title={`${dimLabel(dim, s.key)} · ${formatUsd(s.value)}`}
+              />
             ))}
           </div>
         ) : (
