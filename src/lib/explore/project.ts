@@ -104,7 +104,7 @@ export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: Projecti
       futureUsd += fixedUsd + rate * daysInMonth(m);
     }
     projectedUsd = round2(pastActualUsd + currentMonthUsd + futureUsd);
-    label = period.label;
+    label = period.label.replace(/ 20(\d\d)$/, " $1"); // "Q3 2026" → "Q3 26": keeps the tile header on one line
     compareLabel = period.granularity === "quarter" ? "last quarter" : "last year";
     const span = period.granularity === "quarter" ? 3 : 12;
     prevToExclusive = period.from;
@@ -125,12 +125,39 @@ export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: Projecti
 }
 
 /**
- * Dashed forward extension for month-granularity trends: least-squares fit
- * of the last ≤6 COMPLETE months' variable spend, clamped at 0, plus the
- * current month's (already known) fixed level. Returns [] when fewer than
- * 2 complete months carry variable data.
+ * Dashed forward extension for month-granularity trend charts. Labels are
+ * chosen to MATCH the chart's existing buckets so the line lands in the
+ * right slots instead of appending duplicate categories:
+ *  - year: fills the current year's remaining months ("Aug"…"Dec") — []
+ *    when viewing a past year (nothing to project);
+ *  - all: appends 3 future months in the all-time label style ("Aug 26").
+ * Day/week granularities get no line ([]).
  */
-export function projectTrend(facts: ShapeFact[], now: Date, horizonMonths = 3): TrendPoint[] {
+export function projectTrendForPeriod(facts: ShapeFact[], now: Date, period: ProjectionPeriod): TrendPoint[] {
+  const month = monthOf(now);
+  if (period.granularity === "year") {
+    if (period.from.slice(0, 4) !== month.slice(0, 4)) return []; // past year
+    const horizon = 12 - Number(month.slice(5)); // through December
+    return projectTrend(facts, now, horizon).map((p) => ({
+      label: SHORT[Number(p.month.slice(5)) - 1],
+      projected: p.projected,
+    }));
+  }
+  if (period.granularity === "all") {
+    return projectTrend(facts, now, 3).map((p) => ({
+      label: `${SHORT[Number(p.month.slice(5)) - 1]} ${p.month.slice(2, 4)}`,
+      projected: p.projected,
+    }));
+  }
+  return [];
+}
+
+/**
+ * Least-squares fit of the last ≤6 COMPLETE months' variable spend, clamped
+ * at 0, plus the current month's (already known) fixed level. Returns [] when
+ * fewer than 2 complete months carry variable data.
+ */
+export function projectTrend(facts: ShapeFact[], now: Date, horizonMonths = 3): { month: string; projected: number }[] {
   const month = monthOf(now);
   const byMonth = new Map<string, number>();
   for (const f of facts) {
@@ -166,9 +193,8 @@ export function projectTrend(facts: ShapeFact[], now: Date, horizonMonths = 3): 
   const gap = (cy - ly) * 12 + (cm - lm); // ≥ 1
   return Array.from({ length: horizonMonths }, (_, k) => {
     const idx = n - 1 + gap + k + 1; // first projection lands AFTER the current month
-    const d = new Date(Date.UTC(cy, cm - 1 + k + 1, 1));
     return {
-      label: `${SHORT[d.getUTCMonth()]} ${String(d.getUTCFullYear()).slice(2)}`,
+      month: addMonths(month, k + 1),
       projected: round2(Math.max(0, intercept + slope * idx) + fixedLevel),
     };
   });

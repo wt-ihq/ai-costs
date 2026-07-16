@@ -108,14 +108,14 @@ export function ExploreView({
   );
   const data = useMemo(() => buildExploreData({ ...scope, facts }, period), [scope, facts, period]);
 
-  // Projections only make sense looking forward: the tile shows when the
-  // selected period includes today; the dashed trend extension only on
-  // month-granularity charts (Year / All).
-  const includesToday = useMemo(() => {
+  // The projected tile only makes sense for a period with an end to project
+  // to that includes today — so not All time, and not past periods. (The
+  // trend projection self-gates: it's [] except on year/all charts.)
+  const showProjection = useMemo(() => {
+    if (period.granularity === "all") return false;
     const today = new Date().toISOString().slice(0, 10);
     return period.from <= today && today < period.toExclusive;
   }, [period]);
-  const monthGranularity = period.granularity === "year" || period.granularity === "all";
 
   // A single-vendor "by vendor" chart is one flat color — show cost type
   // instead. `dim` is preserved and restored when the filter clears.
@@ -148,7 +148,7 @@ export function ExploreView({
         totalToDate={data.totalToDate}
         sc={data.scorecard}
         periodLabel={data.period.label}
-        projection={includesToday ? data.projection.periodEnd : null}
+        projection={showProjection ? data.projection.periodEnd : null}
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -158,7 +158,7 @@ export function ExploreView({
             data={data.trend[effectiveDim]}
             dim={effectiveDim}
             toolColors={scope.toolColors}
-            projection={monthGranularity ? data.projection.trend : undefined}
+            projection={data.projection.trend}
           />
         </section>
 

@@ -30,9 +30,8 @@ export function PeriodControl({ period, earliest, onChange }: { period: Period; 
           </button>
         ))}
       </div>
-      {period.granularity === "all" ? (
-        <div className="rounded-md border border-border bg-surface-2 px-3 py-1 text-sm">All time</div>
-      ) : (
+      {/* All time has no stepper — and the segmented control already says "All time". */}
+      {period.granularity !== "all" && (
         <div className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-2 px-1 py-0.5 text-sm">
           <button
             type="button"

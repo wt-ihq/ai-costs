@@ -1,7 +1,7 @@
 import type { Dim, ExploreData } from "./types";
 import type { Period } from "./period";
 import { packFacts, unpackFacts, type PackedFacts } from "./pack";
-import { projectPeriodEnd, projectTrend } from "./project";
+import { projectPeriodEnd, projectTrendForPeriod } from "./project";
 import {
   trendForPeriod, treemapByDim, scorecardFor,
   rankTeams, rankPeople, rankTools, lineItems, rankAllStaff, type ShapeFact,
@@ -52,7 +52,7 @@ export function buildExploreData(scope: RawScope, period: Period, now: Date = ne
     scorecard: scorecardFor(cur),
     trend: bothDims((d) => trendForPeriod(scope.facts, period, d)),
     treemap: bothDims((d) => treemapByDim(cur, d, 12, scope.toolColors)),
-    projection: { periodEnd: projectPeriodEnd(scope.facts, now, period), trend: projectTrend(scope.facts, now) },
+    projection: { periodEnd: projectPeriodEnd(scope.facts, now, period), trend: projectTrendForPeriod(scope.facts, now, period) },
   };
   if (scope.kind === "company") {
     return {
