@@ -138,7 +138,7 @@ describe("projectPeriodEnd — year and all time", () => {
       ...julyUsage(),
     ];
     const p = projectPeriodEnd(facts, NOW, YEAR)!;
-    expect(p.label).toBe("2026");
+    expect(p.label).toBe("’26"); // year shortened so the tile header fits one line
     expect(p.compareLabel).toBe("last year");
     expect(p.prevPeriodUsd).toBe(1300);
     // 950 past + July (130 + 10×18) + Aug…Dec at 10/day (31+30+31+30+31 = 153 days)
@@ -196,13 +196,15 @@ describe("projectTrend", () => {
 });
 
 describe("projectTrendForPeriod", () => {
-  it("year view fills the remaining months of the year with bucket-matching labels", () => {
+  it("year view anchors on the current month's projected finish, then fills the rest of the year", () => {
     const t = projectTrendForPeriod(paceFacts(), NOW, YEAR);
-    // Labels must match the year chart's month buckets ("Aug", not "Aug 26"),
-    // so the line lands in the existing slots instead of appending new ones.
-    expect(t.map((p) => p.label)).toEqual(["Aug", "Sep", "Oct", "Nov", "Dec"]);
-    expect(t[0].projected).toBe(1310); // 1000 + 10×31
-    expect(t[4].projected).toBe(1310);
+    // The July bar only shows MTD actuals — anchoring the line on July's
+    // projected finish connects it to the bars instead of floating from Aug.
+    // Labels must match the year chart's month buckets ("Jul", not "Jul 26").
+    expect(t.map((p) => p.label)).toEqual(["Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]);
+    expect(t[0].projected).toBe(1310); // July finish: 1000 + (130 + 10×18)
+    expect(t[1].projected).toBe(1310); // Aug: 1000 + 10×31
+    expect(t[5].projected).toBe(1310);
   });
 
   it("a past year projects nothing", () => {
@@ -210,10 +212,10 @@ describe("projectTrendForPeriod", () => {
     expect(projectTrendForPeriod(paceFacts(), NOW, past)).toEqual([]);
   });
 
-  it("all time appends 3 months in the all-time label style", () => {
+  it("all time anchors on the current month, then 3 future months, in the all-time label style", () => {
     const t = projectTrendForPeriod(paceFacts(), NOW, ALL);
-    expect(t.map((p) => p.label)).toEqual(["Aug 26", "Sep 26", "Oct 26"]);
-    expect(t.map((p) => p.projected)).toEqual([1310, 1300, 1310]);
+    expect(t.map((p) => p.label)).toEqual(["Jul 26", "Aug 26", "Sep 26", "Oct 26"]);
+    expect(t.map((p) => p.projected)).toEqual([1310, 1310, 1300, 1310]);
   });
 
   it("day/week granularities get no projection line", () => {

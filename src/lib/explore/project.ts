@@ -112,15 +112,23 @@ function monthModel(facts: ShapeFact[], now: Date): MonthModel | null {
  * back that far (a partial base yields nonsense percentages). Only call with
  * a period that includes `now`.
  */
+/** The current month's projected finish: monthly level + the larger of MTD actuals or window + rate × remaining.
+ * The lag days are projected, not dropped — but anything that DID post in them still counts:
+ * never project below the actuals already on record. */
+function currentMonthProjection(m: MonthModel): number {
+  const remainingDays = daysInMonth(m.month) - m.windowDays;
+  return m.levelUsd + Math.max(m.variableMtdUsd, m.variableWindowUsd + m.rate * remainingDays);
+}
+
+/** "Q3 2026" → "Q3 26", "2026" → "’26": keeps the tile header on one line. */
+const shortLabel = (label: string) => label.replace(/ 20(\d\d)$/, " $1").replace(/^20(\d\d)$/, "’$1");
+
 export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: ProjectionPeriod): PeriodProjection | null {
   const m = monthModel(facts, now);
   if (!m) return null;
   const { month, levelUsd, rate, basis } = m;
 
-  const remainingDays = daysInMonth(month) - m.windowDays;
-  // The lag days are projected, not dropped — but anything that DID post in
-  // them still counts: never project below the actuals already on record.
-  const currentMonthUsd = levelUsd + Math.max(m.variableMtdUsd, m.variableWindowUsd + rate * remainingDays);
+  const currentMonthUsd = currentMonthProjection(m);
 
   const spansMonths = period.granularity === "quarter" || period.granularity === "year";
   let projectedUsd: number;
@@ -138,7 +146,7 @@ export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: Projecti
       futureUsd += levelUsd + rate * daysInMonth(fm);
     }
     projectedUsd = round2(pastActualUsd + currentMonthUsd + futureUsd);
-    label = period.label.replace(/ 20(\d\d)$/, " $1"); // "Q3 2026" → "Q3 26": keeps the tile header on one line
+    label = shortLabel(period.label);
     compareLabel = period.granularity === "quarter" ? "last quarter" : "last year";
     const span = period.granularity === "quarter" ? 3 : 12;
     prevToExclusive = period.from;
@@ -163,31 +171,32 @@ export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: Projecti
 }
 
 /**
- * Dashed forward extension for month-granularity trend charts. Labels are
- * chosen to MATCH the chart's existing buckets so the line lands in the
- * right slots instead of appending duplicate categories:
- *  - year: fills the current year's remaining months ("Aug"…"Dec") — []
+ * Dashed forward extension for month-granularity trend charts. The line is
+ * ANCHORED on the current month with its projected finish — the current
+ * month's bar only shows MTD actuals, and without the anchor the line
+ * appeared to float, disconnected from the bars. Labels are chosen to MATCH
+ * the chart's existing buckets so points land in the right slots instead of
+ * appending duplicate categories:
+ *  - year: current month + the year's remaining months ("Jul"…"Dec") — []
  *    when viewing a past year (nothing to project);
- *  - all: appends 3 future months in the all-time label style ("Aug 26").
+ *  - all: current month + 3 future months in the all-time style ("Jul 26").
  * Day/week granularities get no line ([]).
  */
 export function projectTrendForPeriod(facts: ShapeFact[], now: Date, period: ProjectionPeriod): TrendPoint[] {
-  const month = monthOf(now);
-  if (period.granularity === "year") {
-    if (period.from.slice(0, 4) !== month.slice(0, 4)) return []; // past year
-    const horizon = 12 - Number(month.slice(5)); // through December
-    return projectTrend(facts, now, horizon).map((p) => ({
-      label: SHORT[Number(p.month.slice(5)) - 1],
-      projected: p.projected,
-    }));
-  }
-  if (period.granularity === "all") {
-    return projectTrend(facts, now, 3).map((p) => ({
-      label: `${SHORT[Number(p.month.slice(5)) - 1]} ${p.month.slice(2, 4)}`,
-      projected: p.projected,
-    }));
-  }
-  return [];
+  if (period.granularity !== "year" && period.granularity !== "all") return [];
+  const m = monthModel(facts, now);
+  if (!m) return [];
+  if (period.granularity === "year" && period.from.slice(0, 4) !== m.month.slice(0, 4)) return []; // past year
+
+  const label =
+    period.granularity === "year"
+      ? (ym: string) => SHORT[Number(ym.slice(5)) - 1]
+      : (ym: string) => `${SHORT[Number(ym.slice(5)) - 1]} ${ym.slice(2, 4)}`;
+  const horizon = period.granularity === "year" ? 12 - Number(m.month.slice(5)) : 3;
+  return [
+    { label: label(m.month), projected: round2(currentMonthProjection(m)) },
+    ...projectTrend(facts, now, horizon).map((p) => ({ label: label(p.month), projected: p.projected })),
+  ];
 }
 
 /**
