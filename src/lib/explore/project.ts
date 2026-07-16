@@ -2,10 +2,12 @@ import type { ShapeFact } from "./shape";
 import type { TrendPoint } from "./types";
 
 /**
- * Projected spend. Two disciplines keep these honest:
+ * Projected spend — ONE model everywhere ("at the current pace"), so the
+ * tile and the dashed trend line always tell the same story:
  *  - FIXED cost types (seat, subscription) post in full on the 1st — the
  *    month's fixed cost is already known and is never extrapolated (a naive
- *    MTD × days ratio would wildly overshoot early in the month).
+ *    MTD × days ratio would wildly overshoot early in the month). Future
+ *    months assume the current fixed level.
  *  - Only VARIABLE spend (overage, metered) extrapolates, from a run rate
  *    that excludes the trailing LAG_DAYS (Vercel and the credit export lag;
  *    counting those days biases the rate low).
@@ -24,7 +26,7 @@ export interface ProjectionPeriod {
 }
 
 export interface PeriodProjection {
-  label: string; // "July" | "Q3 2026" | "2026"
+  label: string; // "July" | "Q3 26" | "2026"
   compareLabel: "last month" | "last quarter" | "last year";
   projectedUsd: number;
   prevPeriodUsd: number | null; // previous period's actual total
@@ -47,20 +49,23 @@ const sum = (facts: ShapeFact[]) => facts.reduce((s, f) => s + f.costUsd, 0);
 const inRange = (facts: ShapeFact[], from: string, toExclusive: string) =>
   facts.filter((f) => f.day >= from && f.day < toExclusive);
 
-/**
- * Forecast for the END OF THE SELECTED PERIOD (month, quarter, or year;
- * "all" collapses to the current month), from already period/vendor-filtered
- * facts. Months elapsed within the period count as actuals; the current
- * month projects fixed + run-rate; future months in the period assume the
- * current fixed level plus the run rate. Comparison is against the previous
- * period of the same length. Only call with a period that includes `now`.
- */
-export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: ProjectionPeriod): PeriodProjection | null {
+interface MonthModel {
+  month: string; // now's YYYY-MM
+  fixedUsd: number; // fixed posted this month
+  variableMtdUsd: number;
+  variableWindowUsd: number;
+  windowDays: number;
+  rate: number; // variable $/day
+  basis: PeriodProjection["basis"];
+}
+
+/** The shared current-pace model: this month's fixed level + a lag-adjusted variable run rate. */
+function monthModel(facts: ShapeFact[], now: Date): MonthModel | null {
   const month = monthOf(now);
   const prevMonth = addMonths(month, -1);
   const inMonth = facts.filter((f) => f.day.slice(0, 7) === month);
   const inPrevMonth = facts.filter((f) => f.day.slice(0, 7) === prevMonth);
-  if (inMonth.length === 0 && inPrevMonth.length === 0) return null;
+  if (inMonth.length === 0 && inPrevMonth.length === 0) return null; // nothing to project
 
   const fixedUsd = sum(inMonth.filter((f) => !isVariable(f)));
   const variableMtdUsd = sum(inMonth.filter(isVariable));
@@ -83,10 +88,28 @@ export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: Projecti
     basis = "previous-month";
   }
 
-  const remainingDays = daysInMonth(month) - windowDays;
+  return { month, fixedUsd, variableMtdUsd, variableWindowUsd, windowDays, rate, basis };
+}
+
+/**
+ * Forecast for the END OF THE SELECTED PERIOD (month, quarter, or year;
+ * "all" collapses to the current month), from already period/vendor-filtered
+ * facts. Months elapsed within the period count as actuals; the current
+ * month projects fixed + run-rate; future months in the period assume the
+ * current fixed level plus the run rate. Comparison is against the previous
+ * period of the same length — suppressed when the data span doesn't reach
+ * back that far (a partial base yields nonsense percentages). Only call with
+ * a period that includes `now`.
+ */
+export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: ProjectionPeriod): PeriodProjection | null {
+  const m = monthModel(facts, now);
+  if (!m) return null;
+  const { month, fixedUsd, rate, basis } = m;
+
+  const remainingDays = daysInMonth(month) - m.windowDays;
   // The lag days are projected, not dropped — but anything that DID post in
   // them still counts: never project below the actuals already on record.
-  const currentMonthUsd = fixedUsd + Math.max(variableMtdUsd, variableWindowUsd + rate * remainingDays);
+  const currentMonthUsd = fixedUsd + Math.max(m.variableMtdUsd, m.variableWindowUsd + rate * remainingDays);
 
   const spansMonths = period.granularity === "quarter" || period.granularity === "year";
   let projectedUsd: number;
@@ -100,8 +123,8 @@ export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: Projecti
     // level (seats/subscriptions are flat unless changed) plus the run rate.
     const pastActualUsd = sum(inRange(facts, period.from, `${month}-01`));
     let futureUsd = 0;
-    for (let m = addMonths(month, 1); `${m}-01` < period.toExclusive; m = addMonths(m, 1)) {
-      futureUsd += fixedUsd + rate * daysInMonth(m);
+    for (let fm = addMonths(month, 1); `${fm}-01` < period.toExclusive; fm = addMonths(fm, 1)) {
+      futureUsd += fixedUsd + rate * daysInMonth(fm);
     }
     projectedUsd = round2(pastActualUsd + currentMonthUsd + futureUsd);
     label = period.label.replace(/ 20(\d\d)$/, " $1"); // "Q3 2026" → "Q3 26": keeps the tile header on one line
@@ -113,11 +136,15 @@ export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: Projecti
     projectedUsd = round2(currentMonthUsd);
     label = FULL[Number(month.slice(5)) - 1];
     compareLabel = "last month";
-    prevFrom = `${prevMonth}-01`;
+    prevFrom = `${addMonths(month, -1)}-01`;
     prevToExclusive = `${month}-01`;
   }
 
-  const prevFacts = inRange(facts, prevFrom, prevToExclusive);
+  // Only compare when the data span covers the WHOLE previous period —
+  // against a partial base (data collection started mid-period) the delta
+  // reads like "+19463% vs last year" and means nothing.
+  const earliestMonth = facts.reduce((min, f) => (f.day < min ? f.day : min), facts[0].day).slice(0, 7);
+  const prevFacts = prevFrom.slice(0, 7) >= earliestMonth ? inRange(facts, prevFrom, prevToExclusive) : [];
   const prevPeriodUsd = prevFacts.length ? round2(sum(prevFacts)) : null;
   const deltaPct = prevPeriodUsd ? round2(((projectedUsd - prevPeriodUsd) / prevPeriodUsd) * 100) : null;
 
@@ -153,49 +180,18 @@ export function projectTrendForPeriod(facts: ShapeFact[], now: Date, period: Pro
 }
 
 /**
- * Least-squares fit of the last ≤6 COMPLETE months' variable spend, clamped
- * at 0, plus the current month's (already known) fixed level. Returns [] when
- * fewer than 2 complete months carry variable data.
+ * Future monthly totals at the current pace: this month's fixed level + the
+ * run rate × that month's days. Deliberately the SAME model as
+ * `projectPeriodEnd`, so a quarter/year tile equals the actual bars plus the
+ * dashed line's months — one story, not two. (An earlier least-squares fit
+ * over past months contradicted the tile and overshot whenever an early ramp
+ * dominated the fit.)
  */
 export function projectTrend(facts: ShapeFact[], now: Date, horizonMonths = 3): { month: string; projected: number }[] {
-  const month = monthOf(now);
-  const byMonth = new Map<string, number>();
-  for (const f of facts) {
-    const m = f.day.slice(0, 7);
-    if (m >= month || !isVariable(f)) continue; // complete months only
-    byMonth.set(m, (byMonth.get(m) ?? 0) + f.costUsd);
-  }
-  const months = [...byMonth.keys()].sort().slice(-6);
-  if (months.length < 2) return [];
-
-  // Least squares over (index, monthly variable total).
-  const n = months.length;
-  const ys = months.map((m) => byMonth.get(m)!);
-  const xMean = (n - 1) / 2;
-  const yMean = ys.reduce((s, y) => s + y, 0) / n;
-  let num = 0;
-  let den = 0;
-  ys.forEach((y, x) => {
-    num += (x - xMean) * (y - yMean);
-    den += (x - xMean) ** 2;
-  });
-  const slope = den === 0 ? 0 : num / den;
-  const intercept = yMean - slope * xMean;
-
-  const fixedLevel = facts
-    .filter((f) => f.day.slice(0, 7) === month && !isVariable(f))
-    .reduce((s, f) => s + f.costUsd, 0);
-
-  // Distance from the last fitted month to each projected month, skipping
-  // the incomplete current month (its actual MTD bar stays on the chart).
-  const [ly, lm] = months[n - 1].split("-").map(Number);
-  const [cy, cm] = month.split("-").map(Number);
-  const gap = (cy - ly) * 12 + (cm - lm); // ≥ 1
+  const m = monthModel(facts, now);
+  if (!m) return [];
   return Array.from({ length: horizonMonths }, (_, k) => {
-    const idx = n - 1 + gap + k + 1; // first projection lands AFTER the current month
-    return {
-      month: addMonths(month, k + 1),
-      projected: round2(Math.max(0, intercept + slope * idx) + fixedLevel),
-    };
+    const fm = addMonths(m.month, k + 1);
+    return { month: fm, projected: round2(m.fixedUsd + m.rate * daysInMonth(fm)) };
   });
 }

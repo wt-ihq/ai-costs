@@ -61,15 +61,18 @@ export interface MonthEndProjection {
 
 ### Trend projection
 
-`projectTrend(facts, now, horizonMonths = 3): TrendPoint[]` — pure:
+`projectTrend(facts, now, horizonMonths = 3)` — pure:
 
-- Least-squares linear fit over the **variable** monthly totals of the last
-  up to 6 COMPLETE months (minimum 2 — otherwise return `[]`).
-- Each projected month = `max(0, fit(month)) + fixed level`, where the
-  fixed level = the current month's posted fixed total (seats/subscriptions
-  are flat unless changed).
-- Output: one `TrendPoint` per future month with a single `projected`
-  numeric key (plus `label`), appended after the real buckets.
+- **Same "current pace" model as the tile** (revised 2026-07-15: an earlier
+  least-squares fit over past months contradicted the tile and overshot
+  whenever an early ramp dominated the fit): each future month = the current
+  month's fixed level + run rate × that month's days. A quarter/year tile
+  therefore equals the actual bars plus the line's months — one story.
+- `projectTrendForPeriod` picks labels that MATCH the chart's buckets:
+  year view fills the current year's remaining month slots ("Aug"…"Dec",
+  [] for past years); all-time appends 3 months in its "Aug 26" style.
+- Comparison deltas are suppressed when the data span doesn't cover the
+  whole previous period (a partial base yields nonsense percentages).
 
 ## Presentation
 

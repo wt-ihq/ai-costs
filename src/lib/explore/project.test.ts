@@ -119,16 +119,30 @@ describe("projectPeriodEnd — quarter", () => {
 describe("projectPeriodEnd — year and all time", () => {
   it("projects to year end and compares against last year", () => {
     const facts = [
-      fact("2025-06-10", "metered", 1200), // last year total
+      fact("2025-01-05", "metered", 100),  // data span covers all of last year
+      fact("2025-06-10", "metered", 1200),
       fact("2026-03-10", "metered", 950),  // elapsed 2026 actual
       ...julyUsage(),
     ];
     const p = projectPeriodEnd(facts, NOW, YEAR)!;
     expect(p.label).toBe("2026");
     expect(p.compareLabel).toBe("last year");
-    expect(p.prevPeriodUsd).toBe(1200);
+    expect(p.prevPeriodUsd).toBe(1300);
     // 950 past + July (130 + 10×18) + Aug…Dec at 10/day (31+30+31+30+31 = 153 days)
     expect(p.projectedUsd).toBe(950 + 310 + 10 * 153);
+  });
+
+  it("suppresses the comparison when the data doesn't cover the previous period", () => {
+    // Data begins March 2025: comparing 2026's projection against a partial
+    // 2025 would read "+19463% vs last year" and mean nothing.
+    const facts = [
+      fact("2025-03-10", "metered", 40),
+      fact("2026-03-10", "metered", 950),
+      ...julyUsage(),
+    ];
+    const p = projectPeriodEnd(facts, NOW, YEAR)!;
+    expect(p.prevPeriodUsd).toBeNull();
+    expect(p.deltaPct).toBeNull();
   });
 
   it("all time collapses to the current-month projection", () => {
@@ -140,60 +154,57 @@ describe("projectPeriodEnd — year and all time", () => {
   });
 });
 
-// Variable: Apr 100, May 200, Jun 300 (slope +100/mo); July fixed = 50.
-const linearFacts = () => [
-  fact("2026-04-10", "metered", 100),
-  fact("2026-05-10", "metered", 200),
-  fact("2026-06-10", "metered", 300),
-  fact("2026-07-01", "subscription", 50),
-];
+// July: seat 1000 on the 1st, $10/day usage → rate 10, fixed level 1000.
+const paceFacts = () => [fact("2026-07-01", "seat", 1000), ...julyUsage()];
 
 describe("projectTrend", () => {
-  it("fits the variable trend over complete months and adds the fixed level", () => {
-    const t = projectTrend(linearFacts(), NOW, 3);
+  it("projects future months at the current pace: fixed level + run rate × days", () => {
+    const t = projectTrend(paceFacts(), NOW, 3);
     expect(t.map((p) => p.month)).toEqual(["2026-08", "2026-09", "2026-10"]);
-    // Aug = 5th point on the line (idx 4): 100 + 100×4 = 500; +fixed 50
-    expect(t.map((p) => p.projected)).toEqual([550, 650, 750]);
+    // Aug 31d / Sep 30d / Oct 31d at $10/day, on the $1000 fixed level
+    expect(t.map((p) => p.projected)).toEqual([1310, 1300, 1310]);
   });
 
-  it("clamps a downward fit at zero (plus fixed)", () => {
-    const facts = [
-      fact("2026-05-10", "metered", 200),
-      fact("2026-06-10", "metered", 50), // slope -150/mo → goes negative fast
-    ];
-    const t = projectTrend(facts, NOW, 3);
-    expect(t.every((p) => p.projected >= 0)).toBe(true);
+  it("agrees with the period-end tile: year projection = actuals + the line's months", () => {
+    // The tile and the dashed line MUST tell one story — the year-end figure
+    // is exactly the posted actuals plus the line's remaining months.
+    const facts = [fact("2026-03-10", "metered", 950), ...paceFacts()];
+    const tile = projectPeriodEnd(facts, NOW, YEAR)!;
+    const line = projectTrend(facts, NOW, 5); // Aug–Dec
+    const julyProjected = 1000 + 130 + 10 * 18;
+    const lineSum = line.reduce((s, p) => s + p.projected, 0);
+    expect(tile.projectedUsd).toBeCloseTo(950 + julyProjected + lineSum, 6);
   });
 
-  it("returns [] with fewer than 2 complete months of variable data", () => {
-    expect(projectTrend([fact("2026-06-10", "metered", 100)], NOW, 3)).toEqual([]);
+  it("returns [] when there is nothing to project", () => {
     expect(projectTrend([], NOW, 3)).toEqual([]);
+    expect(projectTrend([fact("2026-01-01", "seat", 10)], NOW, 3)).toEqual([]); // no current/prev month data
   });
 });
 
 describe("projectTrendForPeriod", () => {
   it("year view fills the remaining months of the year with bucket-matching labels", () => {
-    const t = projectTrendForPeriod(linearFacts(), NOW, YEAR);
+    const t = projectTrendForPeriod(paceFacts(), NOW, YEAR);
     // Labels must match the year chart's month buckets ("Aug", not "Aug 26"),
     // so the line lands in the existing slots instead of appending new ones.
     expect(t.map((p) => p.label)).toEqual(["Aug", "Sep", "Oct", "Nov", "Dec"]);
-    expect(t[0].projected).toBe(550);
-    expect(t[4].projected).toBe(950);
+    expect(t[0].projected).toBe(1310); // 1000 + 10×31
+    expect(t[4].projected).toBe(1310);
   });
 
   it("a past year projects nothing", () => {
     const past: ProjectionPeriod = { granularity: "year", from: "2025-01-01", toExclusive: "2026-01-01", label: "2025" };
-    expect(projectTrendForPeriod(linearFacts(), NOW, past)).toEqual([]);
+    expect(projectTrendForPeriod(paceFacts(), NOW, past)).toEqual([]);
   });
 
   it("all time appends 3 months in the all-time label style", () => {
-    const t = projectTrendForPeriod(linearFacts(), NOW, ALL);
+    const t = projectTrendForPeriod(paceFacts(), NOW, ALL);
     expect(t.map((p) => p.label)).toEqual(["Aug 26", "Sep 26", "Oct 26"]);
-    expect(t.map((p) => p.projected)).toEqual([550, 650, 750]);
+    expect(t.map((p) => p.projected)).toEqual([1310, 1300, 1310]);
   });
 
   it("day/week granularities get no projection line", () => {
-    expect(projectTrendForPeriod(linearFacts(), NOW, MONTH)).toEqual([]);
-    expect(projectTrendForPeriod(linearFacts(), NOW, QUARTER)).toEqual([]);
+    expect(projectTrendForPeriod(paceFacts(), NOW, MONTH)).toEqual([]);
+    expect(projectTrendForPeriod(paceFacts(), NOW, QUARTER)).toEqual([]);
   });
 });
