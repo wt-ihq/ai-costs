@@ -9,9 +9,9 @@ const QUARTER: ProjectionPeriod = { granularity: "quarter", from: "2026-07-01", 
 const YEAR: ProjectionPeriod = { granularity: "year", from: "2026-01-01", toExclusive: "2027-01-01", label: "2026" };
 const ALL: ProjectionPeriod = { granularity: "all", from: "2025-01-01", toExclusive: "2026-07-16", label: "All time" };
 
-const fact = (day: string, costType: ShapeFact["costType"], costUsd: number): ShapeFact => ({
+const fact = (day: string, costType: ShapeFact["costType"], costUsd: number, source: ShapeFact["source"] = "anthropic"): ShapeFact => ({
   day, costType, costUsd,
-  source: "anthropic", employeeId: null, department: null, fullName: null, entityKey: "k", model: "",
+  source, employeeId: null, department: null, fullName: null, entityKey: "k", model: "",
 });
 
 // $10/day of usage across the 13-day run-rate window (Jul 1–13)
@@ -76,6 +76,19 @@ describe("projectPeriodEnd — month", () => {
   it("returns null when there is nothing to project", () => {
     expect(projectPeriodEnd([], NOW, MONTH)).toBeNull();
     expect(projectPeriodEnd([fact("2026-01-01", "seat", 10)], NOW, MONTH)).toBeNull(); // no current/prev month data
+  });
+
+  it("monthly-snapshot usage (Claude Team import) is a level, not a daily rate", () => {
+    // The Claude spend import posts a whole month's usage as ONE overage fact
+    // on the 1st. Feeding that lump into the daily run rate inflated
+    // projections ~2.4× (lump ÷ 13 window days × 31 days).
+    const facts = [fact("2026-07-01", "overage", 270, "claude_team"), ...julyUsage()];
+    const p = projectPeriodEnd(facts, NOW, MONTH)!;
+    // lump counts once (270) + daily usage 130 + 10 × 18 remaining = 580
+    expect(p.projectedUsd).toBe(580);
+    // ...and future months repeat the level instead of extrapolating it:
+    const t = projectTrend(facts, NOW, 1);
+    expect(t[0].projected).toBe(270 + 10 * 31); // Aug
   });
 });
 

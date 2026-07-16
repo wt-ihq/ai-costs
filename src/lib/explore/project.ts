@@ -13,6 +13,14 @@ import type { TrendPoint } from "./types";
  *    counting those days biases the rate low).
  */
 const FIXED = new Set(["seat", "subscription"]);
+/**
+ * Sources whose usage arrives as a MONTHLY snapshot — one lump fact stamped
+ * to the 1st (Claude Team's member-usage import). A lump is a monthly level,
+ * not daily spend: feeding it into the daily run rate inflates projections
+ * ~2-3× (whole month ÷ window days × month days). It projects like fixed —
+ * counted once, repeated for future months, never extrapolated.
+ */
+const MONTHLY_SNAPSHOT_SOURCES = new Set(["claude_team"]);
 const LAG_DAYS = 2;
 const SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -35,7 +43,10 @@ export interface PeriodProjection {
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
-const isVariable = (f: ShapeFact) => !FIXED.has(f.costType);
+/** Extrapolates from a daily run rate. */
+const isDailyVariable = (f: ShapeFact) => !FIXED.has(f.costType) && !MONTHLY_SNAPSHOT_SOURCES.has(f.source);
+/** Posts once per month at a known/assumed level: fixed cost types + monthly-snapshot usage. */
+const isMonthlyLevel = (f: ShapeFact) => !isDailyVariable(f);
 const monthOf = (d: Date) => d.toISOString().slice(0, 7);
 const daysInMonth = (ym: string) => {
   const [y, m] = ym.split("-").map(Number);
@@ -51,15 +62,15 @@ const inRange = (facts: ShapeFact[], from: string, toExclusive: string) =>
 
 interface MonthModel {
   month: string; // now's YYYY-MM
-  fixedUsd: number; // fixed posted this month
+  levelUsd: number; // monthly-level spend posted this month (fixed + snapshot lumps)
   variableMtdUsd: number;
   variableWindowUsd: number;
   windowDays: number;
-  rate: number; // variable $/day
+  rate: number; // daily-variable $/day
   basis: PeriodProjection["basis"];
 }
 
-/** The shared current-pace model: this month's fixed level + a lag-adjusted variable run rate. */
+/** The shared current-pace model: this month's monthly level + a lag-adjusted daily-variable run rate. */
 function monthModel(facts: ShapeFact[], now: Date): MonthModel | null {
   const month = monthOf(now);
   const prevMonth = addMonths(month, -1);
@@ -67,15 +78,15 @@ function monthModel(facts: ShapeFact[], now: Date): MonthModel | null {
   const inPrevMonth = facts.filter((f) => f.day.slice(0, 7) === prevMonth);
   if (inMonth.length === 0 && inPrevMonth.length === 0) return null; // nothing to project
 
-  const fixedUsd = sum(inMonth.filter((f) => !isVariable(f)));
-  const variableMtdUsd = sum(inMonth.filter(isVariable));
+  const levelUsd = sum(inMonth.filter(isMonthlyLevel));
+  const variableMtdUsd = sum(inMonth.filter(isDailyVariable));
 
   // Run-rate window: [month start, now − LAG_DAYS], as day-of-month numbers.
   const cutoff = new Date(now.getTime() - LAG_DAYS * 86_400_000);
   const windowDays = monthOf(cutoff) === month ? cutoff.getUTCDate() : 0;
   const cutoffDay = `${month}-${String(windowDays).padStart(2, "0")}`;
   const variableWindowUsd = sum(
-    inMonth.filter(isVariable).filter((f) => windowDays > 0 && f.day <= cutoffDay),
+    inMonth.filter(isDailyVariable).filter((f) => windowDays > 0 && f.day <= cutoffDay),
   );
 
   let rate: number;
@@ -84,11 +95,11 @@ function monthModel(facts: ShapeFact[], now: Date): MonthModel | null {
     rate = variableWindowUsd / windowDays;
     basis = "run-rate";
   } else {
-    rate = sum(inPrevMonth.filter(isVariable)) / daysInMonth(prevMonth);
+    rate = sum(inPrevMonth.filter(isDailyVariable)) / daysInMonth(prevMonth);
     basis = "previous-month";
   }
 
-  return { month, fixedUsd, variableMtdUsd, variableWindowUsd, windowDays, rate, basis };
+  return { month, levelUsd, variableMtdUsd, variableWindowUsd, windowDays, rate, basis };
 }
 
 /**
@@ -104,12 +115,12 @@ function monthModel(facts: ShapeFact[], now: Date): MonthModel | null {
 export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: ProjectionPeriod): PeriodProjection | null {
   const m = monthModel(facts, now);
   if (!m) return null;
-  const { month, fixedUsd, rate, basis } = m;
+  const { month, levelUsd, rate, basis } = m;
 
   const remainingDays = daysInMonth(month) - m.windowDays;
   // The lag days are projected, not dropped — but anything that DID post in
   // them still counts: never project below the actuals already on record.
-  const currentMonthUsd = fixedUsd + Math.max(m.variableMtdUsd, m.variableWindowUsd + rate * remainingDays);
+  const currentMonthUsd = levelUsd + Math.max(m.variableMtdUsd, m.variableWindowUsd + rate * remainingDays);
 
   const spansMonths = period.granularity === "quarter" || period.granularity === "year";
   let projectedUsd: number;
@@ -124,7 +135,7 @@ export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: Projecti
     const pastActualUsd = sum(inRange(facts, period.from, `${month}-01`));
     let futureUsd = 0;
     for (let fm = addMonths(month, 1); `${fm}-01` < period.toExclusive; fm = addMonths(fm, 1)) {
-      futureUsd += fixedUsd + rate * daysInMonth(fm);
+      futureUsd += levelUsd + rate * daysInMonth(fm);
     }
     projectedUsd = round2(pastActualUsd + currentMonthUsd + futureUsd);
     label = period.label.replace(/ 20(\d\d)$/, " $1"); // "Q3 2026" → "Q3 26": keeps the tile header on one line
@@ -192,6 +203,6 @@ export function projectTrend(facts: ShapeFact[], now: Date, horizonMonths = 3): 
   if (!m) return [];
   return Array.from({ length: horizonMonths }, (_, k) => {
     const fm = addMonths(m.month, k + 1);
-    return { month: fm, projected: round2(m.fixedUsd + m.rate * daysInMonth(fm)) };
+    return { month: fm, projected: round2(m.levelUsd + m.rate * daysInMonth(fm)) };
   });
 }

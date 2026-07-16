@@ -50,6 +50,11 @@ export interface MonthEndProjection {
   export lag, and counting lagging days biases the rate low.
 - **Early-month fallback** (window < 3 days): `basis: "previous-month"` —
   use the previous month's variable daily average instead.
+- **Monthly-snapshot usage is a level, not a rate** (added 2026-07-15):
+  Claude Team's member-usage import posts a whole month's usage as one
+  overage fact on the 1st. Sources in `MONTHLY_SNAPSHOT_SOURCES` project
+  like fixed — counted once, repeated for future months — because feeding
+  the lump into the daily run rate inflated projections ~2-3×.
 - Remaining days = days from `now − 2` (exclusive) through month end, so
   the excluded lag days are projected, not dropped.
 - Returns `null` when the scope has no facts in the current or previous
