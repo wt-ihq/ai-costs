@@ -287,7 +287,7 @@ export function rankAllStaff(
 }
 
 /** Individual leaf line items: vendor · cost-type · model/entity. */
-export function lineItems(rows: ShapeFact[]): RankRow[] {
+export function lineItems(rows: ShapeFact[], toolColors?: ToolColors): RankRow[] {
   const agg = new Map<string, number>();
   const meta = new Map<string, { source: Vendor; costType: CostType; detail: string }>();
   for (const r of rows) {
@@ -299,7 +299,17 @@ export function lineItems(rows: ShapeFact[]): RankRow[] {
   return [...agg.entries()]
     .map(([k, total]) => {
       const m = meta.get(k)!;
-      return { id: k, label: `${VENDOR_LABEL[m.source]} · ${m.costType} · ${m.detail}`, total: Math.round(total * 100) / 100 };
+      const value = Math.round(total * 100) / 100;
+      return {
+        id: k,
+        label: `${VENDOR_LABEL[m.source]} · ${COST_TYPE_LABEL[m.costType] ?? m.costType} · ${m.detail}`,
+        total: value,
+        // One-segment bars so line items wear the same colors as the charts.
+        segments: {
+          vendor: [{ key: m.source, value, color: dimColorFor("vendor", m.source, toolColors) }],
+          cost_type: [{ key: m.costType, value, color: dimColorFor("cost_type", m.costType) }],
+        } as Record<Dim, RankSegment[]>,
+      };
     })
     .sort((a, b) => b.total - a.total);
 }

@@ -64,5 +64,5 @@ export function buildExploreData(scope: RawScope, period: Period, now: Date = ne
   if (scope.kind === "team") {
     return { ...base, ranked: { kind: "person", rows: rankPeople(cur, scope.team, scope.employees, scope.toolColors), tools: rankTools(cur, scope.toolColors) } };
   }
-  return { ...base, ranked: { kind: "lineitem", rows: lineItems(cur) } };
+  return { ...base, ranked: { kind: "lineitem", rows: lineItems(cur, scope.toolColors) } };
 }
