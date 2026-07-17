@@ -86,7 +86,7 @@ export async function saveSeatMonthEntries(
 
   const written = await rebuildSeatMonth(supabase, vendor, day);
   updateTag(FACTS_TAG);
-  revalidatePath("/imports");
+  revalidatePath("/data");
   revalidatePath("/");
   return { written };
 }
@@ -112,7 +112,7 @@ export async function deleteSeatMonthEntry(
 
   const written = await rebuildSeatMonth(supabase, vendor, day);
   updateTag(FACTS_TAG);
-  revalidatePath("/imports");
+  revalidatePath("/data");
   revalidatePath("/");
   return { written };
 }
@@ -265,7 +265,7 @@ export async function commitOpenAiCreditsImport(
 
   revalidatePath("/");
   updateTag(FACTS_TAG);
-  revalidatePath("/imports");
+  revalidatePath("/data");
   return { written, attributed, queued: resolved.length - attributed, from: minDay, to: maxDay };
 }
 
@@ -370,7 +370,7 @@ export async function commitClaudeSpendImport(
   });
 
   updateTag(FACTS_TAG);
-  revalidatePath("/imports");
+  revalidatePath("/data");
   revalidatePath("/");
   return { written, attributed, queued: facts.length - attributed };
 }
@@ -485,7 +485,7 @@ export async function commitClaudeRoster(
   const written = await rebuildClaudeSeatMonth(supabase, day);
 
   updateTag(FACTS_TAG);
-  revalidatePath("/imports");
+  revalidatePath("/data");
   revalidatePath("/");
   return { written, seats: rows.length, attributed: assignments.length };
 }
@@ -537,7 +537,7 @@ export async function saveRecurringCost(input: RecurringCostInput): Promise<{ wr
 
   const written = await rebuildRecurringFacts(supabase);
   updateTag(FACTS_TAG);
-  revalidatePath("/imports");
+  revalidatePath("/data");
   revalidatePath("/");
   return { written };
 }
@@ -565,7 +565,7 @@ export async function endRecurringCost(id: string, endMonth: string): Promise<{ 
   if (error) throw new Error(`endRecurringCost: ${error.message}`);
   const written = await rebuildRecurringFacts(supabase);
   updateTag(FACTS_TAG);
-  revalidatePath("/imports");
+  revalidatePath("/data");
   revalidatePath("/");
   return { written };
 }
@@ -577,7 +577,7 @@ export async function deleteRecurringCost(id: string): Promise<{ written: number
   if (error) throw new Error(`deleteRecurringCost: ${error.message}`);
   const written = await rebuildRecurringFacts(supabase);
   updateTag(FACTS_TAG);
-  revalidatePath("/imports");
+  revalidatePath("/data");
   revalidatePath("/");
   return { written };
 }
@@ -619,7 +619,7 @@ export async function assignVercelProjectDepartment(
   if (factErr) throw new Error(`assignVercelProjectDepartment facts: ${factErr.message}`);
 
   updateTag(FACTS_TAG);
-  revalidatePath("/imports");
+  revalidatePath("/data");
   revalidatePath("/");
   return { factsUpdated: count ?? 0 };
 }

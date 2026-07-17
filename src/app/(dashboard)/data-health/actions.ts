@@ -41,6 +41,6 @@ export async function assignUnmatched(
   );
 
   updateTag(FACTS_TAG);
-  revalidatePath("/data-health");
+  revalidatePath("/data");
   return { updated: data?.length ?? 0 };
 }

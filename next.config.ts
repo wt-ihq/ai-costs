@@ -11,6 +11,9 @@ const nextConfig: NextConfig = {
       })),
       // Renamed 2026-07-15 — keep old bookmarks working.
       { source: "/cursor-models", destination: "/cursor", permanent: false },
+      // Merged into the tabbed Data page 2026-07-17.
+      { source: "/data-health", destination: "/data", permanent: false },
+      { source: "/imports", destination: "/data?tab=imports", permanent: false },
     ];
   },
 };

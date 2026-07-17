@@ -2,15 +2,13 @@ import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { pseudoExplanation } from "@/lib/queries/data-health";
 import { getDataHealthCached } from "@/lib/queries/cached";
 import { getCursorReconciliation } from "@/lib/queries/cursor-reconciliation";
-import { PageHeader, Panel } from "@/components/ui";
+import { Panel } from "@/components/ui";
 import { UnmatchedQueue } from "@/components/unmatched-queue";
 import { VENDOR_LABEL } from "@/lib/types";
 import { VENDOR_COLORS } from "@/lib/colors";
 import { staleness, formatUsd } from "@/lib/utils";
 
-export const dynamic = "force-dynamic";
-
-export default async function DataHealthPage() {
+export async function HealthTab() {
   const supabase = getSupabaseAdminClient();
   const [{ identity, sources, unmatched, pseudo, employees, noDepartment }, reconciliation] = await Promise.all([
     getDataHealthCached(),
@@ -23,11 +21,6 @@ export default async function DataHealthPage() {
 
   return (
     <>
-      <PageHeader
-        title="Data Health"
-        subtitle="Identity spine and per-source freshness and last status, plus the unmatched-identity queue."
-      />
-
       <Panel className="overflow-x-auto p-0">
         <table className="w-full text-sm">
           <thead>

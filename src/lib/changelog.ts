@@ -19,6 +19,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "Forecasts now follow the direction of travel: a vendor whose spend has been falling for months projects downward (and rising spend projects upward), with sensible limits so one trend can't run away.",
       "Explore now opens on the Year view.",
       "Projections now show their honest range: a low–high spread under the Projected tile and a shaded band around the dashed trend line, spanning the model's conservative and aggressive readings.",
+      "Data Health and Imports are now one tabbed 'Data' page — Health, Imports, Tools & projects, and Sync — so the import workflow no longer lives on one very long page. Old links redirect.",
     ],
   },
   {

@@ -193,7 +193,7 @@ describe("rankTeams — Shared seats split", () => {
     // the roster's 64 department-less employees must NOT leak in.
     const r = rankTeams([...june, seatFact("ghost@nowhere.com", 10)], new Map([["Eng", 2], ["Unattributed", 64]]));
     const un = r.find((x) => x.id === "Unattributed");
-    expect(un?.sub).toBe("unmatched keys — see Data Health");
+    expect(un?.sub).toBe("unmatched keys — see Data");
   });
 
   it("Unattributed names people/projects/unmatched by what's present in the filtered facts", () => {
@@ -207,7 +207,7 @@ describe("rankTeams — Shared seats split", () => {
     };
     const r = rankTeams([...june, personNoDept, vercelPlan], new Map([["Eng", 2], ["Unattributed", 64]]));
     const un = r.find((x) => x.id === "Unattributed");
-    expect(un?.sub).toBe("1 person without a department · unassigned projects & team-level charges — see Imports");
+    expect(un?.sub).toBe("1 person without a department · unassigned projects & team-level charges — see Data");
   });
 });
 

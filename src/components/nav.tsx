@@ -4,12 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
-const PAGES = [
+const PAGES: { href: string; label: string; admin?: boolean }[] = [
   { href: "/explore", label: "Explore" },
   { href: "/cursor", label: "Cursor Usage & Spend" },
   { href: "/api-platforms", label: "API Platforms" },
-  { href: "/data-health", label: "Data Health" },
-  { href: "/imports", label: "Imports", admin: true },
+  { href: "/data", label: "Data" },
 ];
 
 export function Nav({ isAdmin = false }: { isAdmin?: boolean }) {

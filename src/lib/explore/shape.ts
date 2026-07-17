@@ -195,8 +195,8 @@ export function rankTeams(rows: ShapeFact[], headcounts: Map<string, number>, to
     const unmatched = unattributed.some((r) => !r.employeeId && r.source !== "other" && r.source !== "vercel");
     const parts = [
       people ? `${formatPeople(people)} without a department` : "",
-      projectish ? "unassigned projects & team-level charges — see Imports" : "",
-      unmatched ? "unmatched keys — see Data Health" : "",
+      projectish ? "unassigned projects & team-level charges — see Data" : "",
+      unmatched ? "unmatched keys — see Data" : "",
     ].filter(Boolean);
     teams.push({
       id: UNATTRIBUTED,
