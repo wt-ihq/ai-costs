@@ -41,14 +41,81 @@ describe("projectPeriodEnd — month", () => {
 
   it("compares against last month's actual total", () => {
     const facts = [
-      fact("2026-06-10", "metered", 800),
-      fact("2026-06-01", "seat", 200), // last month total 1000
+      fact("2026-06-10", "metered", 300), // June daily rate 300/30 = 10 — same as July's pace, so the blend is a no-op
+      fact("2026-06-01", "seat", 700),    // last month total 1000
       ...julyUsage(),
     ];
     const p = projectPeriodEnd(facts, NOW, MONTH)!;
     expect(p.prevPeriodUsd).toBe(1000);
     // projected = 130 + 10×18 = 310 → (310-1000)/1000
     expect(p.deltaPct).toBeCloseTo(-69);
+  });
+
+  it("a source's rate window ends at its own last data day, not at now", () => {
+    // Manual import (credits CSV) last covered Jul 10: $30/day for 10 days.
+    // Dividing by the 13 elapsed window days would understate the rate.
+    const facts = Array.from({ length: 10 }, (_, i) =>
+      fact(`2026-07-${String(i + 1).padStart(2, "0")}`, "overage", 30, "chatgpt_business"));
+    const p = projectPeriodEnd(facts, NOW, MONTH)!;
+    // rate 30/day × remaining 21 days after the 10-day window
+    expect(p.projectedUsd).toBe(300 + 30 * 21);
+  });
+
+  it("sources with different data horizons each get their own rate", () => {
+    const facts = [
+      // cursor live through Jul 13 (the global cutoff): $20/day
+      ...Array.from({ length: 13 }, (_, i) => fact(`2026-07-${String(i + 1).padStart(2, "0")}`, "overage", 20, "cursor")),
+      // credits imported through Jul 10 only: $30/day
+      ...Array.from({ length: 10 }, (_, i) => fact(`2026-07-${String(i + 1).padStart(2, "0")}`, "overage", 30, "chatgpt_business")),
+    ];
+    const t = projectTrend(facts, NOW, 1);
+    // Aug = 20×31 + 30×31 — the stale source is NOT diluted by empty days
+    expect(t[0].projected).toBe((20 + 30) * 31);
+  });
+
+  it("blends the current pace with last month's rate, weighted by observed days", () => {
+    const facts = [
+      fact("2026-06-15", "metered", 300), // June: 300/30 = $10/day
+      // July: $30/day, but only 10 days observed (import horizon Jul 10)
+      ...Array.from({ length: 10 }, (_, i) => fact(`2026-07-${String(i + 1).padStart(2, "0")}`, "metered", 30)),
+    ];
+    const t = projectTrend(facts, NOW, 1);
+    // shrinkage with τ=10 prior days: (300 + 10×10) / (10 + 10) = $20/day
+    expect(t[0].projected).toBe(20 * 31);
+  });
+
+  it("a declining vendor projects downward via the damped trend, gently", () => {
+    const facts = [
+      fact("2026-04-10", "metered", 400),
+      fact("2026-05-10", "metered", 200), // ratio 0.5
+      fact("2026-06-10", "metered", 100), // ratio 0.5 → damped 0.75 → clamped to 0.8/month
+    ];
+    const t = projectTrend(facts, NOW, 2);
+    const rate = 100 / 30; // no July data → previous-month rate
+    expect(t[0].projected).toBeCloseTo(rate * 31 * 0.8, 1);       // Aug
+    expect(t[1].projected).toBeCloseTo(rate * 30 * 0.8 ** 2, 1);  // Sep compounds, damped
+  });
+
+  it("a growing vendor's trend is clamped so it cannot run away", () => {
+    const facts = [
+      fact("2026-04-10", "metered", 100),
+      fact("2026-05-10", "metered", 200), // ratio 2
+      fact("2026-06-10", "metered", 400), // ratio 2 → damped 1.5 → clamped to 1.2/month
+    ];
+    const t = projectTrend(facts, NOW, 5);
+    const rate = 400 / 30;
+    expect(t[0].projected).toBeCloseTo(rate * 31 * 1.2, 1); // Aug
+    // Dec: 1.2^5 ≈ 2.49 exceeds the 2× cumulative cap → capped
+    expect(t[4].projected).toBeCloseTo(rate * 31 * 2.0, 1);
+  });
+
+  it("non-consecutive history yields no trend (ratios need adjacent months)", () => {
+    const facts = [
+      fact("2026-03-10", "metered", 400), // Mar then a gap
+      fact("2026-06-10", "metered", 100),
+    ];
+    const t = projectTrend(facts, NOW, 1);
+    expect(t[0].projected).toBeCloseTo((100 / 30) * 31, 1); // flat — no growth factor
   });
 
   it("falls back to the previous month's rate early in the month", () => {
@@ -109,13 +176,13 @@ describe("projectPeriodEnd — quarter", () => {
   it("counts months already elapsed in the quarter as actuals", () => {
     const aug = new Date("2026-08-15T12:00:00Z"); // mid-Q3: July is complete
     const facts = [
-      fact("2026-07-05", "metered", 700),  // July actual
+      fact("2026-07-05", "metered", 310),  // July actual — 10/day, same as August's pace (blend is a no-op)
       fact("2026-08-01", "seat", 100),
       ...Array.from({ length: 13 }, (_, i) => fact(`2026-08-${String(i + 1).padStart(2, "0")}`, "metered", 10)),
     ];
     const p = projectPeriodEnd(facts, aug, QUARTER)!;
-    // July actual 700 + Aug (100 + 130 + 10×18) + Sep (100 fixed + 10×30) = 700 + 410 + 400
-    expect(p.projectedUsd).toBe(1510);
+    // July actual 310 + Aug (100 + 130 + 10×18) + Sep (100 fixed + 10×30) = 310 + 410 + 400
+    expect(p.projectedUsd).toBe(1120);
   });
 
   it("compares against the previous quarter's actual total", () => {

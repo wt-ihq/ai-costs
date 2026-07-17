@@ -11,6 +11,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-07-17",
+    title: "Smarter projections",
+    items: [
+      "Projections now respect each source's own data horizon — a credits export imported through the 10th no longer waters down that source's daily rate with days it knows nothing about.",
+      "Each source's recent pace is balanced against last month's, so a couple of unusual days early in a month no longer swing the whole forecast.",
+      "Forecasts now follow the direction of travel: a vendor whose spend has been falling for months projects downward (and rising spend projects upward), with sensible limits so one trend can't run away.",
+      "Explore now opens on the Year view.",
+    ],
+  },
+  {
     date: "2026-07-15",
     title: "Projected spend + Vercel sync",
     items: [

@@ -45,11 +45,22 @@ export interface MonthEndProjection {
 }
 ```
 
-- **Run-rate window**: variable spend on days `[month start, now − 2 days]`
-  ÷ window length. The trailing 2 days are excluded — Vercel and the credit
-  export lag, and counting lagging days biases the rate low.
-- **Early-month fallback** (window < 3 days): `basis: "previous-month"` —
-  use the previous month's variable daily average instead.
+- **Per-source run-rate windows** (v2, 2026-07-17): each variable source's
+  window runs `[month start, min(its own last data day, now − 2 days)]`.
+  Days after a source's last data day are UNKNOWN, not zero — a credits CSV
+  imported through the 10th divides by 10, not by days elapsed. The global
+  2-day lag guard still excludes possibly-partial live days.
+- **Previous-month blending** (v2): each source's observed pace is shrunk
+  toward its previous-month daily rate with prior weight τ = 10 days, so a
+  hot fortnight doesn't project a hot year; the blend fades as observed
+  days accumulate. No prior data → pure window rate.
+- **Damped trend** (v2): one aggregate factor = median month-over-month
+  ratio of variable totals across the last ≤4 complete months (consecutive
+  pairs only), damped 50% toward 1, clamped to [0.8, 1.2] per month and a
+  [0.5, 2.0] cumulative cap. Future months' rates are bent by it, so a
+  declining vendor projects downward and a growing one upward — gently.
+- **Early-month fallback** (no source has a ≥3-day window):
+  `basis: "previous-month"` — sources use their previous month's daily rate.
 - **Monthly-snapshot usage is a level, not a rate** (added 2026-07-15):
   Claude Team's member-usage import posts a whole month's usage as one
   overage fact on the 1st. Sources in `MONTHLY_SNAPSHOT_SOURCES` project

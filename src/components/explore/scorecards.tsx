@@ -33,7 +33,7 @@ function ProjectedCard({ p, delay }: { p: PeriodProjection; delay: number }) {
       transition={{ duration: 0.18, delay }}
       // Dashed border: a projection must never read as an actual.
       className="rounded-xl border border-dashed border-border bg-surface p-5"
-      title={p.basis === "previous-month" ? "Early-month estimate — based on last month's daily rate" : "Based on this month's daily rate (fixed costs counted exactly)"}
+      title={p.basis === "previous-month" ? "Early-month estimate — based on last month's daily rate" : "Based on each source's recent daily pace and direction (seats & subscriptions counted exactly)"}
     >
       <div className="text-xs uppercase tracking-wide text-muted">Projected · {p.label}</div>
       <div className="mt-2 text-2xl font-semibold tabular-nums">{formatUsd(p.projectedUsd)}</div>
