@@ -11,7 +11,7 @@ export default async function CompanyPage({ searchParams }: { searchParams: Prom
   const scope = await getCompanyScopeCached();
   return (
     <>
-      <PageHeader title="Company" subtitle="AI spend across Intent HQ — drill into a team or person." />
+      <PageHeader title="Company" subtitle="AI spend and usage across Intent HQ — drill into a team or person." />
       <ExploreView scope={scope} initialPeriodParam={sp.period} initialDim={dim} initialVendorParam={sp.vendor} />
     </>
   );
