@@ -6,7 +6,7 @@ import { RankedList } from "./ranked-list";
 import { cn } from "@/lib/utils";
 
 const TITLE: Record<ExploreData["ranked"]["kind"], string> = {
-  team: "Teams", person: "People", lineitem: "Line items",
+  team: "Teams", person: "People", lineitem: "Spend breakdown",
 };
 
 type Tab = "teams" | "people";
