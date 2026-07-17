@@ -43,18 +43,16 @@ function yAxisScale(points: TrendPoint[]): { top: number; ticks: number[] } {
     max = Math.max(max, stacked);
   }
   if (max <= 0) return { top: 4, ticks: [0, 1, 2, 3, 4] };
-  // Try 4–6 steps and keep whichever nice step size wastes the least space
-  // above the data (a fixed 4 steps forced $44k of data onto a $50k axis).
-  const padded = max * 1.02;
-  let best: { top: number; ticks: number[] } | null = null;
-  for (const steps of [4, 5, 6]) {
-    const target = padded / steps;
-    const pow = 10 ** Math.floor(Math.log10(target));
-    const step = (NICE_MANTISSAS.find((m) => m * pow >= target) ?? 10) * pow;
-    const top = step * steps;
-    if (!best || top < best.top) best = { top, ticks: Array.from({ length: steps + 1 }, (_, i) => step * i) };
-  }
-  return best!;
+  // The plot top sits a fixed 2% above the tallest point; ticks are nice
+  // round steps BELOW it (the very top needn't carry a label). Anchoring the
+  // top to a labeled tick always rounded up a whole step — $44.9k of data on
+  // a $48k axis.
+  const top = max * 1.02;
+  const target = top / 6;
+  const pow = 10 ** Math.floor(Math.log10(target));
+  const step = (NICE_MANTISSAS.find((m) => m * pow >= target) ?? 10) * pow;
+  const ticks = Array.from({ length: Math.floor(top / step) + 1 }, (_, i) => step * i);
+  return { top, ticks };
 }
 
 type TooltipEntry = { dataKey?: string | number; name?: string; value?: number | string; color?: string; stroke?: string };
