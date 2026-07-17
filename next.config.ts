@@ -14,6 +14,8 @@ const nextConfig: NextConfig = {
       // Merged into the tabbed Data page 2026-07-17.
       { source: "/data-health", destination: "/data", permanent: false },
       { source: "/imports", destination: "/data?tab=imports", permanent: false },
+      // Renamed 2026-07-17.
+      { source: "/api-platforms", destination: "/api", permanent: false },
     ];
   },
 };
