@@ -37,6 +37,8 @@ const BLEND_PRIOR_DAYS = 10;
 const TREND_LOOKBACK_MONTHS = 4;
 /** Trend damping: how much of the observed growth carries forward (0 = none, 1 = full). */
 const TREND_DAMPING = 0.5;
+/** Month-over-month moves within ±this fraction are neutral for direction consensus. */
+const TREND_DEADBAND = 0.05;
 /** Per-month growth clamp after damping, and the cumulative cap across the horizon. */
 const TREND_CLAMP = { perMonth: [0.8, 1.2], cumulative: [0.5, 2.0] } as const;
 
@@ -154,7 +156,10 @@ function monthModel(facts: ShapeFact[], now: Date): MonthModel | null {
  * Damped aggregate trend: median month-over-month ratio of variable totals
  * across the last TREND_LOOKBACK complete months (consecutive pairs only —
  * a gap breaks the ratio), damped toward 1, clamped per month. 1 when the
- * history can't support a ratio.
+ * history can't support a ratio — or when the ratios DISAGREE on direction:
+ * a median of mixed up/down months is noise, and compounding noise for five
+ * months once bent a flat vendor visibly upward. Moves within ±5% count as
+ * neutral (neither confirming nor breaking consensus).
  */
 function trendGrowth(variable: ShapeFact[], month: string): number {
   const totals = new Map<string, number>();
@@ -166,6 +171,9 @@ function trendGrowth(variable: ShapeFact[], month: string): number {
     if (a && b && a > 0 && b > 0) ratios.push(b / a);
   }
   if (ratios.length === 0) return 1;
+  const up = ratios.some((r) => r > 1 + TREND_DEADBAND);
+  const down = ratios.some((r) => r < 1 - TREND_DEADBAND);
+  if (up === down) return 1; // mixed signals, or nothing but neutral drift
   ratios.sort((x, y) => x - y);
   const mid = Math.floor(ratios.length / 2);
   const median = ratios.length % 2 ? ratios[mid] : (ratios[mid - 1] + ratios[mid]) / 2;

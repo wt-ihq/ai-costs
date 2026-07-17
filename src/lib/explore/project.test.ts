@@ -109,6 +109,34 @@ describe("projectPeriodEnd — month", () => {
     expect(t[4].projected).toBeCloseTo(rate * 31 * 2.0, 1);
   });
 
+  it("mixed-direction history yields no trend — noise must not compound", () => {
+    // Apr→May +35%, May→Jun −22%: no directional consensus. The median of
+    // mixed ratios once bent a flat vendor upward for five compounding months.
+    const facts = [
+      fact("2026-04-10", "metered", 170),
+      fact("2026-05-10", "metered", 230),
+      fact("2026-06-10", "metered", 180),
+    ];
+    const t = projectTrend(facts, NOW, 2);
+    const rate = 180 / 30; // previous-month rate, no July data
+    expect(t[0].projected).toBeCloseTo(rate * 31, 1); // flat
+    expect(t[1].projected).toBeCloseTo(rate * 30, 1); // still flat — no compounding
+  });
+
+  it("near-flat months count as neutral, not as a direction", () => {
+    // −3% then −25%: the small move is noise (within the 5% deadband), the
+    // big one is a real decline — consensus holds, trend applies.
+    const facts = [
+      fact("2026-04-10", "metered", 400),
+      fact("2026-05-10", "metered", 388),
+      fact("2026-06-10", "metered", 291),
+    ];
+    const t = projectTrend(facts, NOW, 1);
+    // median of [0.97, 0.75] = 0.86 → damped 0.93
+    const rate = 291 / 30;
+    expect(t[0].projected).toBeCloseTo(rate * 31 * 0.93, 0);
+  });
+
   it("non-consecutive history yields no trend (ratios need adjacent months)", () => {
     const facts = [
       fact("2026-03-10", "metered", 400), // Mar then a gap
