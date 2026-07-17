@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Area, Bar, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Dim, TrendPoint } from "@/lib/explore/types";
 import { dimColorFor, dimLabel, seriesOrder } from "@/lib/explore/shape";
@@ -30,12 +30,12 @@ const usdTick = (v: unknown) => {
  * the axis explicit ticks.
  */
 const NICE_MANTISSAS = [1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 6, 7.5, 8, 10];
-function yAxisScale(points: TrendPoint[]): { top: number; ticks: number[] } {
+function yAxisScale(points: TrendPoint[], hidden?: Set<string>): { top: number; ticks: number[] } {
   let max = 0;
   for (const p of points) {
     let stacked = 0;
     for (const [k, v] of Object.entries(p)) {
-      if (k === "label") continue;
+      if (k === "label" || hidden?.has(k === "projectedRange" ? "projected" : k)) continue;
       if (Array.isArray(v)) max = Math.max(max, v[1]); // projectedRange [low, high]
       else if (typeof v === "number" && k === "projected") max = Math.max(max, v);
       else if (typeof v === "number") stacked += v; // bar segments stack
@@ -121,7 +121,23 @@ export function TrendChart({
   // any bucket): vendors by total desc, cost types canonical (seat at the base).
   // `projected` is drawn as its own dashed line, never as a bar.
   const series = useMemo(() => seriesOrder(points, dim).filter((k) => k !== "projected"), [points, dim]);
-  const yScale = useMemo(() => yAxisScale(points), [points]);
+
+  // Legend items toggle their series; the axis rescales to what's visible.
+  // Hidden state resets when the split changes (the keys change meaning).
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  useEffect(() => setHidden(new Set()), [dim]);
+  const toggle = (entry: { dataKey?: unknown }) => {
+    const k = String(entry.dataKey ?? "");
+    if (!k) return;
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  };
+
+  const yScale = useMemo(() => yAxisScale(points, hidden), [points, hidden]);
 
   const color = (k: string) => dimColorFor(dim, k, toolColors);
   const label = (k: string) => dimLabel(dim, k);
@@ -136,15 +152,27 @@ export function TrendChart({
         <XAxis dataKey="label" tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={5} {...AXIS} />
         <YAxis domain={[0, yScale.top]} ticks={yScale.ticks} tickFormatter={usdTick} tickLine={false} axisLine={false} width={44} {...AXIS} />
         <Tooltip content={<TotalTooltip />} cursor={{ fill: "#ffffff0a" }} />
-        <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} iconType="circle" iconSize={8} />
+        <Legend
+          wrapperStyle={{ fontSize: 12, paddingTop: 8, cursor: "pointer", userSelect: "none" }}
+          iconType="circle"
+          iconSize={8}
+          onClick={toggle}
+          formatter={(value, entry) => (
+            <span style={hidden.has(String(entry?.dataKey ?? "")) ? { opacity: 0.4, textDecoration: "line-through" } : undefined}>
+              {value}
+            </span>
+          )}
+        />
         {series.map((k) => (
-          <Bar key={k} dataKey={k} name={label(k)} stackId="1" fill={color(k)} radius={[2, 2, 0, 0]} maxBarSize={48} isAnimationActive />
+          <Bar key={k} dataKey={k} name={label(k)} hide={hidden.has(k)} stackId="1" fill={color(k)} radius={[2, 2, 0, 0]} maxBarSize={48} isAnimationActive />
         ))}
         {projection && projection.length > 0 && (
           // Translucent low–high band behind the dashed line: the honest
           // spread between the model's conservative and aggressive readings.
+          // Toggles together with the Projected line.
           <Area
             dataKey="projectedRange"
+            hide={hidden.has("projected")}
             stroke="none"
             fill="#8b92a5"
             fillOpacity={0.12}
@@ -160,6 +188,7 @@ export function TrendChart({
           <Line
             dataKey="projected"
             name="Projected"
+            hide={hidden.has("projected")}
             stroke="#8b92a5"
             strokeWidth={2}
             strokeDasharray="6 4"
