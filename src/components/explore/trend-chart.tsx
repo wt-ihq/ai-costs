@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Area, Bar, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Dim, TrendPoint } from "@/lib/explore/types";
 import { dimColorFor, dimLabel, seriesOrder } from "@/lib/explore/shape";
@@ -123,17 +123,18 @@ export function TrendChart({
   const series = useMemo(() => seriesOrder(points, dim).filter((k) => k !== "projected"), [points, dim]);
 
   // Legend items toggle their series; the axis rescales to what's visible.
-  // Hidden state resets when the split changes (the keys change meaning).
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
-  useEffect(() => setHidden(new Set()), [dim]);
+  // Hidden state resets when the split changes (the keys change meaning) —
+  // render-time reset instead of an effect, per react-hooks/set-state-in-effect.
+  const [hiddenState, setHidden] = useState<{ dim: Dim; keys: Set<string> }>({ dim, keys: new Set() });
+  const hidden = hiddenState.dim === dim ? hiddenState.keys : new Set<string>();
   const toggle = (entry: { dataKey?: unknown }) => {
     const k = String(entry.dataKey ?? "");
     if (!k) return;
-    setHidden((prev) => {
-      const next = new Set(prev);
+    setHidden(() => {
+      const next = new Set(hidden);
       if (next.has(k)) next.delete(k);
       else next.add(k);
-      return next;
+      return { dim, keys: next };
     });
   };
 
