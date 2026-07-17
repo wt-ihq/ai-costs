@@ -126,7 +126,7 @@ export function TrendChart({
   // Hidden state resets when the split changes (the keys change meaning) —
   // render-time reset instead of an effect, per react-hooks/set-state-in-effect.
   const [hiddenState, setHidden] = useState<{ dim: Dim; keys: Set<string> }>({ dim, keys: new Set() });
-  const hidden = hiddenState.dim === dim ? hiddenState.keys : new Set<string>();
+  const hidden = useMemo(() => (hiddenState.dim === dim ? hiddenState.keys : new Set<string>()), [hiddenState, dim]);
   const toggle = (entry: { dataKey?: unknown }) => {
     const k = String(entry.dataKey ?? "");
     if (!k) return;
