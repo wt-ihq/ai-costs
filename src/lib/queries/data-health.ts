@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { VENDOR_LABEL, type Vendor } from "@/lib/types";
 import { fetchEmployeesAll } from "./common";
 
-interface HealthFact { source: string; day: string; entity_key: string; cost_usd: number; employee_id: string | null }
+interface HealthFact { source: string; day: string; entity_key: string; cost_usd: number; employee_id: string | null; model: string | null }
 
 /**
  * Every spend fact (counts/unmatched), paging past PostgREST's 1000-row cap.
@@ -15,7 +15,7 @@ async function fetchAllSpendFacts(supabase: SupabaseClient): Promise<HealthFact[
   const page = (withCount: boolean) =>
     supabase
       .from("spend_facts")
-      .select("source, day, entity_key, cost_usd, employee_id", withCount ? { count: "exact" } : undefined)
+      .select("source, day, entity_key, cost_usd, employee_id, model", withCount ? { count: "exact" } : undefined)
       // id tiebreaker: `day` alone has thousands of ties, so page boundaries
       // could duplicate/skip rows between queries.
       .order("day")
@@ -44,6 +44,13 @@ export interface SourceHealth {
   lastSyncAt: string | null;
   lastSyncStatus: string | null;
   lastImportAsOf: string | null;
+}
+
+/** One recurring "other" tool (n8n, Supabase, …), broken out under the Other tools row. */
+export interface OtherToolHealth {
+  tool: string;
+  factCount: number;
+  latestDay: string | null;
 }
 
 export interface UnmatchedEntity {
@@ -80,6 +87,7 @@ export interface IdentityHealth {
 export interface DataHealth {
   identity: IdentityHealth;
   sources: SourceHealth[];
+  otherTools: OtherToolHealth[];
   unmatched: UnmatchedEntity[];
   /** Person-less spend (unassigned seats, unkeyed, org) — informational, not assignable. */
   pseudo: UnmatchedEntity[];
@@ -161,9 +169,19 @@ export async function getDataHealth(supabase: SupabaseClient): Promise<DataHealt
   const latest = new Map<string, string>();
   const unmatched = new Map<string, UnmatchedEntity>();
   const pseudo = new Map<string, UnmatchedEntity>();
+  // "Other tools" is many independent recurring tools behind one vendor —
+  // break them out (the tool name lives in `model`) so each is visible.
+  const otherByTool = new Map<string, OtherToolHealth>();
   for (const f of facts ?? []) {
     count.set(f.source, (count.get(f.source) ?? 0) + 1);
     if (!latest.get(f.source) || (f.day as string) > latest.get(f.source)!) latest.set(f.source, f.day as string);
+    if (f.source === "other") {
+      const tool = f.model || f.entity_key;
+      const t = otherByTool.get(tool) ?? { tool, factCount: 0, latestDay: null };
+      t.factCount++;
+      if (!t.latestDay || f.day > t.latestDay) t.latestDay = f.day;
+      otherByTool.set(tool, t);
+    }
     // recurring tool costs and Vercel project charges are department-attributed
     // — never assignable to a person
     if (f.source === "other" || f.source === "vercel") continue;
@@ -199,6 +217,7 @@ export async function getDataHealth(supabase: SupabaseClient): Promise<DataHealt
       lastSyncAt: lastSync.get("okta")?.at ?? null,
       lastSyncStatus: lastSync.get("okta")?.status ?? null,
     },
+    otherTools: [...otherByTool.values()].sort((a, b) => a.tool.localeCompare(b.tool)),
     sources: VENDORS.map((source) => ({
       source,
       factCount: count.get(source) ?? 0,

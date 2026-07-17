@@ -1,3 +1,4 @@
+import React from "react";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { pseudoExplanation } from "@/lib/queries/data-health";
 import { getDataHealthCached } from "@/lib/queries/cached";
@@ -10,7 +11,7 @@ import { staleness, formatUsd } from "@/lib/utils";
 
 export async function HealthTab() {
   const supabase = getSupabaseAdminClient();
-  const [{ identity, sources, unmatched, pseudo, employees, noDepartment }, reconciliation] = await Promise.all([
+  const [{ identity, sources, otherTools, unmatched, pseudo, employees, noDepartment }, reconciliation] = await Promise.all([
     getDataHealthCached(),
     getCursorReconciliation(supabase),
   ]);
@@ -60,28 +61,43 @@ export async function HealthTab() {
               <td className="px-4 py-2.5 text-muted">—</td>
             </tr>
             {sources.map((s) => (
-              <tr key={s.source} className="border-b border-border/60 last:border-0">
-                <td className="px-4 py-2.5">
-                  <span className="inline-flex items-center gap-1.5 font-medium">
-                    <span className="size-2 rounded-full" style={{ background: VENDOR_COLORS[s.source] }} />
-                    {VENDOR_LABEL[s.source]}
-                  </span>
-                </td>
-                <td className="px-4 py-2.5 text-right tabular-nums text-muted">{s.factCount}</td>
-                <td className="px-4 py-2.5 text-muted">{s.latestDay ?? "—"}</td>
-                <td className="px-4 py-2.5 text-muted">
-                  {s.lastSyncAt ? (
-                    <span className={s.lastSyncStatus === "failed" ? "text-pink-300" : ""}>
-                      {staleness(new Date(s.lastSyncAt), now)} · {s.lastSyncStatus}
+              <React.Fragment key={s.source}>
+                <tr className="border-b border-border/60 last:border-0">
+                  <td className="px-4 py-2.5">
+                    <span className="inline-flex items-center gap-1.5 font-medium">
+                      <span className="size-2 rounded-full" style={{ background: VENDOR_COLORS[s.source] }} />
+                      {VENDOR_LABEL[s.source]}
                     </span>
-                  ) : (
-                    "—"
-                  )}
-                </td>
-                <td className="px-4 py-2.5 text-muted">
-                  {s.lastImportAsOf ? `${staleness(new Date(s.lastImportAsOf), now)}` : "—"}
-                </td>
-              </tr>
+                  </td>
+                  <td className="px-4 py-2.5 text-right tabular-nums text-muted">{s.factCount}</td>
+                  <td className="px-4 py-2.5 text-muted">{s.latestDay ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-muted">
+                    {s.lastSyncAt ? (
+                      <span className={s.lastSyncStatus === "failed" ? "text-pink-300" : ""}>
+                        {staleness(new Date(s.lastSyncAt), now)} · {s.lastSyncStatus}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5 text-muted">
+                    {s.lastImportAsOf ? `${staleness(new Date(s.lastImportAsOf), now)}` : "—"}
+                  </td>
+                </tr>
+                {/* "Other tools" is many independent recurring tools — break
+                    each out so its coverage is visible (sync columns are the
+                    parent row's; the "recurring" cron materializes them all). */}
+                {s.source === "other" &&
+                  otherTools.map((t) => (
+                    <tr key={`other:${t.tool}`} className="border-b border-border/60 last:border-0">
+                      <td className="py-2 pl-10 pr-4 text-muted">{t.tool}</td>
+                      <td className="px-4 py-2 text-right tabular-nums text-muted">{t.factCount}</td>
+                      <td className="px-4 py-2 text-muted">{t.latestDay ?? "—"}</td>
+                      <td className="px-4 py-2 text-muted">—</td>
+                      <td className="px-4 py-2 text-muted">—</td>
+                    </tr>
+                  ))}
+              </React.Fragment>
             ))}
           </tbody>
         </table>
