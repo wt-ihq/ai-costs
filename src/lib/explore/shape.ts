@@ -4,6 +4,7 @@ import { VENDOR_LABEL, COST_TYPE_LABEL, COST_TYPE_ORDER } from "@/lib/types";
 import type { Dim, TrendPoint, TreemapNode, RankRow, RankSegment, Scorecard } from "./types";
 import { enumerateBuckets, type Period, type Bucket } from "./period";
 import { UNASSIGNED_PREFIX } from "@/lib/ingest/seat-months";
+import { formatPeople } from "@/lib/utils";
 
 export interface ShapeFact {
   day: string;
@@ -168,7 +169,7 @@ export function rankTeams(rows: ShapeFact[], headcounts: Map<string, number>, to
         total: Math.round(total * 100) / 100,
         href: `/explore/${teamSlug(dept)}`,
         perHead: head === 0 ? null : Math.round((total / head) * 100) / 100,
-        sub: head ? `${head} people` : undefined,
+        sub: head ? formatPeople(head) : undefined,
         segments: segmentsByDim(facts, toolColors),
       };
     })
@@ -193,7 +194,7 @@ export function rankTeams(rows: ShapeFact[], headcounts: Map<string, number>, to
       total: Math.round(sum(unattributed) * 100) / 100,
       href: undefined,
       perHead: null,
-      sub: `${head ? `${head} people without a department · ` : ""}unmatched keys — see Data Health`,
+      sub: `${head ? `${formatPeople(head)} without a department · ` : ""}unmatched keys — see Data Health`,
       segments: segmentsByDim(unattributed, toolColors),
     });
   }

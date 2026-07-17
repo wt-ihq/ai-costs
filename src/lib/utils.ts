@@ -31,6 +31,11 @@ export function formatCount(n: number): string {
   return countFull.format(n);
 }
 
+/** "1 person" / "3 people". */
+export function formatPeople(n: number): string {
+  return `${n} ${n === 1 ? "person" : "people"}`;
+}
+
 /** Compact count for tight spaces (axes), e.g. "12.5k". */
 export function formatCountCompact(n: number): string {
   return countCompact.format(n);

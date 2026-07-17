@@ -7,7 +7,7 @@ import {
   type OpenAiCreditsPreview,
   type OpenAiCreditsCommitResult,
 } from "@/app/(dashboard)/imports/actions";
-import { formatUsd } from "@/lib/utils";
+import { formatUsd, formatPeople } from "@/lib/utils";
 
 export function OpenAiCreditsImport({
   importedThrough,
@@ -107,7 +107,7 @@ export function OpenAiCreditsImport({
       {preview && (
         <div className="space-y-3">
           <p className="text-xs text-muted">
-            {preview.minDay} → {preview.maxDay} · {preview.users.length} people · {preview.modelCount} models ·{" "}
+            {preview.minDay} → {preview.maxDay} · {formatPeople(preview.users.length)} · {preview.modelCount} models ·{" "}
             {Math.round(preview.totalCredits).toLocaleString()} credits = {formatUsd(preview.totalUsd)} ·{" "}
             {preview.matchedCount} matched
             {preview.errors.length > 0 && ` · ${preview.errors.length} bad rows skipped`}

@@ -52,7 +52,7 @@ export default async function DataHealthPage() {
               <td className="px-4 py-2.5 text-right tabular-nums text-muted">
                 {/* Real 0 must render as 0 — this page exists to spot empty sources. */}
                 {identity.employeeCount}
-                <span className="ml-1 text-xs text-muted">people</span>
+                <span className="ml-1 text-xs text-muted">{identity.employeeCount === 1 ? "person" : "people"}</span>
               </td>
               <td className="px-4 py-2.5 text-muted">—</td>
               <td className="px-4 py-2.5 text-muted">
