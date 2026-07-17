@@ -187,14 +187,24 @@ export function rankTeams(rows: ShapeFact[], headcounts: Map<string, number>, to
     });
   }
   if (unattributed.length > 0) {
-    const head = headcounts.get(UNATTRIBUTED) ?? 0;
+    // Describe what is actually IN this row (which is period/vendor-filtered),
+    // not global roster stats: matched people lacking a department, unassigned
+    // tools/Vercel projects (team-level charges), and unmatched entity keys.
+    const people = new Set(unattributed.filter((r) => r.employeeId).map((r) => r.employeeId)).size;
+    const projectish = unattributed.some((r) => !r.employeeId && (r.source === "other" || r.source === "vercel"));
+    const unmatched = unattributed.some((r) => !r.employeeId && r.source !== "other" && r.source !== "vercel");
+    const parts = [
+      people ? `${formatPeople(people)} without a department` : "",
+      projectish ? "unassigned projects & team-level charges — see Imports" : "",
+      unmatched ? "unmatched keys — see Data Health" : "",
+    ].filter(Boolean);
     teams.push({
       id: UNATTRIBUTED,
       label: UNATTRIBUTED,
       total: Math.round(sum(unattributed) * 100) / 100,
       href: undefined,
       perHead: null,
-      sub: `${head ? `${formatPeople(head)} without a department · ` : ""}unmatched keys — see Data Health`,
+      sub: parts.join(" · "),
       segments: segmentsByDim(unattributed, toolColors),
     });
   }
