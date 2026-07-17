@@ -17,8 +17,8 @@ const usdTick = (v: unknown) => {
   const n = Number(v);
   if (Math.abs(n) >= 1000) {
     const k = n / 1000;
-    // One decimal when the tick isn't a whole number of k ($7.5k), else none.
-    return `$${k.toFixed(Number.isInteger(k) || Math.abs(n) >= 10_000 ? 0 : 1)}k`;
+    // One decimal when the tick isn't a whole number of k ($7.5k, $22.5k).
+    return `$${k.toFixed(Number.isInteger(k) || Math.abs(k) >= 100 ? 0 : 1)}k`;
   }
   return `$${Math.round(n)}`;
 };
@@ -43,10 +43,18 @@ function yAxisScale(points: TrendPoint[]): { top: number; ticks: number[] } {
     max = Math.max(max, stacked);
   }
   if (max <= 0) return { top: 4, ticks: [0, 1, 2, 3, 4] };
-  const target = (max * 1.04) / 4; // ~4% headroom over the tallest point
-  const pow = 10 ** Math.floor(Math.log10(target));
-  const step = (NICE_MANTISSAS.find((m) => m * pow >= target) ?? 10) * pow;
-  return { top: step * 4, ticks: [0, step, step * 2, step * 3, step * 4] };
+  // Try 4–6 steps and keep whichever nice step size wastes the least space
+  // above the data (a fixed 4 steps forced $44k of data onto a $50k axis).
+  const padded = max * 1.02;
+  let best: { top: number; ticks: number[] } | null = null;
+  for (const steps of [4, 5, 6]) {
+    const target = padded / steps;
+    const pow = 10 ** Math.floor(Math.log10(target));
+    const step = (NICE_MANTISSAS.find((m) => m * pow >= target) ?? 10) * pow;
+    const top = step * steps;
+    if (!best || top < best.top) best = { top, ticks: Array.from({ length: steps + 1 }, (_, i) => step * i) };
+  }
+  return best!;
 }
 
 type TooltipEntry = { dataKey?: string | number; name?: string; value?: number | string; color?: string; stroke?: string };
