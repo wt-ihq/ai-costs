@@ -9,6 +9,23 @@ import { VENDOR_LABEL } from "@/lib/types";
 import { VENDOR_COLORS } from "@/lib/colors";
 import { staleness, formatUsd } from "@/lib/utils";
 
+/**
+ * Per-source annotations that defuse "conflicting" dates: a sync that ran
+ * today can legitimately sit next to month-old "latest data" when the sync
+ * only maintains seat assignments (usage arrives by manual import), or when
+ * the source's facts are month-stamped to the 1st.
+ */
+const SYNC_NOTE: Partial<Record<string, string>> = {
+  claude_team: "seat assignments only — usage via manual import",
+  chatgpt_business: "seat assignments only — usage via CSV import",
+  other: "materializes the recurring entries",
+};
+const LATEST_NOTE: Partial<Record<string, string>> = {
+  claude_team: "monthly — stamped to the 1st",
+  other: "monthly — stamped to the 1st",
+  vercel: "billing periods — can post dated to the period end",
+};
+
 export async function HealthTab() {
   const supabase = getSupabaseAdminClient();
   const [{ identity, sources, otherTools, unmatched, pseudo, employees, noDepartment }, reconciliation] = await Promise.all([
@@ -70,12 +87,20 @@ export async function HealthTab() {
                     </span>
                   </td>
                   <td className="px-4 py-2.5 text-right tabular-nums text-muted">{s.factCount}</td>
-                  <td className="px-4 py-2.5 text-muted">{s.latestDay ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-muted">
+                    {s.latestDay ?? "—"}
+                    {s.latestDay && LATEST_NOTE[s.source] && (
+                      <div className="text-xs text-muted/70">{LATEST_NOTE[s.source]}</div>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 text-muted">
                     {s.lastSyncAt ? (
-                      <span className={s.lastSyncStatus === "failed" ? "text-pink-300" : ""}>
-                        {staleness(new Date(s.lastSyncAt), now)} · {s.lastSyncStatus}
-                      </span>
+                      <>
+                        <span className={s.lastSyncStatus === "failed" ? "text-pink-300" : ""}>
+                          {staleness(new Date(s.lastSyncAt), now)} · {s.lastSyncStatus}
+                        </span>
+                        {SYNC_NOTE[s.source] && <div className="text-xs text-muted/70">{SYNC_NOTE[s.source]}</div>}
+                      </>
                     ) : (
                       "—"
                     )}
