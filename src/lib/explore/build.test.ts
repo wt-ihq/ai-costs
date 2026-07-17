@@ -14,7 +14,7 @@ const companyScope: RawScope = {
   kind: "company", title: "Company", earliest: "2026-05", facts,
   headcounts: { Eng: 2 },
   employees: [{ id: "a", fullName: "A", department: "Eng" }, { id: "z", fullName: "Z", department: "Sales" }],
-  toolColors: {},
+  toolColors: {}, horizons: {},
 };
 
 describe("buildExploreData", () => {

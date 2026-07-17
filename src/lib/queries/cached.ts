@@ -28,7 +28,7 @@ export const FACTS_TAG = "facts";
  * bump a new build can read an old-shaped entry and crash (this bit us when
  * scopes switched to the packed format).
  */
-const CACHE_VERSION = "v2";
+const CACHE_VERSION = "v3";
 
 const OPTS = { tags: [FACTS_TAG], revalidate: 3600 };
 

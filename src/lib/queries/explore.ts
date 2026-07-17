@@ -3,6 +3,31 @@ import { earliestFactDay, fetchEmployeesAll, fetchFactsInRange, type EnrichedFac
 import { UNATTRIBUTED, type ShapeFact } from "@/lib/explore/shape";
 import type { RawScope } from "@/lib/explore/build";
 import { OTHER_TOOL_PALETTE } from "@/lib/colors";
+import { VENDOR_LABEL, type Vendor } from "@/lib/types";
+
+/**
+ * source → its latest fact day, GLOBAL (not scope-filtered). The projection
+ * needs each source's true data horizon: on a person/team page, that person's
+ * last credit row may predate the import's coverage — the days between are
+ * genuinely zero for them, not unknown.
+ */
+export async function getSourceHorizons(supabase: SupabaseClient): Promise<Record<string, string>> {
+  const vendors = Object.keys(VENDOR_LABEL) as Vendor[];
+  const out: Record<string, string> = {};
+  await Promise.all(
+    vendors.map(async (v) => {
+      const { data, error } = await supabase
+        .from("spend_facts")
+        .select("day")
+        .eq("source", v)
+        .order("day", { ascending: false })
+        .limit(1);
+      if (error) throw new Error(`getSourceHorizons(${v}): ${error.message}`);
+      if (data?.[0]?.day) out[v] = data[0].day as string;
+    }),
+  );
+  return out;
+}
 
 const asShape = (f: EnrichedFact): ShapeFact => f as unknown as ShapeFact;
 
@@ -46,10 +71,11 @@ async function fetchScope(
 export async function getCompanyScope(supabase: SupabaseClient): Promise<RawScope> {
   // Independent reads run concurrently — sequential awaits added whole
   // round-trips of latency per page view.
-  const [{ rows, earliest }, emps, toolColors] = await Promise.all([
+  const [{ rows, earliest }, emps, toolColors, horizons] = await Promise.all([
     fetchScope(supabase),
     fetchEmployeesAll(supabase, "id, full_name, department"),
     getToolColors(supabase),
+    getSourceHorizons(supabase),
   ]);
   const employees = emps.map((e) => ({ id: e.id as string, fullName: e.full_name as string | null, department: e.department as string | null }));
   const headcounts: Record<string, number> = {};
@@ -57,7 +83,7 @@ export async function getCompanyScope(supabase: SupabaseClient): Promise<RawScop
     const d = e.department ?? UNATTRIBUTED;
     headcounts[d] = (headcounts[d] ?? 0) + 1;
   }
-  return { kind: "company", title: "Company", earliest, facts: rows, headcounts, employees, toolColors };
+  return { kind: "company", title: "Company", earliest, facts: rows, headcounts, employees, toolColors, horizons };
 }
 
 export async function getTeamScope(supabase: SupabaseClient, team: string): Promise<RawScope> {
@@ -68,15 +94,16 @@ export async function getTeamScope(supabase: SupabaseClient, team: string): Prom
   const isUnattributed = team === UNATTRIBUTED;
   const emps = await fetchEmployeesAll(supabase, "id, full_name", { department: isUnattributed ? null : team });
   const employees = emps.map((e) => ({ id: e.id as string, fullName: e.full_name as string | null }));
-  const [{ rows: facts, earliest }, toolColors] = await Promise.all([
+  const [{ rows: facts, earliest }, toolColors, horizons] = await Promise.all([
     fetchScope(supabase, {
       employeeIds: employees.map((e) => e.id),
       includeNullEmployee: isUnattributed,
       department: isUnattributed ? undefined : team,
     }),
     getToolColors(supabase),
+    getSourceHorizons(supabase),
   ]);
-  return { kind: "team", title: team, earliest, facts, team, employees, toolColors };
+  return { kind: "team", title: team, earliest, facts, team, employees, toolColors, horizons };
 }
 
 export interface SearchItem {
@@ -119,10 +146,11 @@ export async function getSearchIndex(supabase: SupabaseClient): Promise<SearchIt
 }
 
 export async function getPersonScope(supabase: SupabaseClient, employeeId: string): Promise<RawScope> {
-  const [{ rows: facts, earliest }, { data: emp }, toolColors] = await Promise.all([
+  const [{ rows: facts, earliest }, { data: emp }, toolColors, horizons] = await Promise.all([
     fetchScope(supabase, { employeeIds: [employeeId] }),
     supabase.from("employees").select("full_name").eq("id", employeeId).single(),
     getToolColors(supabase),
+    getSourceHorizons(supabase),
   ]);
-  return { kind: "person", title: (emp?.full_name as string) ?? "Unknown", earliest, facts, toolColors };
+  return { kind: "person", title: (emp?.full_name as string) ?? "Unknown", earliest, facts, toolColors, horizons };
 }

@@ -230,14 +230,15 @@ describe("projectPeriodEnd — year and all time", () => {
       fact("2025-01-05", "metered", 100),  // data span covers all of last year
       fact("2025-06-10", "metered", 1200),
       fact("2026-03-10", "metered", 950),  // elapsed 2026 actual
+      fact("2026-06-15", "metered", 300),  // June at 10/day — July's pace, so the blend is a no-op
       ...julyUsage(),
     ];
     const p = projectPeriodEnd(facts, NOW, YEAR)!;
     expect(p.label).toBe("’26"); // year shortened so the tile header fits one line
     expect(p.compareLabel).toBe("last year");
     expect(p.prevPeriodUsd).toBe(1300);
-    // 950 past + July (130 + 10×18) + Aug…Dec at 10/day (31+30+31+30+31 = 153 days)
-    expect(p.projectedUsd).toBe(950 + 310 + 10 * 153);
+    // 950+300 past + July (130 + 10×18) + Aug…Dec at 10/day (31+30+31+30+31 = 153 days)
+    expect(p.projectedUsd).toBe(1250 + 310 + 10 * 153);
   });
 
   it("suppresses the comparison when the data doesn't cover the previous period", () => {
@@ -275,13 +276,32 @@ describe("projectTrend", () => {
 
   it("agrees with the period-end tile: year projection = actuals + the line's months", () => {
     // The tile and the dashed line MUST tell one story — the year-end figure
-    // is exactly the posted actuals plus the line's remaining months.
+    // is exactly the posted actuals plus the current month's projected finish
+    // (the month-granularity tile) plus the line's remaining months.
     const facts = [fact("2026-03-10", "metered", 950), ...paceFacts()];
     const tile = projectPeriodEnd(facts, NOW, YEAR)!;
+    const julyTile = projectPeriodEnd(facts, NOW, MONTH)!;
     const line = projectTrend(facts, NOW, 5); // Aug–Dec
-    const julyProjected = 1000 + 130 + 10 * 18;
     const lineSum = line.reduce((s, p) => s + p.projected, 0);
-    expect(tile.projectedUsd).toBeCloseTo(950 + julyProjected + lineSum, 6);
+    expect(tile.projectedUsd).toBeCloseTo(950 + julyTile.projectedUsd + lineSum, 6);
+  });
+
+  it("a global source horizon overrides the scope's own last fact day", () => {
+    // This person's last credit row is Jul 5, but the import covers Jul 11 —
+    // the days between are genuinely zero FOR THEM, not unknown.
+    const facts = Array.from({ length: 5 }, (_, i) =>
+      fact(`2026-07-${String(i + 1).padStart(2, "0")}`, "overage", 22, "chatgpt_business"));
+    const withHorizon = projectTrend(facts, NOW, 1, { chatgpt_business: "2026-07-11" });
+    expect(withHorizon[0].projected).toBe(310); // 110/11 = $10/day, not 110/5 = $22/day
+  });
+
+  it("a gap month is a zero prior, not a missing prior", () => {
+    // History in April, nothing in June: last month really was $0 — the blend
+    // must pull the hot July pace down hard, not ignore it.
+    const facts = [fact("2026-04-10", "metered", 300), ...julyUsage()];
+    const t = projectTrend(facts, NOW, 1);
+    // rate = (130 + 0×10) / (13 + 10) = 5.652…/day
+    expect(t[0].projected).toBeCloseTo((130 / 23) * 31, 1);
   });
 
   it("returns [] when there is nothing to project", () => {

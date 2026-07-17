@@ -98,11 +98,17 @@ interface MonthModel {
 
 /**
  * The shared current-pace model. Per variable source: a run-rate window
- * ending at min(source's last data day, now − LAG_DAYS), blended with the
+ * ending at min(source's data horizon, now − LAG_DAYS), blended with the
  * source's previous-month daily rate when one exists. Plus one aggregate
  * damped trend factor from recent complete months.
+ *
+ * `sourceHorizons` (source → last day with data, GLOBAL, not scope-filtered)
+ * matters on filtered views: a person's last credit row may be the 5th while
+ * the import covers the 11th — the days between are genuinely zero for them,
+ * not unknown. Without the map, the scope's own last fact day is the best
+ * available horizon.
  */
-function monthModel(facts: ShapeFact[], now: Date): MonthModel | null {
+function monthModel(facts: ShapeFact[], now: Date, sourceHorizons?: Record<string, string>): MonthModel | null {
   const month = monthOf(now);
   const prevMonth = addMonths(month, -1);
   const inMonth = facts.filter((f) => f.day.slice(0, 7) === month);
@@ -117,35 +123,44 @@ function monthModel(facts: ShapeFact[], now: Date): MonthModel | null {
   const variable = facts.filter(isDailyVariable);
   const bySource = new Map<string, ShapeFact[]>();
   for (const f of variable) {
-    if (f.day.slice(0, 7) !== month && f.day.slice(0, 7) !== prevMonth) continue;
     const list = bySource.get(f.source) ?? [];
     list.push(f);
     bySource.set(f.source, list);
   }
 
-  const sources: SourceRate[] = [...bySource.values()].map((rows) => {
-    const cur = rows.filter((f) => f.day.slice(0, 7) === month);
-    const prev = rows.filter((f) => f.day.slice(0, 7) === prevMonth);
-    const mtdUsd = sum(cur);
-    // The window ends at the source's own last data day (staleness-aware),
-    // never past the global cutoff (partial live days).
-    const lastDay = cur.reduce((max, f) => (f.day > max ? f.day : max), "");
-    const windowEnd = lastDay < cutoffDay ? lastDay : cutoffDay;
-    const windowDays = windowEnd.slice(0, 7) === month ? Number(windowEnd.slice(8)) : 0;
-    const windowUsd = windowDays > 0 ? sum(cur.filter((f) => f.day <= windowEnd)) : 0;
+  const sources: SourceRate[] = [...bySource.entries()]
+    .filter(([, rows]) => rows.some((f) => f.day >= `${prevMonth}-01`)) // dormant sources project nothing
+    .map(([source, rows]) => {
+      const cur = rows.filter((f) => f.day.slice(0, 7) === month);
+      const prev = rows.filter((f) => f.day.slice(0, 7) === prevMonth);
+      const mtdUsd = sum(cur);
+      // The window ends at the source's data horizon (staleness-aware): the
+      // global last-data day when known — never before a day the scope itself
+      // has facts on, never past the global cutoff (partial live days).
+      const lastScopeDay = cur.reduce((max, f) => (f.day > max ? f.day : max), "");
+      const horizon = sourceHorizons?.[source];
+      const lastDay = horizon && horizon > lastScopeDay ? horizon : lastScopeDay;
+      const windowEnd = lastDay < cutoffDay ? lastDay : cutoffDay;
+      const windowDays = windowEnd.slice(0, 7) === month ? Number(windowEnd.slice(8)) : 0;
+      const windowUsd = windowDays > 0 ? sum(cur.filter((f) => f.day <= windowEnd)) : 0;
 
-    const prevDaily = prev.length ? sum(prev) / daysInMonth(prevMonth) : null;
-    let rate: number;
-    if (windowDays > 0 && prevDaily !== null) {
-      // Shrinkage: last month's rate carries BLEND_PRIOR_DAYS of weight.
-      rate = (windowUsd + prevDaily * BLEND_PRIOR_DAYS) / (windowDays + BLEND_PRIOR_DAYS);
-    } else if (windowDays > 0) {
-      rate = windowUsd / windowDays;
-    } else {
-      rate = prevDaily ?? 0; // no current window: last month's pace, or a dead source
-    }
-    return { mtdUsd, windowDays, windowUsd, rate };
-  });
+      // A gap month is a ZERO prior, not a missing one: when the source has
+      // older history but nothing last month, last month really was $0 —
+      // without this, one hot fortnight after a quiet month projected as if
+      // the quiet month never happened.
+      const hasHistory = rows.some((f) => f.day < `${prevMonth}-01`);
+      const prevDaily = prev.length ? sum(prev) / daysInMonth(prevMonth) : hasHistory ? 0 : null;
+      let rate: number;
+      if (windowDays > 0 && prevDaily !== null) {
+        // Shrinkage: last month's rate carries BLEND_PRIOR_DAYS of weight.
+        rate = (windowUsd + prevDaily * BLEND_PRIOR_DAYS) / (windowDays + BLEND_PRIOR_DAYS);
+      } else if (windowDays > 0) {
+        rate = windowUsd / windowDays;
+      } else {
+        rate = prevDaily ?? 0; // no current window: last month's pace, or a dead source
+      }
+      return { mtdUsd, windowDays, windowUsd, rate };
+    });
 
   const basis: PeriodProjection["basis"] = sources.some((s) => s.windowDays >= 3) ? "run-rate" : "previous-month";
 
@@ -215,8 +230,8 @@ const shortLabel = (label: string) => label.replace(/ 20(\d\d)$/, " $1").replace
  * reach back that far (a partial base yields nonsense percentages). Only
  * call with a period that includes `now`.
  */
-export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: ProjectionPeriod): PeriodProjection | null {
-  const m = monthModel(facts, now);
+export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: ProjectionPeriod, sourceHorizons?: Record<string, string>): PeriodProjection | null {
+  const m = monthModel(facts, now, sourceHorizons);
   if (!m) return null;
   const { month, basis } = m;
 
@@ -271,9 +286,9 @@ export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: Projecti
  *  - all: current month + 3 future months in the all-time style ("Jul 26").
  * Day/week granularities get no line ([]).
  */
-export function projectTrendForPeriod(facts: ShapeFact[], now: Date, period: ProjectionPeriod): TrendPoint[] {
+export function projectTrendForPeriod(facts: ShapeFact[], now: Date, period: ProjectionPeriod, sourceHorizons?: Record<string, string>): TrendPoint[] {
   if (period.granularity !== "year" && period.granularity !== "all") return [];
-  const m = monthModel(facts, now);
+  const m = monthModel(facts, now, sourceHorizons);
   if (!m) return [];
   if (period.granularity === "year" && period.from.slice(0, 4) !== m.month.slice(0, 4)) return []; // past year
 
@@ -295,8 +310,8 @@ export function projectTrendForPeriod(facts: ShapeFact[], now: Date, period: Pro
  * SAME producer as `projectPeriodEnd`'s future sum, so a quarter/year tile
  * equals the actual bars plus the dashed line's months — one story, not two.
  */
-export function projectTrend(facts: ShapeFact[], now: Date, horizonMonths = 3): { month: string; projected: number }[] {
-  const m = monthModel(facts, now);
+export function projectTrend(facts: ShapeFact[], now: Date, horizonMonths = 3, sourceHorizons?: Record<string, string>): { month: string; projected: number }[] {
+  const m = monthModel(facts, now, sourceHorizons);
   if (!m) return [];
   return futureMonths(m, horizonMonths);
 }

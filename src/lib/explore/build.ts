@@ -12,9 +12,9 @@ import {
  * which re-derives the per-period views in-memory (no refetch on period change).
  */
 export type RawScope =
-  | { kind: "company"; title: string; earliest: string; facts: ShapeFact[]; headcounts: Record<string, number>; employees: { id: string; fullName: string | null; department: string | null }[]; toolColors: Record<string, string> }
-  | { kind: "team"; title: string; earliest: string; facts: ShapeFact[]; team: string; employees: { id: string; fullName: string | null }[]; toolColors: Record<string, string> }
-  | { kind: "person"; title: string; earliest: string; facts: ShapeFact[]; toolColors: Record<string, string> };
+  | { kind: "company"; title: string; earliest: string; facts: ShapeFact[]; headcounts: Record<string, number>; employees: { id: string; fullName: string | null; department: string | null }[]; toolColors: Record<string, string>; horizons: Record<string, string> }
+  | { kind: "team"; title: string; earliest: string; facts: ShapeFact[]; team: string; employees: { id: string; fullName: string | null }[]; toolColors: Record<string, string>; horizons: Record<string, string> }
+  | { kind: "person"; title: string; earliest: string; facts: ShapeFact[]; toolColors: Record<string, string>; horizons: Record<string, string> };
 
 /**
  * The wire/cache form of a RawScope: facts packed into string tables + index
@@ -52,7 +52,7 @@ export function buildExploreData(scope: RawScope, period: Period, now: Date = ne
     scorecard: scorecardFor(cur),
     trend: bothDims((d) => trendForPeriod(scope.facts, period, d)),
     treemap: bothDims((d) => treemapByDim(cur, d, 12, scope.toolColors)),
-    projection: { periodEnd: projectPeriodEnd(scope.facts, now, period), trend: projectTrendForPeriod(scope.facts, now, period) },
+    projection: { periodEnd: projectPeriodEnd(scope.facts, now, period, scope.horizons), trend: projectTrendForPeriod(scope.facts, now, period, scope.horizons) },
   };
   if (scope.kind === "company") {
     return {
