@@ -295,6 +295,50 @@ describe("projectTrend", () => {
     expect(withHorizon[0].projected).toBe(310); // 110/11 = $10/day, not 110/5 = $22/day
   });
 
+  it("the range spans the model's conservative and aggressive readings", () => {
+    // Pace 30/day vs prior 10/day: point = blend (20), low leans on the
+    // prior, high on the observed pace.
+    const facts = [
+      fact("2026-06-15", "metered", 300),
+      ...Array.from({ length: 10 }, (_, i) => fact(`2026-07-${String(i + 1).padStart(2, "0")}`, "metered", 30)),
+    ];
+    const t = projectTrend(facts, NOW, 1);
+    expect(t[0].projected).toBe(20 * 31);
+    expect(t[0].low).toBe(10 * 31);
+    expect(t[0].high).toBe(30 * 31);
+  });
+
+  it("with a single reading the range collapses to the point estimate", () => {
+    const t = projectTrend(paceFacts(), NOW, 1); // July only: no prior, no trend
+    expect(t[0].low).toBe(t[0].projected);
+    expect(t[0].high).toBe(t[0].projected);
+  });
+
+  it("an upward trend widens only the high end", () => {
+    const facts = [
+      fact("2026-04-10", "metered", 100),
+      fact("2026-05-10", "metered", 200),
+      fact("2026-06-10", "metered", 400), // consistent growth → damped 1.2/month
+    ];
+    const t = projectTrend(facts, NOW, 1);
+    const rate = 400 / 30; // prev-month rate; low/high candidates identical (no window)
+    expect(t[0].low).toBeCloseTo(rate * 31, 1);            // flat — no trend on the low side
+    expect(t[0].high).toBeCloseTo(rate * 31 * 1.2, 1);     // trend on the high side
+    expect(t[0].projected).toBeCloseTo(rate * 31 * 1.2, 1); // point keeps the trend
+  });
+
+  it("the period-end tile carries the same range", () => {
+    const facts = [
+      fact("2026-06-15", "metered", 300),
+      ...Array.from({ length: 10 }, (_, i) => fact(`2026-07-${String(i + 1).padStart(2, "0")}`, "metered", 30)),
+    ];
+    const p = projectPeriodEnd(facts, NOW, MONTH)!;
+    // current month: window 300 + rate × 21 remaining days
+    expect(p.projectedUsd).toBe(300 + 20 * 21);
+    expect(p.lowUsd).toBe(300 + 10 * 21);
+    expect(p.highUsd).toBe(300 + 30 * 21);
+  });
+
   it("a gap month is a zero prior, not a missing prior", () => {
     // History in April, nothing in June: last month really was $0 — the blend
     // must pull the hot July pace down hard, not ignore it.

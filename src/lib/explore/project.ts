@@ -57,6 +57,8 @@ export interface PeriodProjection {
   label: string; // "July" | "Q3 26" | "’26"
   compareLabel: "last month" | "last quarter" | "last year";
   projectedUsd: number;
+  lowUsd: number;
+  highUsd: number;
   prevPeriodUsd: number | null; // previous period's actual total
   deltaPct: number | null;
   basis: "run-rate" | "previous-month";
@@ -86,7 +88,12 @@ interface SourceRate {
   windowDays: number;
   windowUsd: number;
   rate: number; // blended $/day
+  lowRate: number; // conservative reading (min of pace / prior / blend)
+  highRate: number; // aggressive reading (max of pace / prior / blend)
 }
+
+type Reading = "low" | "point" | "high";
+const rateOf = (s: SourceRate, r: Reading) => (r === "low" ? s.lowRate : r === "high" ? s.highRate : s.rate);
 
 interface MonthModel {
   month: string; // now's YYYY-MM
@@ -159,7 +166,10 @@ function monthModel(facts: ShapeFact[], now: Date, sourceHorizons?: Record<strin
       } else {
         rate = prevDaily ?? 0; // no current window: last month's pace, or a dead source
       }
-      return { mtdUsd, windowDays, windowUsd, rate };
+      // The range spans the model's candidate readings: the observed pace,
+      // the prior, and the blend between them. One reading → no range.
+      const candidates = [rate, ...(windowDays > 0 ? [windowUsd / windowDays] : []), ...(prevDaily !== null ? [prevDaily] : [])];
+      return { mtdUsd, windowDays, windowUsd, rate, lowRate: Math.min(...candidates), highRate: Math.max(...candidates) };
     });
 
   const basis: PeriodProjection["basis"] = sources.some((s) => s.windowDays >= 3) ? "run-rate" : "previous-month";
@@ -197,23 +207,34 @@ function trendGrowth(variable: ShapeFact[], month: string): number {
 
 /** The current month's projected finish. Per source: never below what already posted
  * (the days past a window still count), plus the rate over the unobserved days. */
-function currentMonthProjection(m: MonthModel): number {
+function currentMonthProjection(m: MonthModel, reading: Reading = "point"): number {
   const dim = daysInMonth(m.month);
   const variable = m.sources.reduce(
-    (s, src) => s + Math.max(src.mtdUsd, src.windowUsd + src.rate * (dim - src.windowDays)),
+    (s, src) => s + Math.max(src.mtdUsd, src.windowUsd + rateOf(src, reading) * (dim - src.windowDays)),
     0,
   );
   return m.levelUsd + variable;
 }
 
+export interface FutureMonth {
+  month: string;
+  projected: number;
+  low: number;
+  high: number;
+}
+
 /** Months AFTER the current one, at the current level + trend-bent rates.
- * The single producer for both the tile's future sum and the dashed line. */
-function futureMonths(m: MonthModel, count: number): { month: string; projected: number }[] {
-  const totalRate = m.sources.reduce((s, src) => s + src.rate, 0);
+ * The single producer for both the tile's future sum and the dashed line.
+ * The low reading never gets an upward trend and the high never a downward
+ * one — the range brackets the point estimate by construction. */
+function futureMonths(m: MonthModel, count: number): FutureMonth[] {
+  const total = (r: Reading) => m.sources.reduce((s, src) => s + rateOf(src, r), 0);
+  const growthOf: Record<Reading, number> = { low: Math.min(m.growth, 1), point: m.growth, high: Math.max(m.growth, 1) };
+  const monthUsd = (r: Reading, k: number, fm: string) =>
+    round2(m.levelUsd + total(r) * daysInMonth(fm) * clamp(growthOf[r] ** (k + 1), TREND_CLAMP.cumulative));
   return Array.from({ length: count }, (_, k) => {
     const fm = addMonths(m.month, k + 1);
-    const mult = clamp(m.growth ** (k + 1), TREND_CLAMP.cumulative);
-    return { month: fm, projected: round2(m.levelUsd + totalRate * daysInMonth(fm) * mult) };
+    return { month: fm, projected: monthUsd("point", k, fm), low: monthUsd("low", k, fm), high: monthUsd("high", k, fm) };
   });
 }
 
@@ -235,10 +256,10 @@ export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: Projecti
   if (!m) return null;
   const { month, basis } = m;
 
-  const currentMonthUsd = currentMonthProjection(m);
-
   const spansMonths = period.granularity === "quarter" || period.granularity === "year";
   let projectedUsd: number;
+  let lowUsd: number;
+  let highUsd: number;
   let label: string;
   let compareLabel: PeriodProjection["compareLabel"];
   let prevFrom: string;
@@ -248,15 +269,21 @@ export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: Projecti
     const pastActualUsd = sum(inRange(facts, period.from, `${month}-01`));
     let remaining = 0;
     for (let fm = addMonths(month, 1); `${fm}-01` < period.toExclusive; fm = addMonths(fm, 1)) remaining++;
-    const futureUsd = futureMonths(m, remaining).reduce((s, p) => s + p.projected, 0);
-    projectedUsd = round2(pastActualUsd + currentMonthUsd + futureUsd);
+    const future = futureMonths(m, remaining);
+    const total = (pick: (p: FutureMonth) => number, reading: Reading) =>
+      round2(pastActualUsd + currentMonthProjection(m, reading) + future.reduce((s, p) => s + pick(p), 0));
+    projectedUsd = total((p) => p.projected, "point");
+    lowUsd = total((p) => p.low, "low");
+    highUsd = total((p) => p.high, "high");
     label = shortLabel(period.label);
     compareLabel = period.granularity === "quarter" ? "last quarter" : "last year";
     const span = period.granularity === "quarter" ? 3 : 12;
     prevToExclusive = period.from;
     prevFrom = `${addMonths(period.from.slice(0, 7), -span)}-01`;
   } else {
-    projectedUsd = round2(currentMonthUsd);
+    projectedUsd = round2(currentMonthProjection(m));
+    lowUsd = round2(currentMonthProjection(m, "low"));
+    highUsd = round2(currentMonthProjection(m, "high"));
     label = FULL[Number(month.slice(5)) - 1];
     compareLabel = "last month";
     prevFrom = `${addMonths(month, -1)}-01`;
@@ -271,7 +298,7 @@ export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: Projecti
   const prevPeriodUsd = prevFacts.length ? round2(sum(prevFacts)) : null;
   const deltaPct = prevPeriodUsd ? round2(((projectedUsd - prevPeriodUsd) / prevPeriodUsd) * 100) : null;
 
-  return { label, compareLabel, projectedUsd, prevPeriodUsd, deltaPct, basis };
+  return { label, compareLabel, projectedUsd, lowUsd, highUsd, prevPeriodUsd, deltaPct, basis };
 }
 
 /**
@@ -299,9 +326,14 @@ export function projectTrendForPeriod(facts: ShapeFact[], now: Date, period: Pro
   const horizon = period.granularity === "year" ? 12 - Number(m.month.slice(5)) : 3;
   const mtdTotal = m.levelUsd + m.sources.reduce((s, src) => s + src.mtdUsd, 0);
   return [
-    // The current month's posted total = the height of its bar.
+    // The current month's posted total = the height of its bar (no range —
+    // it's an actual, not an estimate).
     { label: label(m.month), projected: round2(mtdTotal) },
-    ...futureMonths(m, horizon).map((p) => ({ label: label(p.month), projected: p.projected })),
+    ...futureMonths(m, horizon).map((p) => ({
+      label: label(p.month),
+      projected: p.projected,
+      ...(p.low !== p.high ? { projectedRange: [p.low, p.high] as [number, number] } : {}),
+    })),
   ];
 }
 
@@ -310,7 +342,7 @@ export function projectTrendForPeriod(facts: ShapeFact[], now: Date, period: Pro
  * SAME producer as `projectPeriodEnd`'s future sum, so a quarter/year tile
  * equals the actual bars plus the dashed line's months — one story, not two.
  */
-export function projectTrend(facts: ShapeFact[], now: Date, horizonMonths = 3, sourceHorizons?: Record<string, string>): { month: string; projected: number }[] {
+export function projectTrend(facts: ShapeFact[], now: Date, horizonMonths = 3, sourceHorizons?: Record<string, string>): FutureMonth[] {
   const m = monthModel(facts, now, sourceHorizons);
   if (!m) return [];
   return futureMonths(m, horizonMonths);

@@ -18,6 +18,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "Each source's recent pace is balanced against last month's, so a couple of unusual days early in a month no longer swing the whole forecast.",
       "Forecasts now follow the direction of travel: a vendor whose spend has been falling for months projects downward (and rising spend projects upward), with sensible limits so one trend can't run away.",
       "Explore now opens on the Year view.",
+      "Projections now show their honest range: a low–high spread under the Projected tile and a shaded band around the dashed trend line, spanning the model's conservative and aggressive readings.",
     ],
   },
   {

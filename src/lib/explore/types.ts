@@ -4,7 +4,8 @@ import type { Period, Granularity } from "./period";
 export type Dim = "vendor" | "cost_type";
 
 /** One month (or day) of stacked trend data; series keys are vendor/cost-type names. */
-export type TrendPoint = { label: string } & Record<string, number | string>;
+// The tuple value is the projection's low–high range band ("projectedRange").
+export type TrendPoint = { label: string } & Record<string, number | string | [number, number]>;
 
 export interface TreemapNode {
   key: string;

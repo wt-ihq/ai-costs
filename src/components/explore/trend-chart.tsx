@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Bar, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, Bar, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Dim, TrendPoint } from "@/lib/explore/types";
 import { dimColorFor, dimLabel, seriesOrder } from "@/lib/explore/shape";
 import type { ToolColors } from "@/lib/explore/shape";
@@ -26,21 +26,29 @@ type TooltipEntry = { dataKey?: string | number; name?: string; value?: number |
  * only value in the bucket. */
 function TotalTooltip({ active, payload, label }: { active?: boolean; payload?: TooltipEntry[]; label?: string | number }) {
   if (!active || !payload?.length) return null;
-  const actual = payload
+  // The range band is drawn, not itemized — its [low, high] shows as its own line.
+  const entries = payload.filter((e) => e.dataKey !== "projectedRange");
+  const range = payload.find((e) => e.dataKey === "projectedRange")?.value as unknown as [number, number] | undefined;
+  const actual = entries
     .filter((e) => e.dataKey !== "projected")
     .reduce((s, e) => s + (typeof e.value === "number" ? e.value : 0), 0);
-  const projected = payload.find((e) => e.dataKey === "projected");
+  const projected = entries.find((e) => e.dataKey === "projected");
   const total = actual > 0 || !projected ? actual : Number(projected.value);
   return (
     <div style={{ background: "#14171f", border: "1px solid #262b38", borderRadius: 8, fontSize: 12, padding: "8px 12px" }}>
       <div style={{ color: "#e6e8ee", marginBottom: 4 }}>
         {label} · {formatUsd(total)}
       </div>
-      {payload.map((e) => (
+      {entries.map((e) => (
         <div key={String(e.dataKey)} style={{ color: e.color ?? e.stroke, padding: "1.5px 0" }}>
           {e.name} : {formatUsd(Number(e.value))}
         </div>
       ))}
+      {range && (
+        <div style={{ color: "#8b92a5", padding: "1.5px 0" }}>
+          range : {formatUsd(range[0])} – {formatUsd(range[1])}
+        </div>
+      )}
     </div>
   );
 }
@@ -68,7 +76,7 @@ export function TrendChart({
     for (const pr of projection) {
       const i = index.get(pr.label);
       if (i === undefined) out.push(pr);
-      else out[i] = { ...out[i], projected: pr.projected };
+      else out[i] = { ...out[i], ...pr, label: out[i].label };
     }
     return out;
   }, [data, projection]);
@@ -95,6 +103,20 @@ export function TrendChart({
         {series.map((k) => (
           <Bar key={k} dataKey={k} name={label(k)} stackId="1" fill={color(k)} radius={[2, 2, 0, 0]} maxBarSize={48} isAnimationActive />
         ))}
+        {projection && projection.length > 0 && (
+          // Translucent low–high band behind the dashed line: the honest
+          // spread between the model's conservative and aggressive readings.
+          <Area
+            dataKey="projectedRange"
+            stroke="none"
+            fill="#8b92a5"
+            fillOpacity={0.12}
+            legendType="none"
+            activeDot={false}
+            connectNulls={false}
+            isAnimationActive
+          />
+        )}
         {projection && projection.length > 0 && (
           // Dashed neutral line with hollow dots — a projection must never
           // read as actuals.

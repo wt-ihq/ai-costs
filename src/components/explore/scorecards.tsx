@@ -38,6 +38,11 @@ function ProjectedCard({ p, delay }: { p: PeriodProjection; delay: number }) {
       <div className="text-xs uppercase tracking-wide text-muted">Projected · {p.label}</div>
       <div className="mt-2 text-2xl font-semibold tabular-nums">{formatUsd(p.projectedUsd)}</div>
       <div className="mt-1 text-xs text-muted">{delta}</div>
+      {p.lowUsd !== p.highUsd && (
+        <div className="mt-0.5 text-xs tabular-nums text-muted/80">
+          {formatUsd(p.lowUsd)} – {formatUsd(p.highUsd)}
+        </div>
+      )}
     </motion.div>
   );
 }
