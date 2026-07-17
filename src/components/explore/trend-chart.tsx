@@ -15,9 +15,39 @@ const AXIS = { stroke: "#8b92a5", fontSize: 11 };
  */
 const usdTick = (v: unknown) => {
   const n = Number(v);
-  if (Math.abs(n) >= 1000) return `$${(n / 1000).toFixed(Math.abs(n) < 10_000 ? 1 : 0)}k`;
+  if (Math.abs(n) >= 1000) {
+    const k = n / 1000;
+    // One decimal when the tick isn't a whole number of k ($7.5k), else none.
+    return `$${k.toFixed(Number.isInteger(k) || Math.abs(n) >= 10_000 ? 0 : 1)}k`;
+  }
   return `$${Math.round(n)}`;
 };
+
+/**
+ * Tight y-axis: Recharts' auto ticks round the top up aggressively (a $43k
+ * max became a $60k axis — a third of the plot as headroom). Instead pick
+ * the smallest "nice" tick step whose 4 steps clear the data max, and hand
+ * the axis explicit ticks.
+ */
+const NICE_MANTISSAS = [1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 6, 7.5, 8, 10];
+function yAxisScale(points: TrendPoint[]): { top: number; ticks: number[] } {
+  let max = 0;
+  for (const p of points) {
+    let stacked = 0;
+    for (const [k, v] of Object.entries(p)) {
+      if (k === "label") continue;
+      if (Array.isArray(v)) max = Math.max(max, v[1]); // projectedRange [low, high]
+      else if (typeof v === "number" && k === "projected") max = Math.max(max, v);
+      else if (typeof v === "number") stacked += v; // bar segments stack
+    }
+    max = Math.max(max, stacked);
+  }
+  if (max <= 0) return { top: 4, ticks: [0, 1, 2, 3, 4] };
+  const target = (max * 1.04) / 4; // ~4% headroom over the tallest point
+  const pow = 10 ** Math.floor(Math.log10(target));
+  const step = (NICE_MANTISSAS.find((m) => m * pow >= target) ?? 10) * pow;
+  return { top: step * 4, ticks: [0, step, step * 2, step * 3, step * 4] };
+}
 
 type TooltipEntry = { dataKey?: string | number; name?: string; value?: number | string; color?: string; stroke?: string };
 
@@ -85,6 +115,7 @@ export function TrendChart({
   // any bucket): vendors by total desc, cost types canonical (seat at the base).
   // `projected` is drawn as its own dashed line, never as a bar.
   const series = useMemo(() => seriesOrder(points, dim).filter((k) => k !== "projected"), [points, dim]);
+  const yScale = useMemo(() => yAxisScale(points), [points]);
 
   const color = (k: string) => dimColorFor(dim, k, toolColors);
   const label = (k: string) => dimLabel(dim, k);
@@ -97,7 +128,7 @@ export function TrendChart({
             minTickGap small so short labels (e.g. "Jan") all show on wide
             charts; long ones (e.g. "Jun 25") still thin on narrow screens. */}
         <XAxis dataKey="label" tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={5} {...AXIS} />
-        <YAxis tickFormatter={usdTick} tickLine={false} axisLine={false} width={44} {...AXIS} />
+        <YAxis domain={[0, yScale.top]} ticks={yScale.ticks} tickFormatter={usdTick} tickLine={false} axisLine={false} width={44} {...AXIS} />
         <Tooltip content={<TotalTooltip />} cursor={{ fill: "#ffffff0a" }} />
         <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} iconType="circle" iconSize={8} />
         {series.map((k) => (
