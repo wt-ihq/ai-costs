@@ -62,7 +62,7 @@ export function TrendChart({
 }: {
   data: TrendPoint[];
   dim: Dim;
-  height?: number;
+  height?: number | `${number}%`;
   toolColors?: ToolColors;
   /** Forward month buckets carrying only a `projected` key. Points whose label
    * matches an existing bucket merge into it (year view enumerates the whole

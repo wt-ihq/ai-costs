@@ -153,14 +153,20 @@ export function ExploreView({
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <section className="rounded-xl border border-border bg-surface p-5">
+        {/* flex-col + flex-1 so the chart fills the card — the grid stretches
+            this card to its neighbor's height, and a fixed-height chart left
+            a squashed plot above dead space. */}
+        <section className="flex flex-col rounded-xl border border-border bg-surface p-5">
           <h2 className="mb-4 text-sm font-medium">Trend · {data.period.label}</h2>
-          <TrendChart
-            data={data.trend[effectiveDim]}
-            dim={effectiveDim}
-            toolColors={scope.toolColors}
-            projection={data.projection.trend}
-          />
+          <div className="min-h-[300px] flex-1">
+            <TrendChart
+              data={data.trend[effectiveDim]}
+              dim={effectiveDim}
+              toolColors={scope.toolColors}
+              projection={data.projection.trend}
+              height="100%"
+            />
+          </div>
         </section>
 
         <section className="rounded-xl border border-border bg-surface p-5">
