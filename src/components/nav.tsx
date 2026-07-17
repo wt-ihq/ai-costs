@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 
 const PAGES: { href: string; label: string; admin?: boolean }[] = [
   { href: "/explore", label: "Explore" },
-  { href: "/cursor", label: "Cursor Usage & Spend" },
+  { href: "/cursor", label: "Cursor" },
   { href: "/api-platforms", label: "API Platforms" },
   { href: "/data", label: "Data" },
 ];
