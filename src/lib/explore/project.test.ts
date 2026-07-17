@@ -196,13 +196,13 @@ describe("projectTrend", () => {
 });
 
 describe("projectTrendForPeriod", () => {
-  it("year view anchors on the current month's projected finish, then fills the rest of the year", () => {
+  it("year view anchors on the current month's actual MTD total (the bar top), then fills the rest of the year", () => {
     const t = projectTrendForPeriod(paceFacts(), NOW, YEAR);
-    // The July bar only shows MTD actuals — anchoring the line on July's
-    // projected finish connects it to the bars instead of floating from Aug.
+    // The anchor equals the July bar's height exactly, so the dashed line
+    // starts at the last entry's level and rises into the projection.
     // Labels must match the year chart's month buckets ("Jul", not "Jul 26").
     expect(t.map((p) => p.label)).toEqual(["Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]);
-    expect(t[0].projected).toBe(1310); // July finish: 1000 + (130 + 10×18)
+    expect(t[0].projected).toBe(1130); // July posted so far: 1000 + 130
     expect(t[1].projected).toBe(1310); // Aug: 1000 + 10×31
     expect(t[5].projected).toBe(1310);
   });
@@ -215,7 +215,7 @@ describe("projectTrendForPeriod", () => {
   it("all time anchors on the current month, then 3 future months, in the all-time label style", () => {
     const t = projectTrendForPeriod(paceFacts(), NOW, ALL);
     expect(t.map((p) => p.label)).toEqual(["Jul 26", "Aug 26", "Sep 26", "Oct 26"]);
-    expect(t.map((p) => p.projected)).toEqual([1310, 1310, 1300, 1310]);
+    expect(t.map((p) => p.projected)).toEqual([1130, 1310, 1300, 1310]);
   });
 
   it("day/week granularities get no projection line", () => {

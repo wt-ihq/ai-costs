@@ -172,11 +172,11 @@ export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: Projecti
 
 /**
  * Dashed forward extension for month-granularity trend charts. The line is
- * ANCHORED on the current month with its projected finish — the current
- * month's bar only shows MTD actuals, and without the anchor the line
- * appeared to float, disconnected from the bars. Labels are chosen to MATCH
- * the chart's existing buckets so points land in the right slots instead of
- * appending duplicate categories:
+ * ANCHORED on the current month at its ACTUAL MTD total — exactly the top of
+ * the current month's bar — so it visibly continues from the last entry and
+ * then rises to the projected months. Labels are chosen to MATCH the chart's
+ * existing buckets so points land in the right slots instead of appending
+ * duplicate categories:
  *  - year: current month + the year's remaining months ("Jul"…"Dec") — []
  *    when viewing a past year (nothing to project);
  *  - all: current month + 3 future months in the all-time style ("Jul 26").
@@ -194,7 +194,8 @@ export function projectTrendForPeriod(facts: ShapeFact[], now: Date, period: Pro
       : (ym: string) => `${SHORT[Number(ym.slice(5)) - 1]} ${ym.slice(2, 4)}`;
   const horizon = period.granularity === "year" ? 12 - Number(m.month.slice(5)) : 3;
   return [
-    { label: label(m.month), projected: round2(currentMonthProjection(m)) },
+    // The current month's posted total = the height of its bar.
+    { label: label(m.month), projected: round2(m.levelUsd + m.variableMtdUsd) },
     ...projectTrend(facts, now, horizon).map((p) => ({ label: label(p.month), projected: p.projected })),
   ];
 }
