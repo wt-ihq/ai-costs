@@ -95,7 +95,8 @@ export function ExploreView({
   const vendors = useMemo(() => vendorsInFacts(scope.facts), [scope.facts]);
 
   const [period, setPeriod] = useState<Period>(() =>
-    initialPeriodParam === "all" ? allTimePeriod(scope.earliest, new Date()) : parsePeriod(initialPeriodParam, new Date()),
+    // Explore defaults to the year view (drill-down links carry an explicit period).
+    initialPeriodParam === "all" ? allTimePeriod(scope.earliest, new Date()) : parsePeriod(initialPeriodParam, new Date(), "year"),
   );
   const [dim, setDim] = useState<Dim>(initialDim);
   const [vendor, setVendor] = useState<VendorKey | "all">(() => parseVendorParam(initialVendorParam, vendors));

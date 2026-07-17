@@ -58,7 +58,7 @@ function resolveYear(y: number, now: Date): Period {
   };
 }
 
-export function parsePeriod(param: string | undefined, now: Date): Period {
+export function parsePeriod(param: string | undefined, now: Date, fallback: Exclude<Granularity, "all"> = "month"): Period {
   let m: RegExpMatchArray | null;
   if (param && (m = param.match(/^(\d{4})-(\d{2})$/))) {
     const month = Number(m[2]) - 1;
@@ -68,7 +68,7 @@ export function parsePeriod(param: string | undefined, now: Date): Period {
   } else if (param && (m = param.match(/^(\d{4})$/))) {
     return resolveYear(Number(m[1]), now);
   }
-  return resolveMonth(now.getUTCFullYear(), now.getUTCMonth(), now);
+  return currentPeriod(fallback, now);
 }
 
 export function currentPeriod(g: Granularity, now: Date): Period {
