@@ -30,6 +30,19 @@ export type ToolColors = Record<string, string>;
 const dimKey = (r: ShapeFact, dim: Dim): string =>
   dim === "vendor" ? (r.source === "other" ? `${OTHER_KEY_PREFIX}${r.model}` : r.source) : r.costType;
 
+/** Sources whose usage arrives as one month-stamped lump (Claude Team's member-usage import). */
+export const MONTHLY_SNAPSHOT_SOURCES = new Set(["claude_team"]);
+
+/**
+ * Facts that represent a MONTHLY cost posted as a single fact stamped to the
+ * 1st: seats, subscriptions, and monthly-snapshot usage. Shared taxonomy —
+ * the projection treats these as a monthly level, and day/week trend charts
+ * amortize them across the month instead of spiking the 1st.
+ */
+export function isMonthlyLevelFact(f: ShapeFact): boolean {
+  return f.costType === "seat" || f.costType === "subscription" || MONTHLY_SNAPSHOT_SOURCES.has(f.source);
+}
+
 /** Human label for a dim value. Vendor-dim "other:<tool>" keys resolve to the tool name verbatim. */
 export function dimLabel(dim: Dim, key: string): string {
   if (dim === "vendor" && key.startsWith(OTHER_KEY_PREFIX)) return key.slice(OTHER_KEY_PREFIX.length);
@@ -99,16 +112,35 @@ function groupBy(rows: ShapeFact[], key: (r: ShapeFact) => string | null): Map<s
   return m;
 }
 
-/** Period-scoped trend, adaptively bucketed (month→day, quarter→week, year→month). */
+/**
+ * Period-scoped trend, adaptively bucketed (month→day, quarter→week,
+ * year→month). On day/week charts, monthly-level costs (seats,
+ * subscriptions, monthly snapshots — all stamped to the 1st) are amortized
+ * evenly across their month's days: without this a quarter's first week
+ * towers with the whole quarter's fixed spend while later weeks look free.
+ * Totals are preserved; month-bucketed views are unaffected.
+ */
 export function trendForPeriod(rows: ShapeFact[], period: Period, dim: Dim): TrendPoint[] {
+  const DAY_MS = 86_400_000;
   const buckets = enumerateBuckets(period);
   const points = new Map<string, TrendPoint>(buckets.map((b) => [b.key, { label: b.label }]));
+  const amortize = period.granularity === "month" || period.granularity === "quarter";
+  const add = (day: string, k: string, usd: number) => {
+    const pt = points.get(bucketKey(day, period, buckets));
+    if (!pt) return;
+    pt[k] = ((pt[k] as number) ?? 0) + usd;
+  };
   for (const r of rows) {
     if (r.day < period.from || r.day >= period.toExclusive) continue;
-    const pt = points.get(bucketKey(r.day, period, buckets));
-    if (!pt) continue;
     const k = dimKey(r, dim);
-    pt[k] = ((pt[k] as number) ?? 0) + r.costUsd;
+    if (amortize && isMonthlyLevelFact(r)) {
+      const start = Date.parse(`${r.day.slice(0, 7)}-01T00:00:00Z`);
+      const [y, m] = r.day.slice(0, 7).split("-").map(Number);
+      const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      for (let i = 0; i < days; i++) add(new Date(start + i * DAY_MS).toISOString().slice(0, 10), k, r.costUsd / days);
+    } else {
+      add(r.day, k, r.costUsd);
+    }
   }
   return buckets.map((b) => points.get(b.key)!);
 }

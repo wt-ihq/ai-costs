@@ -102,32 +102,40 @@ describe("rankAllStaff", () => {
 const NOW2 = new Date("2026-06-17T12:00:00Z");
 
 describe("trendForPeriod", () => {
-  it("month granularity buckets by day and zero-fills the month", () => {
+  it("month granularity: monthly-level costs amortize across the month, daily spend stays on its day", () => {
     const t = trendForPeriod(rows, parsePeriod("2026-06", NOW2), "vendor");
     expect(t).toHaveLength(30);
-    expect(t.find((p) => p.label === "1")).toMatchObject({ cursor: 40 });
+    // The June seat (stamped Jun 1) spreads to 40/30 per day — no 1st-of-month spike.
+    expect(t.find((p) => p.label === "1")?.cursor).toBeCloseTo(40 / 30, 6);
+    expect(t.find((p) => p.label === "2")?.cursor).toBeCloseTo(40 / 30, 6);
+    // Metered spend is genuinely daily — it stays on the 9th only.
     expect(t.find((p) => p.label === "9")).toMatchObject({ anthropic: 100 });
-    expect(t.find((p) => p.label === "2")).toEqual({ label: "2" }); // zero-filled, no series
+    expect(t.find((p) => p.label === "2")?.anthropic).toBeUndefined();
+    // Amortization preserves the month's total.
+    const totalCursor = t.reduce((s, p) => s + ((p.cursor as number) ?? 0), 0);
+    expect(totalCursor).toBeCloseTo(40, 6);
   });
-  it("year granularity buckets by month", () => {
+  it("year granularity buckets by month (no amortization needed)", () => {
     const t = trendForPeriod(rows, parsePeriod("2026", NOW2), "vendor");
     expect(t).toHaveLength(12);
     expect(t.find((p) => p.label === "May")).toMatchObject({ cursor: 40 });
     expect(t.find((p) => p.label === "Jun")).toMatchObject({ cursor: 40, anthropic: 100 });
   });
-  it("quarter granularity buckets by 7-day window", () => {
+  it("quarter granularity buckets by 7-day window, amortizing monthly-level costs", () => {
     const t = trendForPeriod(rows, parsePeriod("2026-Q2", NOW2), "vendor");
     expect(t).toHaveLength(13); // Q2 2026: Apr 1 to Jun 30 = 91 days = 13 weekly buckets
     const totalCursor = t.reduce((s, p) => s + ((p.cursor as number) ?? 0), 0);
     const totalAnthropic = t.reduce((s, p) => s + ((p.anthropic as number) ?? 0), 0);
-    expect(totalCursor).toBe(80); // both May 3 and Jun 1 rows
+    expect(totalCursor).toBeCloseTo(80, 6); // both seat rows, spread but preserved
     expect(totalAnthropic).toBe(100); // Jun 9 row
     expect(t.filter((p) => p.anthropic).length).toBe(1); // exactly one bucket has anthropic
+    // Seats spread across May AND June weeks — many buckets carry cursor spend.
+    expect(t.filter((p) => p.cursor).length).toBeGreaterThan(8);
   });
   it("excludes rows outside the period range", () => {
     const t = trendForPeriod(rows, parsePeriod("2026-05", NOW2), "vendor"); // only the 2026-05-03 row
     const total = t.reduce((s, p) => s + ((p.cursor as number) ?? 0) + ((p.anthropic as number) ?? 0), 0);
-    expect(total).toBe(40);
+    expect(total).toBeCloseTo(40, 6);
   });
 });
 

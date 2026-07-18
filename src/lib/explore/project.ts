@@ -1,4 +1,4 @@
-import type { ShapeFact } from "./shape";
+import { isMonthlyLevelFact, type ShapeFact } from "./shape";
 import type { TrendPoint } from "./types";
 
 /**
@@ -20,15 +20,6 @@ import type { TrendPoint } from "./types";
  *    complete months, damped toward 1 and clamped) bends future months in
  *    the direction the spend has been moving — gently, never runaway.
  */
-const FIXED = new Set(["seat", "subscription"]);
-/**
- * Sources whose usage arrives as a MONTHLY snapshot — one lump fact stamped
- * to the 1st (Claude Team's member-usage import). A lump is a monthly level,
- * not daily spend: feeding it into the daily run rate inflates projections
- * ~2-3× (whole month ÷ window days × month days). It projects like fixed —
- * counted once, repeated for future months, never extrapolated.
- */
-const MONTHLY_SNAPSHOT_SOURCES = new Set(["claude_team"]);
 /** Trailing days excluded from every window — live syncs may have posted only part of them. */
 const LAG_DAYS = 2;
 /** Shrinkage prior: the previous month's rate carries the weight of this many observed days. */
@@ -67,9 +58,9 @@ export interface PeriodProjection {
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const clamp = (n: number, [lo, hi]: readonly [number, number]) => Math.min(hi, Math.max(lo, n));
 /** Extrapolates from a daily run rate. */
-const isDailyVariable = (f: ShapeFact) => !FIXED.has(f.costType) && !MONTHLY_SNAPSHOT_SOURCES.has(f.source);
+const isDailyVariable = (f: ShapeFact) => !isMonthlyLevelFact(f);
 /** Posts once per month at a known/assumed level: fixed cost types + monthly-snapshot usage. */
-const isMonthlyLevel = (f: ShapeFact) => !isDailyVariable(f);
+const isMonthlyLevel = isMonthlyLevelFact;
 const monthOf = (d: Date) => d.toISOString().slice(0, 7);
 const daysInMonth = (ym: string) => {
   const [y, m] = ym.split("-").map(Number);
