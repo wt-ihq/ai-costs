@@ -1,8 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { VENDOR_LABEL, type Vendor } from "@/lib/types";
+import { VENDOR_LABEL, type CostType, type Vendor } from "@/lib/types";
 import { fetchEmployeesAll } from "./common";
 
-interface HealthFact { source: string; day: string; entity_key: string; cost_usd: number; employee_id: string | null; model: string | null }
+interface HealthFact { source: string; day: string; cost_type: CostType; entity_key: string; cost_usd: number; employee_id: string | null; model: string | null }
 
 /**
  * Every spend fact (counts/unmatched), paging past PostgREST's 1000-row cap.
@@ -15,7 +15,7 @@ async function fetchAllSpendFacts(supabase: SupabaseClient): Promise<HealthFact[
   const page = (withCount: boolean) =>
     supabase
       .from("spend_facts")
-      .select("source, day, entity_key, cost_usd, employee_id, model", withCount ? { count: "exact" } : undefined)
+      .select("source, day, cost_type, entity_key, cost_usd, employee_id, model", withCount ? { count: "exact" } : undefined)
       // id tiebreaker: `day` alone has thousands of ties, so page boundaries
       // could duplicate/skip rows between queries.
       .order("day")
@@ -41,9 +41,49 @@ export interface SourceHealth {
   source: Vendor;
   factCount: number;
   latestDay: string | null;
+  /** Latest fact day per cost type — feeds `splitSeatUsageCoverage`. */
+  latestDayByCostType: Partial<Record<CostType, string>>;
   lastSyncAt: string | null;
   lastSyncStatus: string | null;
   lastImportAsOf: string | null;
+}
+
+/** Cost types carrying usage-driven spend, as opposed to the fixed seat charge. */
+const USAGE_COST_TYPES: CostType[] = ["overage", "metered"];
+
+/** Seat coverage vs usage coverage for one source. */
+export interface CoverageSplit {
+  seatDay: string | null;
+  usageDay: string | null;
+  /** Usage coverage trails the seats — the usage import is missing or a month behind. */
+  usageBehind: boolean;
+}
+
+/**
+ * Split a source's latest-fact days into seat vs usage coverage.
+ *
+ * The manual-import vendors month-stamp every fact to the 1st, so a single
+ * MAX(day) cannot distinguish "this month's usage import landed" from "only the
+ * nightly seat sync ran" — both read YYYY-MM-01. Splitting them makes a missing
+ * usage import visible instead of hiding behind fresh-looking seat facts.
+ *
+ * Compared at month grain: seat facts are always month-stamped while some usage
+ * facts self-date (the ChatGPT credits CSV), so raw day comparison would read a
+ * mid-month usage day as "ahead" of the seats rather than the same coverage.
+ */
+export function splitSeatUsageCoverage(latest: Partial<Record<CostType, string>>): CoverageSplit {
+  const seatDay = latest.seat ?? null;
+  const usageDay =
+    USAGE_COST_TYPES.map((c) => latest[c])
+      .filter((d): d is string => d != null)
+      .sort()
+      .at(-1) ?? null;
+  const month = (d: string) => d.slice(0, 7);
+  return {
+    seatDay,
+    usageDay,
+    usageBehind: seatDay != null && (usageDay == null || month(usageDay) < month(seatDay)),
+  };
 }
 
 /** One recurring "other" tool (n8n, Supabase, …), broken out under the Other tools row. */
@@ -167,6 +207,7 @@ export async function getDataHealth(supabase: SupabaseClient): Promise<DataHealt
 
   const count = new Map<string, number>();
   const latest = new Map<string, string>();
+  const latestByCostType = new Map<string, Partial<Record<CostType, string>>>();
   const unmatched = new Map<string, UnmatchedEntity>();
   const pseudo = new Map<string, UnmatchedEntity>();
   // "Other tools" is many independent recurring tools behind one vendor —
@@ -175,6 +216,11 @@ export async function getDataHealth(supabase: SupabaseClient): Promise<DataHealt
   for (const f of facts ?? []) {
     count.set(f.source, (count.get(f.source) ?? 0) + 1);
     if (!latest.get(f.source) || (f.day as string) > latest.get(f.source)!) latest.set(f.source, f.day as string);
+    if (f.cost_type) {
+      const byType = latestByCostType.get(f.source) ?? {};
+      if (!byType[f.cost_type] || f.day > byType[f.cost_type]!) byType[f.cost_type] = f.day;
+      latestByCostType.set(f.source, byType);
+    }
     if (f.source === "other") {
       const tool = f.model || f.entity_key;
       const t = otherByTool.get(tool) ?? { tool, factCount: 0, latestDay: null };
@@ -222,6 +268,7 @@ export async function getDataHealth(supabase: SupabaseClient): Promise<DataHealt
       source,
       factCount: count.get(source) ?? 0,
       latestDay: latest.get(source) ?? null,
+      latestDayByCostType: latestByCostType.get(source) ?? {},
       lastSyncAt: syncFor(source)?.at ?? null,
       lastSyncStatus: syncFor(source)?.status ?? null,
       lastImportAsOf: lastImport.get(source) ?? null,

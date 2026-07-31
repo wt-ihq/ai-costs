@@ -11,6 +11,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-07-31",
+    title: "Clearer 'Latest data' for Claude Team and ChatGPT Business",
+    items: [
+      "Data Health now shows seat coverage and usage coverage as separate dates for Claude Team and ChatGPT Business. Because both sources date their monthly figures to the 1st, one combined date looked identical whether or not that month's usage had been imported — the nightly seat sync alone was enough to make the source look up to date.",
+      "If the usage import is missing or a month behind the seats, that date is now highlighted, so a forgotten paste or export is visible at a glance.",
+    ],
+  },
+  {
     date: "2026-07-17",
     title: "Smarter projections",
     items: [

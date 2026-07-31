@@ -1,6 +1,6 @@
 import React from "react";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
-import { pseudoExplanation } from "@/lib/queries/data-health";
+import { pseudoExplanation, splitSeatUsageCoverage, type SourceHealth } from "@/lib/queries/data-health";
 import { getDataHealthCached } from "@/lib/queries/cached";
 import { getCursorReconciliation } from "@/lib/queries/cursor-reconciliation";
 import { Panel } from "@/components/ui";
@@ -22,9 +22,54 @@ const SYNC_NOTE: Partial<Record<string, string>> = {
 };
 const LATEST_NOTE: Partial<Record<string, string>> = {
   claude_team: "monthly — stamped to the 1st",
+  chatgpt_business: "seats monthly · credits CSV self-dated",
   other: "monthly — stamped to the 1st",
   vercel: "billing periods — can post dated to the period end",
 };
+
+/**
+ * Sources whose seats sync nightly but whose usage arrives by manual import.
+ * Their seat facts are month-stamped to the 1st, so a single MAX(day) reads the
+ * same whether or not the usage import landed — the nightly seat sync alone
+ * makes the source look current. Show the two legs separately instead.
+ */
+const SPLIT_SEAT_USAGE = new Set(["claude_team", "chatgpt_business"]);
+
+/**
+ * The "Latest data" cell: one date normally, seat vs usage coverage for the
+ * manual-import vendors — where a missing usage import is the thing to catch.
+ */
+function LatestData({ s }: { s: SourceHealth }) {
+  const note =
+    s.latestDay && LATEST_NOTE[s.source] ? <div className="text-xs text-muted/70">{LATEST_NOTE[s.source]}</div> : null;
+
+  if (!s.latestDay || !SPLIT_SEAT_USAGE.has(s.source)) {
+    return (
+      <>
+        {s.latestDay ?? "—"}
+        {note}
+      </>
+    );
+  }
+
+  const { seatDay, usageDay, usageBehind } = splitSeatUsageCoverage(s.latestDayByCostType);
+  return (
+    <>
+      <div className="grid w-fit grid-cols-[2.9rem_auto] items-baseline gap-x-2">
+        <span className="text-xs uppercase tracking-wide text-muted/60">seats</span>
+        <span className="tabular-nums">{seatDay ?? "—"}</span>
+        <span className="text-xs uppercase tracking-wide text-muted/60">usage</span>
+        <span
+          className={`tabular-nums ${usageBehind ? "text-amber-300" : ""}`}
+          title={usageBehind ? "Seats are more recent than the usage import — this month's usage is missing." : undefined}
+        >
+          {usageDay ?? "none"}
+        </span>
+      </div>
+      {note}
+    </>
+  );
+}
 
 export async function HealthTab() {
   const supabase = getSupabaseAdminClient();
@@ -88,10 +133,7 @@ export async function HealthTab() {
                   </td>
                   <td className="px-4 py-2.5 text-right tabular-nums text-muted">{s.factCount}</td>
                   <td className="px-4 py-2.5 text-muted">
-                    {s.latestDay ?? "—"}
-                    {s.latestDay && LATEST_NOTE[s.source] && (
-                      <div className="text-xs text-muted/70">{LATEST_NOTE[s.source]}</div>
-                    )}
+                    <LatestData s={s} />
                   </td>
                   <td className="px-4 py-2.5 text-muted">
                     {s.lastSyncAt ? (
