@@ -40,6 +40,13 @@ describe("splitSeatUsageCoverage", () => {
     expect(splitSeatUsageCoverage({})).toEqual({ seatDay: null, usageDay: null, usageBehind: false });
   });
 
+  it("survives a cached payload predating the field, rather than crashing the page", () => {
+    // A cache entry written before latestDayByCostType existed deserializes the
+    // field as undefined. That crashed /data in prod (digest 1450256461) until
+    // CACHE_VERSION was bumped; degrade to "unknown" instead of throwing.
+    expect(splitSeatUsageCoverage(undefined)).toEqual({ seatDay: null, usageDay: null, usageBehind: false });
+  });
+
   it("compares at month grain, so self-dated daily usage past the 1st is not behind", () => {
     // ChatGPT credits CSV facts are self-dated; seat facts are month-stamped.
     expect(splitSeatUsageCoverage({ seat: "2026-07-01", overage: "2026-07-28" })).toMatchObject({

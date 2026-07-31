@@ -70,8 +70,14 @@ export interface CoverageSplit {
  * Compared at month grain: seat facts are always month-stamped while some usage
  * facts self-date (the ChatGPT credits CSV), so raw day comparison would read a
  * mid-month usage day as "ahead" of the seats rather than the same coverage.
+ *
+ * Tolerates a missing map: cached payloads are untyped JSON, so an entry written
+ * before this field existed deserializes it as undefined. Bumping CACHE_VERSION
+ * is the real fix for a shape change — this only keeps the page rendering
+ * instead of throwing during the changeover.
  */
-export function splitSeatUsageCoverage(latest: Partial<Record<CostType, string>>): CoverageSplit {
+export function splitSeatUsageCoverage(latest: Partial<Record<CostType, string>> | undefined): CoverageSplit {
+  if (!latest) return { seatDay: null, usageDay: null, usageBehind: false };
   const seatDay = latest.seat ?? null;
   const usageDay =
     USAGE_COST_TYPES.map((c) => latest[c])
