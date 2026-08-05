@@ -63,7 +63,7 @@ export function buildOpenRouterData(scope: OpenRouterScope, period: Period): Ope
     [...modelAgg.entries()].sort((a, b) => b[1].cost - a[1].cost).slice(0, TREND_SERIES_MAX).map(([m]) => m),
   );
   const buckets = enumerateBuckets(period);
-  const trend: UsageTrendPoint[] = buckets.map((b) => {
+  const allBuckets: UsageTrendPoint[] = buckets.map((b) => {
     const point: UsageTrendPoint = { label: b.label };
     for (const r of rows) {
       if (r.day < b.from || r.day >= b.toExclusive || r.costUsd === 0) continue;
@@ -73,6 +73,14 @@ export function buildOpenRouterData(scope: OpenRouterScope, period: Period): Ope
     }
     return point;
   });
+  // Clip empty edge buckets (months before the data starts, days/months still
+  // in the future) so a young data set isn't a sliver in a mostly-blank year;
+  // interior gaps are kept — a quiet month mid-range is real signal.
+  const hasData = (p: UsageTrendPoint) => Object.keys(p).length > 1;
+  const first = allBuckets.findIndex(hasData);
+  let last = allBuckets.length - 1;
+  while (last >= 0 && !hasData(allBuckets[last])) last--;
+  const trend = first === -1 ? [] : allBuckets.slice(first, last + 1);
 
   const byModel = [...modelAgg.entries()]
     .map(([model, agg]) => ({ model, ...agg }))

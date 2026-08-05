@@ -37,12 +37,24 @@ describe("buildOpenRouterData", () => {
     ]);
   });
 
-  it("builds a stacked daily spend trend over the month's buckets", () => {
+  it("builds a stacked daily spend trend, clipped to the days that have data", () => {
     const data = buildOpenRouterData(scope, JULY);
-    expect(data.trend).toHaveLength(31);
+    expect(data.trend).toHaveLength(2); // days 3–31 are empty → clipped away
     expect(data.trend[0]).toMatchObject({ label: "1", "anthropic/claude-sonnet-4-6": 12.5, "openai/gpt-5.2": 2.25 });
     expect(data.trend[1]).toMatchObject({ label: "2", "anthropic/claude-sonnet-4-6": 3, "(no model)": 0.6 });
-    expect(data.trend[2]).toEqual({ label: "3" }); // empty day carries no series keys
+  });
+
+  it("clips empty edge buckets in the year view but keeps interior gaps", () => {
+    const yearScope: OpenRouterScope = {
+      rows: [
+        { day: "2026-07-01", entityKey: "a@x.com", model: "m", costUsd: 5, tokens: 0, requests: 0, personName: "A" },
+        { day: "2026-09-15", entityKey: "a@x.com", model: "m", costUsd: 7, tokens: 0, requests: 0, personName: "A" },
+      ],
+      earliest: "2026-07",
+    };
+    const data = buildOpenRouterData(yearScope, parsePeriod("2026", new Date("2026-10-20T12:00:00Z")));
+    expect(data.trend.map((p) => p.label)).toEqual(["Jul", "Aug", "Sep"]); // Jan–Jun and Oct–Dec clipped, empty Aug kept
+    expect(data.trend[1]).toEqual({ label: "Aug" });
   });
 
   it("merges permaslug date snapshots into one display model", () => {
@@ -88,5 +100,6 @@ describe("buildOpenRouterData", () => {
     expect(data.byModel).toEqual([]);
     expect(data.byPerson).toEqual([]);
     expect(data.topModel).toBeNull();
+    expect(data.trend).toEqual([]);
   });
 });
