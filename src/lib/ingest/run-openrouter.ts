@@ -49,7 +49,9 @@ export async function syncOpenRouter(
 
     // Snapshot-replace (upsert first, then prune stale keys); no-op on an
     // empty snapshot so a transient empty response can't wipe the window.
-    const rowsWritten = await replaceWindowFacts(supabase, "openrouter", window, resolved);
+    // Scoped to metered: vendor-tagged recurring subscription facts share the
+    // source and must survive the nightly replace.
+    const rowsWritten = await replaceWindowFacts(supabase, "openrouter", window, resolved, { costType: "metered" });
     await finishSyncRun(supabase, runId, { status: "success", rowsWritten });
     return { rowsWritten, unmatched };
   } catch (err) {

@@ -4,7 +4,7 @@ import { computeRecurringFacts, monthsBetween, pickColorSlot, rebuildRecurringFa
 
 const THROUGH = "2026-07-01";
 const entry = (over: Partial<RecurringEntry>): RecurringEntry => ({
-  tool: "Perplexity", department: "Data Science", kind: "monthly",
+  tool: "Perplexity", vendor: "other", department: "Data Science", kind: "monthly",
   amount: 40, fxRate: 1, startMonth: "2026-05-01", endMonth: null, ...over,
 });
 const totalCents = (facts: { costUsd: number }[]) => Math.round(facts.reduce((s, f) => s + f.costUsd * 100, 0));
@@ -74,6 +74,20 @@ describe("computeRecurringFacts", () => {
 
   it("ignores entries starting after throughMonth", () => {
     expect(computeRecurringFacts([entry({ startMonth: "2026-08-01" })], THROUGH)).toEqual([]);
+  });
+
+  it("materializes a vendor-tagged entry under that source, distinct from a same-named 'other' entry", () => {
+    const facts = computeRecurringFacts(
+      [
+        entry({ tool: "OpenRouter", vendor: "openrouter", startMonth: "2026-07-01" }),
+        entry({ tool: "OpenRouter", vendor: "other", startMonth: "2026-07-01" }),
+      ],
+      THROUGH,
+    );
+    expect(facts).toHaveLength(2); // different vendors never merge
+    const tagged = facts.find((f) => f.source === "openrouter");
+    expect(tagged).toMatchObject({ costType: "subscription", model: "OpenRouter", day: "2026-07-01" });
+    expect(facts.some((f) => f.source === "other")).toBe(true);
   });
 });
 
@@ -145,24 +159,26 @@ function fakeRecurringDb(recurringRows: Record<string, unknown>[], initialFacts:
           };
           return q;
         },
-        delete: () => ({
-          // Zero-entries full clear: `.delete().eq("source", "other")` runs
-          // (and resolves) directly, no further chaining.
-          eq: (c: string, v: unknown) => {
+        // Thenable filter-chain builder: covers the unscoped clear
+        // (`.delete().eq("source","other")`), the vendor-scoped clear
+        // (`.delete().eq("source",v).eq("cost_type","subscription")`), and
+        // the replaceWindowFacts prune (`.delete().in("id", staleIds)`).
+        delete: () => {
+          const filters: ((r: Record<string, unknown>) => boolean)[] = [];
+          const run = () => {
             for (let i = facts.length - 1; i >= 0; i--) {
-              if (facts[i][c] === v) facts.splice(i, 1);
+              if (filters.every((f) => f(facts[i]))) facts.splice(i, 1);
             }
-            return Promise.resolve({ error: null });
-          },
-          // replaceWindowFacts prune: `.delete().in("id", staleIds)`.
-          in: (_c: string, ids: string[]) => {
-            for (const id of ids) {
-              const i = facts.findIndex((r) => r.id === id);
-              if (i >= 0) facts.splice(i, 1);
-            }
-            return Promise.resolve({ error: null });
-          },
-        }),
+            return { error: null };
+          };
+          const b = {
+            eq: (c: string, v: unknown) => { filters.push((r) => r[c] === v); return b; },
+            in: (_c: string, ids: string[]) => { filters.push((r) => ids.includes(r.id as string)); return b; },
+            then: (resolve: (v: { error: null }) => unknown, reject?: (e: unknown) => unknown) =>
+              Promise.resolve(run()).then(resolve, reject),
+          };
+          return b;
+        },
       };
     },
   } as unknown as SupabaseClient;
@@ -221,11 +237,49 @@ describe("rebuildRecurringFacts", () => {
     expect(days).not.toContain("2026-02-01");
     expect(days).toContain("2026-03-01");
   });
+
+  it("materializes a vendor-tagged entry as that vendor's subscription facts, leaving its metered facts alone", async () => {
+    const { client, facts } = fakeRecurringDb(
+      [
+        {
+          id: "r1", tool: "OpenRouter", vendor: "openrouter", color_slot: 0, department: "AI Operations", kind: "monthly",
+          amount: 1500, currency: "USD", fx_rate: 1, start_month: "2026-01-01", end_month: null,
+        },
+      ],
+      [
+        // Synced usage fact sharing the source — must survive the rebuild.
+        { source: "openrouter", day: "2026-02-03", cost_type: "metered", entity_key: "a@x.com", model: "m", cost_usd: 9 },
+      ],
+    );
+
+    const written = await rebuildRecurringFacts(client);
+
+    expect(written).toBeGreaterThan(0);
+    const subs = facts.filter((f) => f.source === "openrouter" && f.cost_type === "subscription");
+    expect(subs.length).toBeGreaterThan(0);
+    expect(subs[0]).toMatchObject({ model: "OpenRouter", department: "AI Operations", cost_usd: 1500 });
+    expect(facts.some((f) => f.cost_type === "metered" && f.cost_usd === 9)).toBe(true); // untouched
+  });
+
+  it("clears a vendor's stale subscription facts when its entries are gone, without touching metered facts", async () => {
+    const { client, facts } = fakeRecurringDb(
+      [], // entry deleted (or re-tagged elsewhere)
+      [
+        { source: "openrouter", day: "2026-01-01", cost_type: "subscription", entity_key: "openrouter|AI Operations", model: "OpenRouter", cost_usd: 1500 },
+        { source: "openrouter", day: "2026-02-03", cost_type: "metered", entity_key: "a@x.com", model: "m", cost_usd: 9 },
+      ],
+    );
+
+    await rebuildRecurringFacts(client);
+
+    expect(facts.some((f) => f.cost_type === "subscription")).toBe(false);
+    expect(facts.some((f) => f.cost_type === "metered" && f.cost_usd === 9)).toBe(true);
+  });
 });
 
 describe("validateRecurringInput", () => {
   const input = (over: Partial<RecurringCostFields>): RecurringCostFields => ({
-    tool: "Hyperspell", kind: "contract", amount: 30000, currency: "USD",
+    tool: "Hyperspell", vendor: "other", kind: "contract", amount: 30000, currency: "USD",
     fxRate: 1, startMonth: "2026-08", endMonth: "2027-07", ...over,
   });
 

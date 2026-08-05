@@ -105,8 +105,9 @@ export async function syncAnthropic(
 
     // Snapshot-replace (upsert first, then prune stale keys) ONLY when we have
     // facts. A transient empty usage response must not wipe the window's
-    // existing data (which is what blanked a month previously).
-    const rowsWritten = await replaceWindowFacts(supabase, "anthropic", window, facts);
+    // existing data (which is what blanked a month previously). Scoped to
+    // metered so vendor-tagged recurring subscription facts survive.
+    const rowsWritten = await replaceWindowFacts(supabase, "anthropic", window, facts, { costType: "metered" });
     await finishSyncRun(supabase, runId, { status: "success", rowsWritten });
     return { rowsWritten, unmatched: [...unmatched] };
   } catch (err) {
@@ -128,8 +129,9 @@ export async function syncOpenAI(
     const owners = await loadProjectOwners(supabase);
     const { facts, unmatched } = attachOwners(normalizeOpenAI(raw), owners);
     // Snapshot-replace (upsert first, then prune stale keys) only when we have
-    // facts (don't wipe on a transient empty).
-    const rowsWritten = await replaceWindowFacts(supabase, "openai", window, facts);
+    // facts (don't wipe on a transient empty). Scoped to metered so
+    // vendor-tagged recurring subscription facts survive.
+    const rowsWritten = await replaceWindowFacts(supabase, "openai", window, facts, { costType: "metered" });
     await finishSyncRun(supabase, runId, { status: "success", rowsWritten });
     return { rowsWritten, unmatched };
   } catch (err) {

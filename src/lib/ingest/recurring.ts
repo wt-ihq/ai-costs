@@ -1,8 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { VENDOR_LABEL, type Vendor } from "@/lib/types";
 import { finishSyncRun, replaceWindowFacts, startSyncRun, type ResolvedFact } from "@/lib/ingest/persist";
 
 export interface RecurringEntry {
   tool: string;
+  /**
+   * Which vendor the cost belongs to. 'other' = the generic "Other tools"
+   * bucket (each tool its own Explore row); a real vendor (e.g. 'openrouter')
+   * materializes the facts under that source as cost_type='subscription', so
+   * Explore shows one vendor row split subscription vs synced usage.
+   */
+  vendor: Vendor;
   department: string | null;
   kind: "monthly" | "contract";
   amount: number;         // per month (monthly) or total (contract), in `currency`
@@ -51,9 +59,9 @@ export function computeRecurringFacts(entries: RecurringEntry[], throughMonth: s
     }
     for (const [month, cents] of monthCents) {
       const entityKey = e.tool.toLowerCase() + (e.department ? `|${e.department}` : "");
-      const k = `${entityKey}|${month}`;
+      const k = `${e.vendor}|${entityKey}|${month}`;
       const f = byKey.get(k) ?? {
-        source: "other" as const,
+        source: e.vendor,
         day: month,
         costType: "subscription" as const,
         entityKey,
@@ -72,6 +80,7 @@ export function computeRecurringFacts(entries: RecurringEntry[], throughMonth: s
 /** The user-supplied half of a recurring entry — months as YYYY-MM, as the form sends them. */
 export interface RecurringCostFields {
   tool: string;
+  vendor: Vendor;
   kind: "monthly" | "contract";
   amount: number;
   currency: "USD" | "GBP" | "EUR";
@@ -91,6 +100,7 @@ const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
  */
 export function validateRecurringInput(input: RecurringCostFields): string | null {
   if (!input.tool.trim()) return "Tool name is required.";
+  if (!(input.vendor in VENDOR_LABEL)) return `Unknown vendor "${input.vendor}".`;
   if (!MONTH_RE.test(input.startMonth)) return `Invalid start month "${input.startMonth}" — expected YYYY-MM.`;
   if (input.endMonth && !MONTH_RE.test(input.endMonth)) return `Invalid end month "${input.endMonth}" — expected YYYY-MM.`;
   if (input.kind === "contract" && !input.endMonth) return "Contracts need an end month.";
@@ -122,7 +132,7 @@ export async function fetchRecurringEntries(
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await supabase
       .from("recurring_costs")
-      .select("id, tool, color_slot, department, kind, amount, currency, fx_rate, start_month, end_month")
+      .select("id, tool, vendor, color_slot, department, kind, amount, currency, fx_rate, start_month, end_month")
       .order("id")
       .range(from, from + PAGE - 1);
     if (error) throw new Error(`fetchRecurringEntries: ${error.message}`);
@@ -130,6 +140,7 @@ export async function fetchRecurringEntries(
       out.push({
         id: r.id as string,
         tool: r.tool as string,
+        vendor: (r.vendor as Vendor) ?? "other",
         colorSlot: Number(r.color_slot),
         department: (r.department as string) ?? null,
         kind: r.kind as "monthly" | "contract",
@@ -146,41 +157,76 @@ export async function fetchRecurringEntries(
 }
 
 /**
- * Rebuild ALL source='other' facts from recurring_costs (the source of
- * truth). Zero entries is the one intentional full clear — these facts are
- * purely derived, so wiping them cannot lose information (deliberate,
- * documented exception to gotcha #4's spirit).
+ * The replace window's startDate is the EARLIER of (earliest stored derived
+ * fact, earliest recomputed fact) — not just the recomputed minimum. If an
+ * entry's range shifts forward (start_month edited later, or an early entry
+ * deleted while others remain), previously-materialized facts before the new
+ * earliest day would otherwise fall outside the window and replaceWindowFacts
+ * would never scan them, leaving them as stale spend forever. Anchoring to
+ * the stored minimum too ensures a forward-shifted entry range still prunes
+ * its orphaned early months.
+ */
+async function replaceStart(
+  supabase: SupabaseClient,
+  source: string,
+  facts: ResolvedFact[],
+  costType: string | null,
+): Promise<string> {
+  const newMin = facts.reduce((min, f) => (f.day < min ? f.day : min), facts[0].day);
+  let query = supabase.from("spend_facts").select("day").eq("source", source);
+  if (costType) query = query.eq("cost_type", costType);
+  const { data, error } = await query.order("day").limit(1);
+  if (error) throw new Error(`rebuildRecurringFacts earliest(${source}): ${error.message}`);
+  const existingMinDay = (data?.[0]?.day as string | undefined) ?? null;
+  return existingMinDay && existingMinDay < newMin ? existingMinDay : newMin;
+}
+
+/**
+ * Rebuild ALL recurring-derived facts from recurring_costs (the source of
+ * truth). These facts are purely derived, so clearing a source that no longer
+ * has entries cannot lose information (deliberate, documented exception to
+ * gotcha #4's spirit).
  *
- * The replace window's startDate is the EARLIER of (earliest stored
- * other-fact, earliest recomputed fact) — not just the recomputed minimum.
- * If an entry's range shifts forward (start_month edited later, or an early
- * entry deleted while others remain), previously-materialized facts before
- * the new earliest day would otherwise fall outside the window and
- * replaceWindowFacts would never scan them, leaving them as stale spend
- * forever. Anchoring to the stored minimum too ensures a forward-shifted
- * entry range still prunes its orphaned early months.
+ * Per source: 'other' facts are recurring-derived in their entirety (zero
+ * entries → full clear); a real vendor's derived facts are ONLY its
+ * cost_type='subscription' rows, so both the replace and the clear are scoped
+ * to that cost type — its synced seat/metered facts are never touched. The
+ * scoped clear is what un-materializes an entry that was re-tagged to another
+ * vendor or deleted.
  */
 export async function rebuildRecurringFacts(supabase: SupabaseClient): Promise<number> {
   const entries = await fetchRecurringEntries(supabase);
   const throughMonth = new Date().toISOString().slice(0, 7) + "-01";
   const facts = computeRecurringFacts(entries, throughMonth);
-  if (facts.length === 0) {
-    const { error } = await supabase.from("spend_facts").delete().eq("source", "other");
-    if (error) throw new Error(`rebuildRecurringFacts clear: ${error.message}`);
-    return 0;
+  const endDate = throughMonth.slice(0, 8) + "02"; // exclusive-end just past current month-01
+
+  const bySource = new Map<Vendor, ResolvedFact[]>();
+  for (const f of facts) {
+    const source = f.source as Vendor;
+    (bySource.get(source) ?? bySource.set(source, []).get(source)!).push(f);
   }
-  const newMin = facts.reduce((min, f) => (f.day < min ? f.day : min), facts[0].day);
-  const { data: earliestExisting, error: earliestError } = await supabase
-    .from("spend_facts")
-    .select("day")
-    .eq("source", "other")
-    .order("day")
-    .limit(1);
-  if (earliestError) throw new Error(`rebuildRecurringFacts earliest: ${earliestError.message}`);
-  const existingMinDay = (earliestExisting?.[0]?.day as string | undefined) ?? null;
-  const startDate = existingMinDay && existingMinDay < newMin ? existingMinDay : newMin;
-  const window = { startDate, endDate: throughMonth.slice(0, 8) + "02" }; // exclusive-end just past current month-01
-  return replaceWindowFacts(supabase, "other", window, facts);
+
+  let written = 0;
+  for (const vendor of Object.keys(VENDOR_LABEL) as Vendor[]) {
+    const vendorFacts = bySource.get(vendor) ?? [];
+    const scope = vendor === "other" ? null : "subscription";
+    if (vendorFacts.length === 0) {
+      let clear = supabase.from("spend_facts").delete().eq("source", vendor);
+      if (scope) clear = clear.eq("cost_type", scope);
+      const { error } = await clear;
+      if (error) throw new Error(`rebuildRecurringFacts clear(${vendor}): ${error.message}`);
+      continue;
+    }
+    const startDate = await replaceStart(supabase, vendor, vendorFacts, scope);
+    written += await replaceWindowFacts(
+      supabase,
+      vendor,
+      { startDate, endDate },
+      vendorFacts,
+      scope ? { costType: "subscription" } : undefined,
+    );
+  }
+  return written;
 }
 
 /** Nightly cron step: extends open-ended monthlies into each new month. */

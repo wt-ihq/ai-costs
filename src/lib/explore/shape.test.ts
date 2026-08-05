@@ -291,6 +291,42 @@ describe("subscription cost type", () => {
   });
 });
 
+describe("vendor-tagged subscription facts (real-vendor recurring entries)", () => {
+  // A recurring entry tagged with a real vendor (e.g. the OpenRouter platform
+  // fee) materializes under that source, so Explore shows ONE vendor row
+  // whose composition splits subscription vs synced usage.
+  const taggedSub = (costUsd: number, department: string | null = "AI Operations"): ShapeFact => ({
+    day: "2026-06-01", source: "openrouter", costType: "subscription", costUsd,
+    employeeId: null, department, fullName: null, entityKey: "openrouter|" + (department ?? ""), model: "OpenRouter",
+  });
+  const meteredFact = (costUsd: number): ShapeFact => ({
+    day: "2026-06-09", source: "openrouter", costType: "metered", costUsd,
+    employeeId: "a", department: "Eng", fullName: "A", entityKey: "a@x.com", model: "sonnet",
+  });
+
+  it("merges into the vendor's row on the vendor dim (one key, not other:<tool>)", () => {
+    const nodes = treemapByDim([taggedSub(1500), meteredFact(100)], "vendor");
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0]).toMatchObject({ key: "openrouter", label: VENDOR_LABEL.openrouter, value: 1600 });
+  });
+
+  it("surfaces in rankTools by tool name, and never in rankPeople", () => {
+    const tools = rankTools([taggedSub(1500), meteredFact(100)]);
+    expect(tools).toHaveLength(1);
+    expect(tools[0]).toMatchObject({ label: "OpenRouter", total: 1500 });
+
+    const people = rankPeople([taggedSub(1500), meteredFact(100)], "Eng", [{ id: "a", fullName: "A" }]);
+    expect(people.map((p) => p.label)).toEqual(["A"]);
+  });
+
+  it("an undepartmented tagged subscription reads as team-level charge, not an unmatched key", () => {
+    const r = rankTeams([taggedSub(1500, null)], new Map());
+    const unattributed = r.find((t) => t.label === "Unattributed");
+    expect(unattributed?.sub).toContain("team-level charges");
+    expect(unattributed?.sub).not.toContain("unmatched keys");
+  });
+});
+
 describe("rankTools with Vercel projects", () => {
   const vercelFact = (entityKey: string, costUsd: number): ShapeFact => ({
     day: "2026-07-01", source: "vercel", costType: "metered", costUsd,

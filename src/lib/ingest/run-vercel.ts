@@ -50,7 +50,9 @@ export async function syncVercel(
       employeeId: null,
       department: departments.get(f.entityKey) ?? null,
     }));
-    const rowsWritten = await replaceWindowFacts(supabase, "vercel", window, facts);
+    // Scoped to metered: vendor-tagged recurring subscription facts share the
+    // source and must survive the nightly replace.
+    const rowsWritten = await replaceWindowFacts(supabase, "vercel", window, facts, { costType: "metered" });
     await finishSyncRun(supabase, runId, { status: "success", rowsWritten });
     return { rowsWritten };
   } catch (err) {

@@ -526,6 +526,7 @@ export async function saveRecurringCost(input: RecurringCostInput): Promise<Recu
 
   const { error } = await supabase.from("recurring_costs").insert({
     tool,
+    vendor: input.vendor,
     color_slot: colorSlot,
     department: input.department?.trim() || null,
     kind: input.kind,

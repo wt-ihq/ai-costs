@@ -22,7 +22,7 @@ export async function ToolsTab() {
     const months = e.kind === "contract" ? monthsBetween(e.startMonth, e.endMonth!).length : 1;
     const usd = Math.round(e.amount * e.fxRate * 100) / 100;
     return {
-      id: e.id, tool: e.tool, color: OTHER_TOOL_PALETTE[e.colorSlot % OTHER_TOOL_PALETTE.length],
+      id: e.id, tool: e.tool, vendor: e.vendor, color: OTHER_TOOL_PALETTE[e.colorSlot % OTHER_TOOL_PALETTE.length],
       department: e.department, kind: e.kind, amount: e.amount, currency: e.currency, fxRate: e.fxRate,
       startMonth: e.startMonth.slice(0, 7), endMonth: e.endMonth?.slice(0, 7) ?? null,
       monthlyUsd: e.kind === "contract" ? Math.round((usd / months) * 100) / 100 : usd,

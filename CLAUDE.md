@@ -35,7 +35,7 @@ Next.js 16 (App Router) · TypeScript · Tailwind v4 · Supabase (Postgres) · A
 ## Data model
 
 Single `spend_facts` table. Unique key: **`(source, day, cost_type, entity_key, model)`** — `upsertSpendFacts` upserts on this.
-- `cost_type`: `seat` | `overage` | `metered`. **`metered` is labelled "API"** in the UI (`COST_TYPE_LABEL` in `src/lib/types.ts`). `overage` = usage-based spend beyond the plan.
+- `cost_type`: `seat` | `subscription` | `overage` | `metered`. **`metered` is labelled "API"** in the UI (`COST_TYPE_LABEL` in `src/lib/types.ts`). `overage` = usage-based spend beyond the plan. `subscription` = recurring tool costs materialized from `recurring_costs`; entries can be **vendor-tagged** (e.g. OpenRouter's platform fee) so the facts land under the real vendor and Explore shows one row split subscription vs usage — which is why **every metered sync's `replaceWindowFacts` is scoped `{ costType: "metered" }`** (an unscoped replace would prune the vendor's subscription facts nightly), and `subscription` facts are person-less everywhere (department-attributed; excluded from unmatched queues via `cost_type`, not just `source === "other"`).
 - Idempotent: re-running a window upserts the same keys. Metered/snapshot syncs go through `replaceWindowFacts` — no-op on an empty snapshot (a transient empty API response can't wipe a month), and upsert-before-prune so a crash mid-sync leaves stale rows (healed next run) rather than a blank window.
 - Employees (from Okta) are the identity spine; facts attribute via `entity_key` (email or owner) → `employee_id`. Roster pages show all employees/departments ($0 if no spend).
 

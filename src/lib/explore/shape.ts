@@ -223,8 +223,8 @@ export function rankTeams(rows: ShapeFact[], headcounts: Map<string, number>, to
     // not global roster stats: matched people lacking a department, unassigned
     // tools/Vercel projects (team-level charges), and unmatched entity keys.
     const people = new Set(unattributed.filter((r) => r.employeeId).map((r) => r.employeeId)).size;
-    const projectish = unattributed.some((r) => !r.employeeId && (r.source === "other" || r.source === "vercel"));
-    const unmatched = unattributed.some((r) => !r.employeeId && r.source !== "other" && r.source !== "vercel");
+    const projectish = unattributed.some((r) => !r.employeeId && isPersonLess(r));
+    const unmatched = unattributed.some((r) => !r.employeeId && !isPersonLess(r));
     const parts = [
       people ? `${formatPeople(people)} without a department` : "",
       projectish ? "unassigned projects & team-level charges — see Data" : "",
@@ -271,14 +271,23 @@ export function rankPeople(
 }
 
 /**
+ * Costs that are structurally person-less — billed to the org or a team,
+ * never assignable to an employee: recurring tool costs ("other", and
+ * vendor-tagged subscription facts like a platform fee) and Vercel project
+ * charges.
+ */
+const isPersonLess = (r: ShapeFact): boolean =>
+  r.source === "other" || r.source === "vercel" || r.costType === "subscription";
+
+/**
  * Department-attributed, person-less costs have no employee to pin them to
  * (recurring tools and Vercel projects are billed to the team, not a
  * person) — they render as their own "Tools & infrastructure" list on team
- * pages: "other" rows grouped by tool (model), Vercel rows grouped by
- * project (entityKey), never mixed in with people.
+ * pages: "other" and vendor-tagged subscription rows grouped by tool (model),
+ * Vercel rows grouped by project (entityKey), never mixed in with people.
  */
 export function rankTools(rows: ShapeFact[], toolColors?: ToolColors): RankRow[] {
-  const personLess = rows.filter((r) => (r.source === "other" || r.source === "vercel") && !r.employeeId);
+  const personLess = rows.filter((r) => isPersonLess(r) && !r.employeeId);
   const byKey = groupBy(personLess, (r) => (r.source === "vercel" ? `vercel:${r.entityKey}` : `other:${r.model}`));
   return [...byKey.entries()]
     .map(([key, toolRows]) => {

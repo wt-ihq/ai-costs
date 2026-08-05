@@ -234,9 +234,9 @@ export async function getDataHealth(supabase: SupabaseClient): Promise<DataHealt
       if (!t.latestDay || f.day > t.latestDay) t.latestDay = f.day;
       otherByTool.set(tool, t);
     }
-    // recurring tool costs and Vercel project charges are department-attributed
-    // — never assignable to a person
-    if (f.source === "other" || f.source === "vercel") continue;
+    // recurring tool costs (incl. vendor-tagged subscription facts) and Vercel
+    // project charges are department-attributed — never assignable to a person
+    if (f.source === "other" || f.source === "vercel" || f.cost_type === "subscription") continue;
     if (f.employee_id == null) {
       // Person-less pseudo-entities are shown for transparency but excluded
       // from the assignable queue — assigning them to a person would be wrong.

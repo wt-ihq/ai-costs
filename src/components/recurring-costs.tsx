@@ -2,11 +2,13 @@
 
 import { useState, useTransition } from "react";
 import { saveRecurringCost, endRecurringCost, deleteRecurringCost, type RecurringCostInput } from "@/app/(dashboard)/imports/actions";
+import { VENDOR_LABEL, type Vendor } from "@/lib/types";
 import { formatUsd } from "@/lib/utils";
 
 export interface RecurringCostRow {
   id: string;
   tool: string;
+  vendor: Vendor;
   color: string;
   department: string | null;
   kind: "monthly" | "contract";
@@ -52,6 +54,7 @@ export function RecurringCosts({ entries, departments }: { entries: RecurringCos
   };
 
   const [tool, setTool] = useState("");
+  const [vendor, setVendor] = useState<Vendor>("other");
   const [department, setDepartment] = useState("");
   const [kind, setKind] = useState<Kind>("monthly");
   const [amount, setAmount] = useState("");
@@ -88,6 +91,7 @@ export function RecurringCosts({ entries, departments }: { entries: RecurringCos
 
   const resetForm = () => {
     setTool("");
+    setVendor("other");
     setDepartment("");
     setKind("monthly");
     setAmount("");
@@ -107,6 +111,7 @@ export function RecurringCosts({ entries, departments }: { entries: RecurringCos
     run(async () => {
       const input: RecurringCostInput = {
         tool,
+        vendor,
         department: department.trim() || null,
         kind,
         amount: Number(amount) || 0,
@@ -161,6 +166,25 @@ export function RecurringCosts({ entries, departments }: { entries: RecurringCos
             placeholder="e.g. Midjourney"
             className="w-40 rounded-md border border-border bg-surface-2 px-2 py-1 text-foreground outline-none focus:border-accent"
           />
+        </label>
+        <label className="flex items-center gap-2 text-muted">
+          Shows under
+          {/* 'Other tools' = its own Explore row; a real vendor folds the cost
+              into that vendor's row as its Subscription slice. */}
+          <select
+            value={vendor}
+            onChange={(e) => setVendor(e.target.value as Vendor)}
+            className="rounded-md border border-border bg-surface-2 px-2 py-1 text-foreground outline-none focus:border-accent"
+          >
+            <option value="other">Other tools (own row)</option>
+            {(Object.keys(VENDOR_LABEL) as Vendor[])
+              .filter((v) => v !== "other")
+              .map((v) => (
+                <option key={v} value={v}>
+                  {VENDOR_LABEL[v]}
+                </option>
+              ))}
+          </select>
         </label>
         <label className="flex items-center gap-2 text-muted">
           Department
@@ -271,6 +295,7 @@ export function RecurringCosts({ entries, departments }: { entries: RecurringCos
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
                 <th className="px-3 py-2 font-medium">Tool</th>
+                <th className="px-3 py-2 font-medium">Shows under</th>
                 <th className="px-3 py-2 font-medium">Department</th>
                 <th className="px-3 py-2 font-medium">Terms</th>
                 <th className="px-3 py-2 text-right font-medium">$/mo equiv.</th>
@@ -288,6 +313,7 @@ export function RecurringCosts({ entries, departments }: { entries: RecurringCos
                         {row.tool}
                       </span>
                     </td>
+                    <td className="px-3 py-2 text-muted">{row.vendor === "other" ? "Other tools" : VENDOR_LABEL[row.vendor]}</td>
                     <td className="px-3 py-2 text-muted">{row.department ?? "Unattributed"}</td>
                     <td className="px-3 py-2 text-muted">{termsFor(row)}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{formatUsd(row.monthlyUsd)}</td>
