@@ -8,6 +8,7 @@ const PAGES: { href: string; label: string; admin?: boolean }[] = [
   { href: "/explore", label: "Explore" },
   { href: "/cursor", label: "Cursor" },
   { href: "/api", label: "API" },
+  { href: "/openrouter", label: "OpenRouter" },
   { href: "/data", label: "Data" },
 ];
 

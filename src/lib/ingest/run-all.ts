@@ -4,6 +4,7 @@ import { syncCursorModels } from "@/lib/ingest/run-cursor-models";
 import { CURSOR_ANALYTICS_ENABLED } from "@/lib/cursor-models/config";
 import { syncAnthropic, syncOpenAI } from "@/lib/ingest/run-platforms";
 import { syncVercel } from "@/lib/ingest/run-vercel";
+import { syncOpenRouter } from "@/lib/ingest/run-openrouter";
 import { syncOkta } from "@/lib/ingest/run-okta";
 import { syncChatGptSeats } from "@/lib/ingest/run-chatgpt-seats";
 import { syncClaudeSeats } from "@/lib/ingest/run-claude-seats";
@@ -45,6 +46,7 @@ export async function runAllSyncs(
     run("anthropic", () => syncAnthropic(supabase, window)),
     run("openai", () => syncOpenAI(supabase, window)),
     run("vercel", () => syncVercel(supabase, window)),
+    run("openrouter", () => syncOpenRouter(supabase, window)),
     run("chatgpt_seats", () => syncChatGptSeats(supabase)),
     run("claude_seats", () => syncClaudeSeats(supabase)),
     run("recurring", () => syncRecurring(supabase)),

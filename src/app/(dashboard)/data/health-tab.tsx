@@ -25,6 +25,7 @@ const LATEST_NOTE: Partial<Record<string, string>> = {
   chatgpt_business: "seats monthly · credits CSV self-dated",
   other: "monthly — stamped to the 1st",
   vercel: "billing periods — can post dated to the period end",
+  openrouter: "daily — cross-checked against OpenRouter's activity totals",
 };
 
 /**

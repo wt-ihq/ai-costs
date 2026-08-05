@@ -11,6 +11,22 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-08-06",
+    title: "OpenRouter spend & usage",
+    items: [
+      "New OpenRouter page: spend, tokens, and requests by model and by person, with the same month/quarter/year period picker as the rest of the dashboard.",
+      "OpenRouter spend syncs nightly and is attributed to people via their OpenRouter organization email, so it also shows up in Explore under each person and team, and on the API page alongside Anthropic and OpenAI.",
+    ],
+  },
+  {
+    date: "2026-08-05",
+    title: "Other AI tools: real reasons when an entry won't save",
+    items: [
+      "Adding or ending a recurring tool cost used to fail with an unreadable technical message that hid the actual reason. The reason is now shown — for example that the end month falls before the start month, which is easy to do when a contract runs into the following year.",
+      "That month mix-up is now flagged as you type, before you press Add entry.",
+    ],
+  },
+  {
     date: "2026-07-31",
     title: "Clearer 'Latest data' for Claude Team and ChatGPT Business",
     items: [

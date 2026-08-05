@@ -7,6 +7,7 @@ import { getImportCoverageScope } from "./import-coverage";
 import { getModelUsageScope } from "./cursor-models";
 import { getCursorTopModelScope } from "./cursor-top-model";
 import { getCursorSpendScope } from "./cursor-spend";
+import { getOpenRouterScope } from "./openrouter";
 
 /**
  * Single invalidation tag for every derived-from-spend-facts read. The data
@@ -116,4 +117,10 @@ export const getCursorSpendScopeCached = instrumented(
   "cursor-spend",
   async () => getCursorSpendScope(getSupabaseAdminClient()),
   ["cursor-spend", CACHE_VERSION],
+);
+
+export const getOpenRouterScopeCached = instrumented(
+  "openrouter-scope",
+  async () => getOpenRouterScope(getSupabaseAdminClient()),
+  ["openrouter-scope", CACHE_VERSION],
 );

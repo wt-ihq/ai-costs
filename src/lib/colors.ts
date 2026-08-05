@@ -10,6 +10,7 @@ export const VENDOR_COLORS: Record<Vendor, string> = {
   claude_team: "#c084fc",
   chatgpt_business: "#34d399",
   vercel: "#cbd5e1",
+  openrouter: "#38bdf8",
   other: "#8b92a5",
 };
 
