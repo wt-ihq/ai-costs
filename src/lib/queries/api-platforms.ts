@@ -108,6 +108,11 @@ export async function getApiPlatformsScope(supabase: SupabaseClient): Promise<Ap
       .from("spend_facts")
       .select("day, source, entity_key, model, cost_usd, employees(full_name)")
       .eq("cost_type", "metered")
+      // OpenRouter has its own page with richer analytics (tokens/requests/
+      // trend); here it would only duplicate that as bare per-email rows.
+      // This page is the direct-platforms view — kept as the historical
+      // record as those are deprecated in favour of OpenRouter.
+      .neq("source", "openrouter")
       .gte("day", from)
       .lt("day", toExclusive)
       // id tiebreaker keeps page boundaries stable across queries.

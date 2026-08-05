@@ -13,7 +13,7 @@ export default async function ApiPlatformsPage({ searchParams }: { searchParams:
     <>
       <PageHeader
         title="API Platforms"
-        subtitle="Metered spend by vendor, key/project, and person, with model breakdown."
+        subtitle="Direct-platform metered spend by vendor, key/project, and person, with model breakdown. OpenRouter has its own page."
       />
       <ApiPlatformsView scope={scope} initialPeriodParam={sp.period} initialVendorParam={sp.vendor} />
     </>
