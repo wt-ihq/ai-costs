@@ -67,7 +67,7 @@ export function OpenRouterView({
       </div>
 
       <section>
-        <h2 className="mb-3 text-sm font-medium text-muted">Spend by model over time · {period.label}</h2>
+        <h2 className="mb-3 text-sm font-medium text-muted">Spend over time · {period.label}</h2>
         <Panel>
           {data.total === 0 ? (
             <div className="flex h-40 items-center justify-center text-sm text-muted">No OpenRouter spend in {period.label}.</div>

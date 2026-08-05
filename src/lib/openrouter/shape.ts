@@ -1,8 +1,12 @@
 import type { OpenRouterRow, OpenRouterScope } from "@/lib/queries/openrouter";
 import { enumerateBuckets, type Period } from "@/lib/explore/period";
-import type { UsageTrendPoint } from "@/lib/cursor-models/shape";
 
 export type { OpenRouterRow, OpenRouterScope };
+
+export interface SpendTrendPoint {
+  label: string;
+  total: number; // USD
+}
 
 export interface OpenRouterData {
   total: number; // USD
@@ -11,7 +15,7 @@ export interface OpenRouterData {
   people: number; // distinct members with usage in the period
   modelCount: number;
   topModel: string | null; // by spend
-  trend: UsageTrendPoint[]; // USD per model per bucket, stacked
+  trend: SpendTrendPoint[]; // total USD per bucket (model split lives in byModel)
   byModel: { model: string; cost: number; tokens: number; requests: number }[];
   byPerson: { name: string; cost: number; tokens: number; requests: number }[];
 }
@@ -25,12 +29,6 @@ const personLabel = (r: OpenRouterRow) => r.personName ?? (r.entityKey === "unke
  * legend. Trim it so snapshots merge for display.
  */
 const displayModel = (model: string): string => (model || "(no model)").replace(/-20\d{6}$/, "");
-
-/** Tail bucket for the spend trend — full detail lives in the By model list. */
-export const OTHER_MODELS = "Other models";
-
-/** Stacked series the trend stays readable at; the rest roll into OTHER_MODELS. */
-const TREND_SERIES_MAX = 8;
 
 /** Pure: slice the scope to the period and aggregate spend + usage. */
 export function buildOpenRouterData(scope: OpenRouterScope, period: Period): OpenRouterData {
@@ -57,29 +55,17 @@ export function buildOpenRouterData(scope: OpenRouterScope, period: Period): Ope
     personAgg.set(person, p);
   }
 
-  // Spend trend, stacked by model across the period's buckets — capped to the
-  // top spenders so the legend/stack stays readable, tail bucketed as Other.
-  const topModels = new Set(
-    [...modelAgg.entries()].sort((a, b) => b[1].cost - a[1].cost).slice(0, TREND_SERIES_MAX).map(([m]) => m),
-  );
-  const buckets = enumerateBuckets(period);
-  const allBuckets: UsageTrendPoint[] = buckets.map((b) => {
-    const point: UsageTrendPoint = { label: b.label };
-    for (const r of rows) {
-      if (r.day < b.from || r.day >= b.toExclusive || r.costUsd === 0) continue;
-      const model = displayModel(r.model);
-      const key = topModels.has(model) ? model : OTHER_MODELS;
-      point[key] = ((point[key] as number) ?? 0) + r.costUsd;
-    }
-    return point;
-  });
+  // Total spend per bucket (the model split lives in byModel below).
+  const allBuckets: SpendTrendPoint[] = enumerateBuckets(period).map((b) => ({
+    label: b.label,
+    total: Math.round(rows.reduce((s, r) => (r.day >= b.from && r.day < b.toExclusive ? s + r.costUsd : s), 0) * 100) / 100,
+  }));
   // Clip empty edge buckets (months before the data starts, days/months still
   // in the future) so a young data set isn't a sliver in a mostly-blank year;
   // interior gaps are kept — a quiet month mid-range is real signal.
-  const hasData = (p: UsageTrendPoint) => Object.keys(p).length > 1;
-  const first = allBuckets.findIndex(hasData);
+  const first = allBuckets.findIndex((p) => p.total > 0);
   let last = allBuckets.length - 1;
-  while (last >= 0 && !hasData(allBuckets[last])) last--;
+  while (last >= 0 && allBuckets[last].total === 0) last--;
   const trend = first === -1 ? [] : allBuckets.slice(first, last + 1);
 
   const byModel = [...modelAgg.entries()]
