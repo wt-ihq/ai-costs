@@ -69,6 +69,40 @@ export function computeRecurringFacts(entries: RecurringEntry[], throughMonth: s
   return [...byKey.values()];
 }
 
+/** The user-supplied half of a recurring entry — months as YYYY-MM, as the form sends them. */
+export interface RecurringCostFields {
+  tool: string;
+  kind: "monthly" | "contract";
+  amount: number;
+  currency: "USD" | "GBP" | "EUR";
+  fxRate: number;
+  startMonth: string;      // YYYY-MM
+  endMonth: string | null; // YYYY-MM
+}
+
+const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/**
+ * Returns a human-readable reason the entry can't be saved, or null if it's
+ * fine. Lives here (not in the action) so it is unit-testable and so callers
+ * can show the reason: a Server Action that *throws* has its message stripped
+ * in production builds, which left every rejection reading as an opaque
+ * "error occurred in the Server Components render".
+ */
+export function validateRecurringInput(input: RecurringCostFields): string | null {
+  if (!input.tool.trim()) return "Tool name is required.";
+  if (!MONTH_RE.test(input.startMonth)) return `Invalid start month "${input.startMonth}" — expected YYYY-MM.`;
+  if (input.endMonth && !MONTH_RE.test(input.endMonth)) return `Invalid end month "${input.endMonth}" — expected YYYY-MM.`;
+  if (input.kind === "contract" && !input.endMonth) return "Contracts need an end month.";
+  if (input.endMonth && input.endMonth < input.startMonth) {
+    return `End month (${input.endMonth}) is before the start month (${input.startMonth}).`;
+  }
+  if (!Number.isFinite(input.amount) || input.amount < 0) return "Amount must be a number ≥ 0.";
+  const fxRate = input.currency === "USD" ? 1 : input.fxRate;
+  if (!Number.isFinite(fxRate) || fxRate <= 0) return "A conversion rate > 0 is required.";
+  return null;
+}
+
 /** Stable color slot: a known tool keeps its slot; new tools take the lowest free, else the least-used (lowest wins ties). */
 export function pickColorSlot(existing: { tool: string; colorSlot: number }[], tool: string): number {
   const known = existing.find((t) => t.tool.toLowerCase() === tool.toLowerCase());

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { computeRecurringFacts, monthsBetween, pickColorSlot, rebuildRecurringFacts, type RecurringEntry } from "./recurring";
+import { computeRecurringFacts, monthsBetween, pickColorSlot, rebuildRecurringFacts, validateRecurringInput, type RecurringCostFields, type RecurringEntry } from "./recurring";
 
 const THROUGH = "2026-07-01";
 const entry = (over: Partial<RecurringEntry>): RecurringEntry => ({
@@ -220,5 +220,38 @@ describe("rebuildRecurringFacts", () => {
     expect(days).not.toContain("2026-01-01");
     expect(days).not.toContain("2026-02-01");
     expect(days).toContain("2026-03-01");
+  });
+});
+
+describe("validateRecurringInput", () => {
+  const input = (over: Partial<RecurringCostFields>): RecurringCostFields => ({
+    tool: "Hyperspell", kind: "contract", amount: 30000, currency: "USD",
+    fxRate: 1, startMonth: "2026-08", endMonth: "2027-07", ...over,
+  });
+
+  it("accepts a well-formed contract", () => {
+    expect(validateRecurringInput(input({}))).toBeNull();
+  });
+
+  it("names the months when the end month precedes the start month", () => {
+    // The reported bug: 2026-08 → 2026-07 (a mistyped contract year).
+    expect(validateRecurringInput(input({ endMonth: "2026-07" }))).toBe(
+      "End month (2026-07) is before the start month (2026-08).",
+    );
+  });
+
+  it("requires an end month for contracts but not for monthly entries", () => {
+    expect(validateRecurringInput(input({ endMonth: null }))).toBe("Contracts need an end month.");
+    expect(validateRecurringInput(input({ kind: "monthly", endMonth: null }))).toBeNull();
+  });
+
+  it("rejects a blank tool, bad months, bad amounts and bad fx rates", () => {
+    expect(validateRecurringInput(input({ tool: "  " }))).toBe("Tool name is required.");
+    expect(validateRecurringInput(input({ startMonth: "2026-13" }))).toBe('Invalid start month "2026-13" — expected YYYY-MM.');
+    expect(validateRecurringInput(input({ endMonth: "26-07" }))).toBe('Invalid end month "26-07" — expected YYYY-MM.');
+    expect(validateRecurringInput(input({ amount: Number.NaN }))).toBe("Amount must be a number ≥ 0.");
+    expect(validateRecurringInput(input({ currency: "GBP", fxRate: 0 }))).toBe("A conversion rate > 0 is required.");
+    // USD ignores the rate field entirely.
+    expect(validateRecurringInput(input({ currency: "USD", fxRate: 0 }))).toBeNull();
   });
 });

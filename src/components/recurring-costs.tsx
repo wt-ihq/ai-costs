@@ -98,6 +98,10 @@ export function RecurringCosts({ entries, departments }: { entries: RecurringCos
   };
 
   const hasInput = tool.trim() !== "" && startMonth !== "" && amount.trim() !== "" && (kind === "monthly" || endMonth !== "");
+  // Caught here as well as on the server so a mistyped year reads as a hint, not a save failure.
+  const rangeError = endMonth !== "" && startMonth !== "" && endMonth < startMonth
+    ? `End month (${endMonth}) is before the start month (${startMonth}).`
+    : null;
 
   const onSave = () =>
     run(async () => {
@@ -111,22 +115,25 @@ export function RecurringCosts({ entries, departments }: { entries: RecurringCos
         startMonth,
         endMonth: endMonth || null,
       };
-      const { written } = await saveRecurringCost(input);
-      setSaved(`Saved ${tool} — ${written} facts written.`);
+      const res = await saveRecurringCost(input);
+      if (!res.ok) return setError(res.error);
+      setSaved(`Saved ${tool} — ${res.written} facts written.`);
       resetForm();
     });
 
   const onEnd = (row: RecurringCostRow) =>
     run(async () => {
       const em = endInputs[row.id] ?? initialMonth;
-      const { written } = await endRecurringCost(row.id, em);
-      setSaved(`Ended ${row.tool} at ${em} — ${written} facts written.`);
+      const res = await endRecurringCost(row.id, em);
+      if (!res.ok) return setError(res.error);
+      setSaved(`Ended ${row.tool} at ${em} — ${res.written} facts written.`);
     });
 
   const onRemove = (row: RecurringCostRow) =>
     run(async () => {
-      const { written } = await deleteRecurringCost(row.id);
-      setSaved(`Removed ${row.tool} — ${written} facts written.`);
+      const res = await deleteRecurringCost(row.id);
+      if (!res.ok) return setError(res.error);
+      setSaved(`Removed ${row.tool} — ${res.written} facts written.`);
     });
 
   return (
@@ -243,13 +250,14 @@ export function RecurringCosts({ entries, departments }: { entries: RecurringCos
         </label>
         <button
           onClick={onSave}
-          disabled={pending || !hasInput}
+          disabled={pending || !hasInput || rangeError !== null}
           className="rounded-md border border-accent bg-accent/15 px-3 py-1.5 text-accent disabled:opacity-40"
         >
           {pending ? "Saving…" : "Add entry"}
         </button>
       </div>
 
+      {rangeError && <p className="text-sm text-amber-300">{rangeError}</p>}
       {error && (
         <p className="rounded-md border border-pink-500/30 bg-pink-500/10 px-3 py-2 text-sm text-pink-300">Failed: {error}</p>
       )}
