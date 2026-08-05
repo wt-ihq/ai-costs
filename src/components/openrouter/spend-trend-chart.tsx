@@ -4,13 +4,17 @@ import { useMemo } from "react";
 import { Bar, BarChart, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { UsageTrendPoint } from "@/lib/cursor-models/shape";
 import { modelColor } from "@/lib/cursor-models/shape";
+import { OTHER_MODELS } from "@/lib/openrouter/shape";
 import { formatUsd } from "@/lib/utils";
 
 const AXIS = { stroke: "#8b92a5", fontSize: 11 };
 
-/** Stacked USD-per-model trend across the period's buckets. */
+const seriesColor = (k: string) => (k === OTHER_MODELS ? "#8b92a5" : modelColor(k));
+
+/** Stacked USD-per-model trend across the period's buckets (shaper caps series + buckets the tail). */
 export function SpendTrendChart({ data, height = 280 }: { data: UsageTrendPoint[]; height?: number }) {
-  // Series = every model that appears in any bucket, ordered by total desc.
+  // Series = every model that appears in any bucket, ordered by total desc,
+  // with the Other bucket pinned last (top of the stack, end of the legend).
   const series = useMemo(() => {
     const totals = new Map<string, number>();
     for (const p of data) {
@@ -19,7 +23,9 @@ export function SpendTrendChart({ data, height = 280 }: { data: UsageTrendPoint[
         totals.set(k, (totals.get(k) ?? 0) + v);
       }
     }
-    return [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k);
+    return [...totals.entries()]
+      .sort((a, b) => (a[0] === OTHER_MODELS ? 1 : b[0] === OTHER_MODELS ? -1 : b[1] - a[1]))
+      .map(([k]) => k);
   }, [data]);
 
   return (
@@ -35,7 +41,7 @@ export function SpendTrendChart({ data, height = 280 }: { data: UsageTrendPoint[
         />
         <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} iconType="circle" iconSize={8} />
         {series.map((k) => (
-          <Bar key={k} dataKey={k} name={k} stackId="1" fill={modelColor(k)} radius={[2, 2, 0, 0]} maxBarSize={48} isAnimationActive />
+          <Bar key={k} dataKey={k} name={k} stackId="1" fill={seriesColor(k)} radius={[2, 2, 0, 0]} maxBarSize={48} isAnimationActive />
         ))}
       </BarChart>
     </ResponsiveContainer>

@@ -17,6 +17,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "New OpenRouter page: spend, tokens, and requests by model and by person, with the same month/quarter/year period picker as the rest of the dashboard.",
       "OpenRouter spend syncs nightly and is attributed to people via their OpenRouter organization email, so it also shows up in Explore under each person and team, and on the API page alongside Anthropic and OpenAI.",
       "A recurring tool cost can now be filed under a real vendor instead of 'Other tools' — so a platform fee (like OpenRouter's monthly subscription) and its usage spend show as one vendor row in Explore, split into Subscription and API, instead of two rows with the same name.",
+      "The OpenRouter spend-over-time chart now shows the top 8 models and folds the rest into 'Other models' — dozens of dated model snapshots (which now merge into their base model) had crowded the chart out of view.",
     ],
   },
   {

@@ -19,6 +19,19 @@ export interface OpenRouterData {
 /** Unmatched emails stay visible as themselves; only the unkeyed bucket is anonymous. */
 const personLabel = (r: OpenRouterRow) => r.personName ?? (r.entityKey === "unkeyed" ? "Unattributed" : r.entityKey);
 
+/**
+ * OpenRouter reports permaslug snapshots ("anthropic/claude-opus-5-20260723");
+ * the date stamp splits one model into several series and floods the trend
+ * legend. Trim it so snapshots merge for display.
+ */
+const displayModel = (model: string): string => (model || "(no model)").replace(/-20\d{6}$/, "");
+
+/** Tail bucket for the spend trend — full detail lives in the By model list. */
+export const OTHER_MODELS = "Other models";
+
+/** Stacked series the trend stays readable at; the rest roll into OTHER_MODELS. */
+const TREND_SERIES_MAX = 8;
+
 /** Pure: slice the scope to the period and aggregate spend + usage. */
 export function buildOpenRouterData(scope: OpenRouterScope, period: Period): OpenRouterData {
   const rows = scope.rows.filter((r) => r.day >= period.from && r.day < period.toExclusive);
@@ -34,7 +47,7 @@ export function buildOpenRouterData(scope: OpenRouterScope, period: Period): Ope
     tokens += r.tokens;
     requests += r.requests;
     if (r.entityKey !== "unkeyed") members.add(r.entityKey);
-    const model = r.model || "(no model)";
+    const model = displayModel(r.model);
     const m = modelAgg.get(model) ?? { cost: 0, tokens: 0, requests: 0 };
     m.cost += r.costUsd; m.tokens += r.tokens; m.requests += r.requests;
     modelAgg.set(model, m);
@@ -44,14 +57,19 @@ export function buildOpenRouterData(scope: OpenRouterScope, period: Period): Ope
     personAgg.set(person, p);
   }
 
-  // Spend trend, stacked by model across the period's buckets.
+  // Spend trend, stacked by model across the period's buckets — capped to the
+  // top spenders so the legend/stack stays readable, tail bucketed as Other.
+  const topModels = new Set(
+    [...modelAgg.entries()].sort((a, b) => b[1].cost - a[1].cost).slice(0, TREND_SERIES_MAX).map(([m]) => m),
+  );
   const buckets = enumerateBuckets(period);
   const trend: UsageTrendPoint[] = buckets.map((b) => {
     const point: UsageTrendPoint = { label: b.label };
     for (const r of rows) {
       if (r.day < b.from || r.day >= b.toExclusive || r.costUsd === 0) continue;
-      const model = r.model || "(no model)";
-      point[model] = ((point[model] as number) ?? 0) + r.costUsd;
+      const model = displayModel(r.model);
+      const key = topModels.has(model) ? model : OTHER_MODELS;
+      point[key] = ((point[key] as number) ?? 0) + r.costUsd;
     }
     return point;
   });
