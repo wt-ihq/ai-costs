@@ -626,6 +626,51 @@ export async function assignVercelProjectDepartment(
   return { factsUpdated: count ?? 0 };
 }
 
+// ---- OpenRouter workspace → department mapping --------------------------------
+
+/**
+ * Assign (or clear) a workspace's department and re-attach its existing
+ * workspace-keyed facts (entity_key = workspace name, no employee). Same
+ * known gap as Vercel projects: facts keyed under a pre-rename workspace
+ * name aren't matched here.
+ */
+export async function assignOpenRouterWorkspaceDepartment(
+  workspaceId: string,
+  department: string | null,
+): Promise<{ factsUpdated: number }> {
+  await requireAdmin();
+  const supabase = getSupabaseAdminClient();
+  const dept = department?.trim() || null;
+
+  const { data: rows, error: readErr } = await supabase
+    .from("openrouter_workspaces").select("name").eq("workspace_id", workspaceId).limit(1);
+  if (readErr) throw new Error(`assignOpenRouterWorkspaceDepartment: ${readErr.message}`);
+  const name = rows?.[0]?.name as string | undefined;
+  if (!name) throw new Error("Workspace not found.");
+
+  const { error: updErr } = await supabase
+    .from("openrouter_workspaces")
+    .update({ department: dept, updated_at: new Date().toISOString() })
+    .eq("workspace_id", workspaceId);
+  if (updErr) throw new Error(`assignOpenRouterWorkspaceDepartment: ${updErr.message}`);
+
+  // Re-attach history in place; scoped to workspace-keyed metered facts —
+  // member-attributed facts follow the employee's own department instead.
+  const { error: factErr, count } = await supabase
+    .from("spend_facts")
+    .update({ department: dept }, { count: "exact" })
+    .eq("source", "openrouter")
+    .eq("cost_type", "metered")
+    .eq("entity_key", name)
+    .is("employee_id", null);
+  if (factErr) throw new Error(`assignOpenRouterWorkspaceDepartment facts: ${factErr.message}`);
+
+  updateTag(FACTS_TAG);
+  revalidatePath("/data");
+  revalidatePath("/");
+  return { factsUpdated: count ?? 0 };
+}
+
 // ---- Automated sync: manual trigger + backfill ------------------------------
 
 /** Run all sources now (the cron pipeline, on demand). */

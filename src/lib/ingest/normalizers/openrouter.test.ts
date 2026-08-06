@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyActivityRemainder, normalizeOpenRouterAnalytics, type OpenRouterAnalyticsResponse } from "./openrouter";
+import { applyActivityRemainder, combineWorkspaceFacts, normalizeOpenRouterAnalytics, type OpenRouterAnalyticsResponse } from "./openrouter";
 import { openRouterActivityFixture, openRouterAnalyticsFixture } from "@/lib/ingest/fixtures/openrouter";
 import { SchemaDriftError } from "@/lib/ingest/types";
 
@@ -63,6 +63,33 @@ describe("normalizeOpenRouterAnalytics", () => {
         WINDOW,
       ),
     ).toThrow(SchemaDriftError);
+  });
+});
+
+describe("combineWorkspaceFacts", () => {
+  const fact = (over: Partial<import("@/lib/types").SpendFact>): import("@/lib/types").SpendFact => ({
+    source: "openrouter", day: "2026-07-01", costType: "metered", entityKey: "a@x.com",
+    costUsd: 1, tokens: 10, requests: 1, model: "m", ...over,
+  });
+
+  it("sums a member's usage across workspaces onto one conflict key, department left to the employee", () => {
+    const combined = combineWorkspaceFacts([
+      { name: "Engineering", department: "Engineering", facts: [fact({ costUsd: 2, tokens: 20, requests: 2 })] },
+      { name: "AI Operations", department: "AI Operations", facts: [fact({ costUsd: 3, tokens: 30, requests: 3 })] },
+    ]);
+    expect(combined).toHaveLength(1);
+    expect(combined[0]).toMatchObject({ entityKey: "a@x.com", costUsd: 5, tokens: 50, requests: 5 });
+    expect(combined[0].department).toBeUndefined();
+  });
+
+  it("keyless usage becomes the workspace's entity with its mapped department", () => {
+    const combined = combineWorkspaceFacts([
+      { name: "AI Operations", department: "AI Operations", facts: [fact({ entityKey: "unkeyed", costUsd: 4 })] },
+      { name: "IntentOne", department: null, facts: [fact({ entityKey: "unkeyed", costUsd: 6 })] },
+    ]);
+    expect(combined).toHaveLength(2); // distinct workspaces stay distinct entities
+    expect(combined.find((f) => f.entityKey === "AI Operations")).toMatchObject({ department: "AI Operations", costUsd: 4 });
+    expect(combined.find((f) => f.entityKey === "IntentOne")).toMatchObject({ department: null, costUsd: 6 });
   });
 });
 

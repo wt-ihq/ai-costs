@@ -353,6 +353,16 @@ describe("vendor-tagged subscription facts (real-vendor recurring entries)", () 
     expect(unattributed?.sub).toContain("team-level charges");
     expect(unattributed?.sub).not.toContain("unmatched keys");
   });
+
+  it("workspace-keyed metered usage surfaces in rankTools as an OpenRouter workspace row", () => {
+    const wsFact: ShapeFact = {
+      day: "2026-07-02", source: "openrouter", costType: "metered", costUsd: 7,
+      employeeId: null, department: "AI Operations", fullName: null, entityKey: "AI Operations", model: "moonshotai/kimi-k3",
+    };
+    const tools = rankTools([wsFact, meteredFact(100)]);
+    expect(tools).toHaveLength(1);
+    expect(tools[0]).toMatchObject({ label: "AI Operations", total: 7, sub: "OpenRouter workspace key" });
+  });
 });
 
 describe("rankTools with Vercel projects", () => {

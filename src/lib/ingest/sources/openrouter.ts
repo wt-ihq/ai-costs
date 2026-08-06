@@ -1,9 +1,10 @@
-import type { OpenRouterAnalyticsResponse, OpenRouterActivityResponse } from "@/lib/ingest/normalizers/openrouter";
+import type { OpenRouterAnalyticsResponse, OpenRouterActivityResponse, OpenRouterWorkspace } from "@/lib/ingest/normalizers/openrouter";
 import type { DateWindow } from "./anthropic";
 
 /** Injectable so the pipeline can run against fixtures without the network. */
-export type OpenRouterAnalyticsFetcher = (opts: DateWindow) => Promise<OpenRouterAnalyticsResponse>;
+export type OpenRouterAnalyticsFetcher = (opts: DateWindow & { workspaceId?: string }) => Promise<OpenRouterAnalyticsResponse>;
 export type OpenRouterActivityFetcher = () => Promise<OpenRouterActivityResponse>;
+export type OpenRouterWorkspacesFetcher = () => Promise<OpenRouterWorkspace[]>;
 
 const BASE = "https://openrouter.ai/api/v1";
 
@@ -51,7 +52,7 @@ async function openRouterFetch(path: string, init: RequestInit = {}): Promise<un
  * analog of our PostgREST gotcha) — better to fail the sync than persist a
  * partial window, so `truncated` throws.
  */
-export const fetchOpenRouterAnalytics: OpenRouterAnalyticsFetcher = async ({ startDate, endDate }) => {
+export const fetchOpenRouterAnalytics: OpenRouterAnalyticsFetcher = async ({ startDate, endDate, workspaceId }) => {
   const json = (await openRouterFetch("/analytics/query", {
     method: "POST",
     body: JSON.stringify({
@@ -59,6 +60,10 @@ export const fetchOpenRouterAnalytics: OpenRouterAnalyticsFetcher = async ({ sta
       dimensions: ["user", "model"],
       granularity: "day",
       time_range: { start: `${startDate}T00:00:00Z`, end: `${endDate}T00:00:00Z` },
+      // Per-workspace slicing: `workspace` as a third dimension would exceed
+      // the 2-dimension cap, but it's allowed as a FILTER — the sync queries
+      // each workspace separately for full (workspace × user × model) grain.
+      ...(workspaceId ? { filters: [{ field: "workspace", operator: "eq", value: workspaceId }] } : {}),
       limit: 10_000,
     }),
   })) as OpenRouterAnalyticsResponse;
@@ -66,6 +71,16 @@ export const fetchOpenRouterAnalytics: OpenRouterAnalyticsFetcher = async ({ sta
     throw new Error(`OpenRouter analytics truncated for ${startDate}..${endDate} — narrow the window (row_count=${json.data.metadata.row_count})`);
   }
   return json;
+};
+
+/**
+ * Workspace roster (id + name) — drives the per-workspace analytics queries
+ * and the workspace → department mapping table.
+ */
+export const fetchOpenRouterWorkspaces: OpenRouterWorkspacesFetcher = async () => {
+  const json = (await openRouterFetch("/workspaces")) as { data?: OpenRouterWorkspace[] };
+  if (!Array.isArray(json?.data)) throw new Error("OpenRouter /workspaces: missing `data` array");
+  return json.data.filter((w) => w?.id && w?.name);
 };
 
 /**

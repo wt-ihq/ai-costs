@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { VENDOR_LABEL, type CostType, type Vendor } from "@/lib/types";
 import { fetchEmployeesAll } from "./common";
 
-interface HealthFact { source: string; day: string; cost_type: CostType; entity_key: string; cost_usd: number; employee_id: string | null; model: string | null }
+interface HealthFact { source: string; day: string; cost_type: CostType; entity_key: string; cost_usd: number; employee_id: string | null; model: string | null; department: string | null }
 
 /**
  * Every spend fact (counts/unmatched), paging past PostgREST's 1000-row cap.
@@ -15,7 +15,7 @@ async function fetchAllSpendFacts(supabase: SupabaseClient): Promise<HealthFact[
   const page = (withCount: boolean) =>
     supabase
       .from("spend_facts")
-      .select("source, day, cost_type, entity_key, cost_usd, employee_id, model", withCount ? { count: "exact" } : undefined)
+      .select("source, day, cost_type, entity_key, cost_usd, employee_id, model, department", withCount ? { count: "exact" } : undefined)
       // id tiebreaker: `day` alone has thousands of ties, so page boundaries
       // could duplicate/skip rows between queries.
       .order("day")
@@ -234,9 +234,11 @@ export async function getDataHealth(supabase: SupabaseClient): Promise<DataHealt
       if (!t.latestDay || f.day > t.latestDay) t.latestDay = f.day;
       otherByTool.set(tool, t);
     }
-    // recurring tool costs (incl. vendor-tagged subscription facts) and Vercel
-    // project charges are department-attributed — never assignable to a person
+    // Department-attributed person-less costs (recurring tools, vendor-tagged
+    // subscriptions, Vercel projects, OpenRouter workspace keys) have a cost
+    // center — never assignable to a person, so keep them out of the queue.
     if (f.source === "other" || f.source === "vercel" || f.cost_type === "subscription") continue;
+    if (f.employee_id == null && f.department != null) continue;
     if (f.employee_id == null) {
       // Person-less pseudo-entities are shown for transparency but excluded
       // from the assignable queue — assigning them to a person would be wrong.

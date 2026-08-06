@@ -297,34 +297,44 @@ export function rankPeople(
 /**
  * Costs that are structurally person-less — billed to the org or a team,
  * never assignable to an employee: recurring tool costs ("other", and
- * vendor-tagged subscription facts like a platform fee) and Vercel project
- * charges.
+ * vendor-tagged subscription facts like a platform fee), Vercel project
+ * charges, and any department-attributed fact without an employee (e.g.
+ * OpenRouter workspace-key usage mapped to a department).
  */
 const isPersonLess = (r: ShapeFact): boolean =>
-  r.source === "other" || r.source === "vercel" || r.costType === "subscription";
+  r.source === "other" || r.source === "vercel" || r.costType === "subscription" || (!r.employeeId && !!r.department);
 
 /**
  * Department-attributed, person-less costs have no employee to pin them to
- * (recurring tools and Vercel projects are billed to the team, not a
- * person) — they render as their own "Tools & infrastructure" list on team
- * pages: "other" and vendor-tagged subscription rows grouped by tool (model),
- * Vercel rows grouped by project (entityKey), never mixed in with people.
+ * (recurring tools, Vercel projects, and workspace-owned API keys are billed
+ * to the team, not a person) — they render as their own "Tools &
+ * infrastructure" list on team pages: "other" and vendor-tagged subscription
+ * rows grouped by tool (model), Vercel rows by project (entityKey),
+ * OpenRouter workspace usage by workspace (entityKey), never mixed in with
+ * people.
  */
 export function rankTools(rows: ShapeFact[], toolColors?: ToolColors): RankRow[] {
   const personLess = rows.filter((r) => isPersonLess(r) && !r.employeeId);
-  const byKey = groupBy(personLess, (r) => (r.source === "vercel" ? `vercel:${r.entityKey}` : `other:${r.model}`));
+  const byKey = groupBy(personLess, (r) =>
+    r.source === "vercel"
+      ? `vercel:${r.entityKey}`
+      : r.source === "openrouter" && r.costType === "metered"
+        ? `openrouter:${r.entityKey}`
+        : `other:${r.model}`,
+  );
   return [...byKey.entries()]
-    .map(([key, toolRows]) => {
-      const isVercel = key.startsWith("vercel:");
-      return {
-        id: `tool:${key}`,
-        label: key.slice(key.indexOf(":") + 1),
-        total: Math.round(sum(toolRows) * 100) / 100,
-        href: undefined,
-        sub: isVercel ? "Vercel project" : "recurring tool subscription",
-        segments: segmentsByDim(toolRows, toolColors),
-      };
-    })
+    .map(([key, toolRows]) => ({
+      id: `tool:${key}`,
+      label: key.slice(key.indexOf(":") + 1),
+      total: Math.round(sum(toolRows) * 100) / 100,
+      href: undefined,
+      sub: key.startsWith("vercel:")
+        ? "Vercel project"
+        : key.startsWith("openrouter:")
+          ? "OpenRouter workspace key"
+          : "recurring tool subscription",
+      segments: segmentsByDim(toolRows, toolColors),
+    }))
     .sort((a, b) => b.total - a.total);
 }
 

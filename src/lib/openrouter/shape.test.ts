@@ -76,6 +76,31 @@ describe("buildOpenRouterData", () => {
     expect(data.topModel).toBe("anthropic/claude-opus-5");
   });
 
+  it("byPerson carries a per-user model split and tags workspace-keyed usage", () => {
+    const wsScope: OpenRouterScope = {
+      rows: [
+        { day: "2026-07-01", entityKey: "gareth.jones@intenthq.com", model: "anthropic/claude-sonnet-5", costUsd: 8, tokens: 100, requests: 4, personName: "Gareth Jones" },
+        { day: "2026-07-02", entityKey: "gareth.jones@intenthq.com", model: "openai/gpt-5.6-sol", costUsd: 2, tokens: 20, requests: 1, personName: "Gareth Jones" },
+        { day: "2026-07-02", entityKey: "AI Operations", model: "moonshotai/kimi-k3", costUsd: 5, tokens: 50, requests: 2, personName: null },
+      ],
+      earliest: "2026-07",
+    };
+    const data = buildOpenRouterData(wsScope, JULY);
+
+    const gareth = data.byPerson.find((p) => p.name === "Gareth Jones");
+    expect(gareth?.kind).toBe("member");
+    expect(gareth?.models).toEqual([
+      { model: "anthropic/claude-sonnet-5", cost: 8 },
+      { model: "openai/gpt-5.6-sol", cost: 2 },
+    ]);
+
+    const ws = data.byPerson.find((p) => p.name === "AI Operations");
+    expect(ws?.kind).toBe("workspace");
+    expect(ws?.models).toEqual([{ model: "moonshotai/kimi-k3", cost: 5 }]);
+
+    expect(data.people).toBe(1); // workspace entities don't count as members
+  });
+
   it("returns an empty shape for a period with no rows", () => {
     const data = buildOpenRouterData(scope, parsePeriod("2026-05", NOW));
     expect(data.total).toBe(0);

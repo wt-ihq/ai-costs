@@ -48,6 +48,12 @@ export interface OpenRouterActivityResponse {
   data: OpenRouterActivityRow[];
 }
 
+/** GET /api/v1/workspaces item (id + name are all the sync needs). */
+export interface OpenRouterWorkspace {
+  id: string;
+  name: string;
+}
+
 /** Metric values may be numbers or numeric strings; anything else is drift. */
 function metric(value: number | string | null | undefined, field: string): number {
   if (value == null) return 0;
@@ -94,6 +100,40 @@ export function normalizeOpenRouterAnalytics(raw: OpenRouterAnalyticsResponse, w
       existing.requests = (existing.requests ?? 0) + requests;
     } else {
       byKey.set(key, { source: "openrouter", day, costType: "metered", entityKey, costUsd, tokens, requests, model });
+    }
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * Combine per-workspace analytics results into one fact set:
+ * - user-attributed rows keep the member email as entity_key (department left
+ *   null so the employee's own department attributes them) and are SUMMED
+ *   across workspaces — the same (day, email, model) can appear in several
+ *   workspaces but is one conflict key in spend_facts;
+ * - keyless rows (workspace-owned API keys, `user` null → "unkeyed") become
+ *   entity_key = workspace name with the mapped department, so team pages and
+ *   Explore attribute them to the right cost center.
+ */
+export function combineWorkspaceFacts(
+  perWorkspace: { name: string; department: string | null; facts: SpendFact[] }[],
+): SpendFact[] {
+  const byKey = new Map<string, SpendFact>();
+  for (const ws of perWorkspace) {
+    for (const f of ws.facts) {
+      const fact: SpendFact =
+        f.entityKey === "unkeyed"
+          ? { ...f, entityKey: ws.name, department: ws.department }
+          : { ...f };
+      const key = factKey(fact.day, fact.entityKey, fact.model ?? "");
+      const existing = byKey.get(key);
+      if (existing) {
+        existing.costUsd += fact.costUsd;
+        existing.tokens = (existing.tokens ?? 0) + (fact.tokens ?? 0);
+        existing.requests = (existing.requests ?? 0) + (fact.requests ?? 0);
+      } else {
+        byKey.set(key, fact);
+      }
     }
   }
   return [...byKey.values()];

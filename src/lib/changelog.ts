@@ -20,6 +20,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "A recurring tool cost can now be filed under a real vendor instead of 'Other tools' — so a platform fee (like OpenRouter's monthly subscription) and its usage spend show as one vendor row in Explore, split into Subscription and API, instead of two rows with the same name.",
       "The OpenRouter spend-over-time chart shows one bar per day or month, starting at the first date with data — the per-model split lives in the 'By model' list (where dated model snapshots now merge into their base model).",
       "In Explore's by-vendor trend, fixed costs (seats and subscriptions) now stack at the bottom of each bar and usage-based spend on top — the flat base reads as the floor, with day-to-day variation visible above it.",
+      "OpenRouter usage is now tracked per workspace: usage from workspace-owned API keys (not tied to a person) attributes to the workspace's department — workspaces map to departments on the Data → Tools page, defaulting to their own name. Each person's row on the OpenRouter page now also shows which models they used.",
     ],
   },
   {

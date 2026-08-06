@@ -8,6 +8,17 @@ export interface SpendTrendPoint {
   total: number; // USD
 }
 
+export interface PersonUsage {
+  name: string;
+  /** member = a person (or unmatched email); workspace = usage from a
+   * workspace-owned API key; unattributed = the unkeyed drift bucket. */
+  kind: "member" | "workspace" | "unattributed";
+  cost: number;
+  tokens: number;
+  requests: number;
+  models: { model: string; cost: number }[]; // per-user model split, cost desc
+}
+
 export interface OpenRouterData {
   total: number; // USD
   tokens: number;
@@ -17,11 +28,15 @@ export interface OpenRouterData {
   topModel: string | null; // by spend
   trend: SpendTrendPoint[]; // total USD per bucket (model split lives in byModel)
   byModel: { model: string; cost: number; tokens: number; requests: number }[];
-  byPerson: { name: string; cost: number; tokens: number; requests: number }[];
+  byPerson: PersonUsage[];
 }
 
 /** Unmatched emails stay visible as themselves; only the unkeyed bucket is anonymous. */
 const personLabel = (r: OpenRouterRow) => r.personName ?? (r.entityKey === "unkeyed" ? "Unattributed" : r.entityKey);
+
+/** Workspace-keyed rows carry the workspace name (no "@") as entity_key. */
+const personKind = (r: OpenRouterRow): PersonUsage["kind"] =>
+  r.personName || r.entityKey.includes("@") ? "member" : r.entityKey === "unkeyed" ? "unattributed" : "workspace";
 
 /**
  * OpenRouter reports permaslug snapshots ("anthropic/claude-opus-5-20260723");
@@ -39,19 +54,20 @@ export function buildOpenRouterData(scope: OpenRouterScope, period: Period): Ope
   let requests = 0;
   const members = new Set<string>();
   const modelAgg = new Map<string, { cost: number; tokens: number; requests: number }>();
-  const personAgg = new Map<string, { cost: number; tokens: number; requests: number }>();
+  const personAgg = new Map<string, { kind: PersonUsage["kind"]; cost: number; tokens: number; requests: number; models: Map<string, number> }>();
   for (const r of rows) {
     total += r.costUsd;
     tokens += r.tokens;
     requests += r.requests;
-    if (r.entityKey !== "unkeyed") members.add(r.entityKey);
+    if (personKind(r) === "member") members.add(r.entityKey);
     const model = displayModel(r.model);
     const m = modelAgg.get(model) ?? { cost: 0, tokens: 0, requests: 0 };
     m.cost += r.costUsd; m.tokens += r.tokens; m.requests += r.requests;
     modelAgg.set(model, m);
     const person = personLabel(r);
-    const p = personAgg.get(person) ?? { cost: 0, tokens: 0, requests: 0 };
+    const p = personAgg.get(person) ?? { kind: personKind(r), cost: 0, tokens: 0, requests: 0, models: new Map<string, number>() };
     p.cost += r.costUsd; p.tokens += r.tokens; p.requests += r.requests;
+    p.models.set(model, (p.models.get(model) ?? 0) + r.costUsd);
     personAgg.set(person, p);
   }
 
@@ -82,7 +98,13 @@ export function buildOpenRouterData(scope: OpenRouterScope, period: Period): Ope
     trend,
     byModel,
     byPerson: [...personAgg.entries()]
-      .map(([name, agg]) => ({ name, ...agg }))
+      .map(([name, { models, ...agg }]) => ({
+        name,
+        ...agg,
+        models: [...models.entries()]
+          .map(([model, cost]) => ({ model, cost }))
+          .sort((a, b) => b.cost - a.cost),
+      }))
       .sort((a, b) => b.cost - a.cost || b.tokens - a.tokens),
   };
 }
