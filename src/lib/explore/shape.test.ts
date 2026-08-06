@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   seriesOrder, treemapByDim, SHARED_SEATS, rankTools,
   scorecardFor, rankTeams, rankPeople, rankAllStaff, lineItems, trendForPeriod, type ShapeFact,
-  dimLabel, dimColorFor,
+  dimLabel, dimColorFor, vendorFixedShare,
 } from "./shape";
 import { parsePeriod } from "./period";
 import type { TrendPoint } from "./types";
@@ -148,6 +148,34 @@ describe("seriesOrder", () => {
 
   it("cost_type dim: canonical seat → overage → metered regardless of totals", () => {
     expect(seriesOrder(points, "cost_type")).toEqual(["seat", "overage", "metered"]);
+  });
+
+  it("vendor dim with a fixed-share map: flat spend sinks to the base, variable stacks on top", () => {
+    const pts: TrendPoint[] = [
+      { label: "Jul", cursor: 500, anthropic: 900, "other:Supabase": 30, claude_team: 100 },
+    ];
+    const share = new Map([
+      ["claude_team", 1],
+      ["other:Supabase", 1],
+      ["cursor", 0.6],
+      ["anthropic", 0],
+    ]);
+    // Fully-fixed first (ties by total desc), then mixed, then fully-variable
+    // — even though anthropic has the biggest total.
+    expect(seriesOrder(pts, "vendor", share)).toEqual(["claude_team", "other:Supabase", "cursor", "anthropic"]);
+  });
+
+  it("vendorFixedShare: monthly-level cost share per vendor-dim key", () => {
+    const facts: ShapeFact[] = [
+      { day: "2026-07-01", source: "openrouter", costType: "subscription", costUsd: 1500, employeeId: null, department: "AI Operations", fullName: null, entityKey: "openrouter|AI Operations", model: "OpenRouter" },
+      { day: "2026-07-09", source: "openrouter", costType: "metered", costUsd: 500, employeeId: "a", department: "Eng", fullName: "A", entityKey: "a@x.com", model: "m" },
+      { day: "2026-07-09", source: "anthropic", costType: "metered", costUsd: 100, employeeId: "a", department: "Eng", fullName: "A", entityKey: "k1", model: "opus" },
+      { day: "2026-07-01", source: "other", costType: "subscription", costUsd: 30, employeeId: null, department: null, fullName: null, entityKey: "supabase", model: "Supabase" },
+    ];
+    const share = vendorFixedShare(facts);
+    expect(share.get("openrouter")).toBe(0.75); // 1500 of 2000 is the flat fee
+    expect(share.get("anthropic")).toBe(0);
+    expect(share.get("other:Supabase")).toBe(1);
   });
 
   it("vendor dim: totals desc (unchanged behavior)", () => {

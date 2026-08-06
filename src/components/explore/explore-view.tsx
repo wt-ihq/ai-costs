@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { Dim } from "@/lib/explore/types";
-import { dimColorFor, dimLabel } from "@/lib/explore/shape";
+import { dimColorFor, dimLabel, vendorFixedShare } from "@/lib/explore/shape";
 import type { ToolColors } from "@/lib/explore/shape";
 import { parsePeriod, allTimePeriod, type Period } from "@/lib/explore/period";
 import { buildExploreData, unpackScope, type PackedScope, type RawScope } from "@/lib/explore/build";
@@ -108,6 +108,9 @@ export function ExploreView({
     [scope.facts, vendor],
   );
   const data = useMemo(() => buildExploreData({ ...scope, facts }, period), [scope, facts, period]);
+  // Vendor-dim stack order: flat subscription/seat bands at the base,
+  // variable spend on top.
+  const fixedShare = useMemo(() => vendorFixedShare(facts), [facts]);
 
   // The projected tile only makes sense for a period with an end to project
   // to that includes today — so not All time, and not past periods. (The
@@ -163,6 +166,7 @@ export function ExploreView({
               data={data.trend[effectiveDim]}
               dim={effectiveDim}
               toolColors={scope.toolColors}
+              fixedShare={fixedShare}
               projection={data.projection.trend}
               height="100%"
             />

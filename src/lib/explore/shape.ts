@@ -83,11 +83,31 @@ function segmentsByDim(rows: ShapeFact[], toolColors?: ToolColors): Record<Dim, 
 }
 
 /**
- * Stack order for the trend chart's series, from ALL data points (every dim
- * value that appears in any bucket). Cost types stack canonically (seat at the
- * base); vendors stack by total desc. First series renders at the bottom.
+ * Per vendor-dim series key: the fraction of its spend that is monthly-level
+ * (seats, subscriptions, monthly snapshots — the amortized flat bands).
+ * Feeds seriesOrder so predictable fixed costs sink to the base of the stack
+ * and variable spend wiggles on top of them.
  */
-export function seriesOrder(data: TrendPoint[], dim: Dim): string[] {
+export function vendorFixedShare(rows: ShapeFact[]): Map<string, number> {
+  const total = new Map<string, number>();
+  const fixed = new Map<string, number>();
+  for (const r of rows) {
+    const k = dimKey(r, "vendor");
+    total.set(k, (total.get(k) ?? 0) + r.costUsd);
+    if (isMonthlyLevelFact(r)) fixed.set(k, (fixed.get(k) ?? 0) + r.costUsd);
+  }
+  return new Map([...total.entries()].map(([k, t]) => [k, t > 0 ? (fixed.get(k) ?? 0) / t : 0]));
+}
+
+/**
+ * Stack order for the trend chart's series, from ALL data points (every dim
+ * value that appears in any bucket). Cost types stack canonically (seat at
+ * the base). Vendors stack by fixed share desc when a share map is given —
+ * flat subscription/seat bands at the base, variable spend on top — then by
+ * total desc (the whole order without a map). First series renders at the
+ * bottom.
+ */
+export function seriesOrder(data: TrendPoint[], dim: Dim, fixedShare?: Map<string, number>): string[] {
   const totals = new Map<string, number>();
   for (const p of data) {
     for (const [k, v] of Object.entries(p)) {
@@ -97,7 +117,11 @@ export function seriesOrder(data: TrendPoint[], dim: Dim): string[] {
   }
   return [...totals.entries()]
     .map(([key, value]) => ({ key, value }))
-    .sort(dimCompare(dim))
+    .sort((a, b) => {
+      if (dim === "cost_type") return dimCompare(dim)(a, b);
+      const byShare = (fixedShare?.get(b.key) ?? 0) - (fixedShare?.get(a.key) ?? 0);
+      return byShare !== 0 ? byShare : b.value - a.value;
+    })
     .map(({ key }) => key);
 }
 

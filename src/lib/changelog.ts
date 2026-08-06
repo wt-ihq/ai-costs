@@ -19,6 +19,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "The API page now covers the direct platforms only (Anthropic, OpenAI — kept as the historical record as they're wound down in favour of OpenRouter); OpenRouter lives on its own page rather than appearing in both.",
       "A recurring tool cost can now be filed under a real vendor instead of 'Other tools' — so a platform fee (like OpenRouter's monthly subscription) and its usage spend show as one vendor row in Explore, split into Subscription and API, instead of two rows with the same name.",
       "The OpenRouter spend-over-time chart shows one bar per day or month, starting at the first date with data — the per-model split lives in the 'By model' list (where dated model snapshots now merge into their base model).",
+      "In Explore's by-vendor trend, fixed costs (seats and subscriptions) now stack at the bottom of each bar and usage-based spend on top — the flat base reads as the floor, with day-to-day variation visible above it.",
     ],
   },
   {

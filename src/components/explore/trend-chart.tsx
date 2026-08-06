@@ -94,12 +94,16 @@ export function TrendChart({
   dim,
   height = 280,
   toolColors,
+  fixedShare,
   projection,
 }: {
   data: TrendPoint[];
   dim: Dim;
   height?: number | `${number}%`;
   toolColors?: ToolColors;
+  /** Vendor-dim stack ordering: series' monthly-level share (from
+   * vendorFixedShare) — flat subscription/seat bands sink to the base. */
+  fixedShare?: Map<string, number>;
   /** Forward month buckets carrying only a `projected` key. Points whose label
    * matches an existing bucket merge into it (year view enumerates the whole
    * year, so Aug–Dec already exist); the rest append (all-time view). */
@@ -118,9 +122,10 @@ export function TrendChart({
   }, [data, projection]);
 
   // Stacked series from ALL the data points (every dim value that appears in
-  // any bucket): vendors by total desc, cost types canonical (seat at the base).
-  // `projected` is drawn as its own dashed line, never as a bar.
-  const series = useMemo(() => seriesOrder(points, dim).filter((k) => k !== "projected"), [points, dim]);
+  // any bucket): vendors by fixed share (flat bands at the base) then total
+  // desc, cost types canonical (seat at the base). `projected` is drawn as
+  // its own dashed line, never as a bar.
+  const series = useMemo(() => seriesOrder(points, dim, fixedShare).filter((k) => k !== "projected"), [points, dim, fixedShare]);
 
   // Legend items toggle their series; the axis rescales to what's visible.
   // Hidden state resets when the split changes (the keys change meaning) —
