@@ -151,16 +151,20 @@ function UsageRow({ p, total }: { p: PersonUsage; total: number }) {
         </span>
         <span className="w-20 shrink-0 text-right tabular-nums">{formatUsd(p.cost)}</span>
       </div>
-      {/* Per-user model split: top models by spend, tail summarized. */}
+      {/* Per-user model split: top models by spend (provider prefix dropped —
+          the full slug is the tooltip), tail summarized as a dollar amount. */}
       {p.models.length > 0 && (
-        <div className="truncate font-mono text-[11px] text-muted/80">
-          {p.models.slice(0, 3).map((m, i) => (
-            <span key={m.model}>
-              {i > 0 && " · "}
-              <span style={{ color: modelColor(m.model) }}>●</span> {m.model} {formatUsd(m.cost)}
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-muted/80">
+          {p.models.slice(0, 3).map((m) => (
+            <span key={m.model} className="whitespace-nowrap" title={m.model}>
+              <span style={{ color: modelColor(m.model) }}>●</span> {m.model.split("/").pop()} {formatUsd(m.cost)}
             </span>
           ))}
-          {p.models.length > 3 && ` · +${p.models.length - 3} more`}
+          {p.models.length > 3 && (
+            <span className="whitespace-nowrap">
+              +{p.models.length - 3} more · {formatUsd(p.models.slice(3).reduce((s, m) => s + m.cost, 0))}
+            </span>
+          )}
         </div>
       )}
     </li>
