@@ -15,6 +15,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: "OpenRouter: people and workspace keys listed separately",
     items: [
       "The OpenRouter page's 'By person' list no longer mixes in workspace-owned API keys — those now have their own 'Workspace keys' panel, so the person list is actually people.",
+      "The OpenRouter spend chart now matches the Explore trend's styling (same axis, tooltip with total, and bar look), and long model lists expand in place instead of truncating.",
     ],
   },
   {

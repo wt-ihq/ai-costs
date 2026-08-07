@@ -5,9 +5,9 @@ import { buildOpenRouterData, type OpenRouterScope, type PersonUsage } from "@/l
 import { modelColor } from "@/lib/cursor-models/shape";
 import { allTimePeriod, parsePeriod, type Period } from "@/lib/explore/period";
 import { PeriodControl } from "@/components/explore/period-control";
+import { TrendChart } from "@/components/explore/trend-chart";
 import { Panel } from "@/components/ui";
 import { ShowAllList } from "@/components/show-all-list";
-import { SpendTrendChart } from "./spend-trend-chart";
 import { formatCount, formatCountCompact, formatUsd } from "@/lib/utils";
 
 export function OpenRouterView({
@@ -21,6 +21,9 @@ export function OpenRouterView({
     initialPeriodParam === "all" ? allTimePeriod(scope.earliest, new Date()) : parsePeriod(initialPeriodParam, new Date()),
   );
   const data = useMemo(() => buildOpenRouterData(scope, period), [scope, period]);
+  // Rendered with Explore's TrendChart (same axis/tooltip/bar styling) as a
+  // single vendor-keyed series — it picks up the OpenRouter color and label.
+  const trendPoints = useMemo(() => data.trend.map((p) => ({ label: p.label, openrouter: p.total })), [data.trend]);
 
   const changePeriod = (p: Period) => {
     setPeriod(p);
@@ -72,7 +75,7 @@ export function OpenRouterView({
           {data.total === 0 ? (
             <div className="flex h-40 items-center justify-center text-sm text-muted">No OpenRouter spend in {period.label}.</div>
           ) : (
-            <SpendTrendChart data={data.trend} />
+            <TrendChart data={trendPoints} dim="vendor" />
           )}
         </Panel>
       </section>
