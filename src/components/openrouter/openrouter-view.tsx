@@ -22,11 +22,17 @@ export function OpenRouterView({
     initialPeriodParam === "all" ? allTimePeriod(scope.earliest, new Date()) : parsePeriod(initialPeriodParam, new Date()),
   );
   const data = useMemo(() => buildOpenRouterData(scope, period), [scope, period]);
-  // Rendered with Explore's TrendChart (same axis/tooltip/bar styling) as a
-  // single vendor-keyed series — it picks up the OpenRouter color and label.
-  // Zero buckets omit the key (no bar, slot kept), matching trendForPeriod.
+  // Rendered with Explore's TrendChart (same axis/tooltip/bar styling) on the
+  // cost-type dim: the amortized subscription stacks at the base with usage on
+  // top, in Explore's colors/labels. Zero values omit their key (no bar, slot
+  // kept), matching trendForPeriod.
   const trendPoints = useMemo(
-    () => data.trend.map((p): TrendPoint => (p.total > 0 ? { label: p.label, openrouter: p.total } : { label: p.label })),
+    () =>
+      data.trend.map((p): TrendPoint => ({
+        label: p.label,
+        ...(p.subscription > 0 ? { subscription: p.subscription } : {}),
+        ...(p.metered > 0 ? { metered: p.metered } : {}),
+      })),
     [data.trend],
   );
 
@@ -45,7 +51,9 @@ export function OpenRouterView({
         <Panel className="flex flex-col gap-1.5">
           <span className="text-xs uppercase tracking-wide text-muted">Spend</span>
           <span className="text-2xl font-semibold tabular-nums">{formatUsd(data.total)}</span>
-          <span className="text-xs text-muted">{period.label}</span>
+          <span className="text-xs text-muted">
+            {data.subscription > 0 ? `incl. ${formatUsd(data.subscription)} subscription` : period.label}
+          </span>
         </Panel>
         <Panel className="flex flex-col gap-1.5">
           <span className="text-xs uppercase tracking-wide text-muted">Tokens</span>
@@ -80,7 +88,7 @@ export function OpenRouterView({
           {data.total === 0 ? (
             <div className="flex h-40 items-center justify-center text-sm text-muted">No OpenRouter spend in {period.label}.</div>
           ) : (
-            <TrendChart data={trendPoints} dim="vendor" />
+            <TrendChart data={trendPoints} dim="cost_type" />
           )}
         </Panel>
       </section>
@@ -104,7 +112,7 @@ export function OpenRouterView({
                     <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-2">
                       <div
                         className="h-full rounded-full"
-                        style={{ width: `${data.total > 0 ? (m.cost / data.total) * 100 : 0}%`, background: modelColor(m.model) }}
+                        style={{ width: `${data.usage > 0 ? (m.cost / data.usage) * 100 : 0}%`, background: modelColor(m.model) }}
                       />
                     </div>
                     <span className="w-16 shrink-0 text-right text-xs tabular-nums text-muted" title="Tokens">
@@ -123,7 +131,7 @@ export function OpenRouterView({
             {data.byPerson.length === 0 ? (
               <div className="flex h-24 items-center justify-center text-sm text-muted">No OpenRouter usage in {period.label}.</div>
             ) : (
-              <ShowAllList items={data.byPerson} render={(p) => <UsageRow key={p.name} p={p} total={data.total} />} />
+              <ShowAllList items={data.byPerson} render={(p) => <UsageRow key={p.name} p={p} total={data.usage} />} />
             )}
           </Panel>
         </section>
@@ -138,7 +146,7 @@ export function OpenRouterView({
                 Usage from API keys owned by a workspace rather than a person — counted against the
                 workspace&rsquo;s department (mapped on Data → Tools).
               </p>
-              <ShowAllList items={data.byWorkspace} render={(p) => <UsageRow key={p.name} p={p} total={data.total} />} />
+              <ShowAllList items={data.byWorkspace} render={(p) => <UsageRow key={p.name} p={p} total={data.usage} />} />
             </Panel>
           </section>
         )}

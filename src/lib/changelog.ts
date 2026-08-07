@@ -11,6 +11,13 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-08-08",
+    title: "OpenRouter chart shows the subscription base",
+    items: [
+      "The OpenRouter spend chart now includes the monthly platform subscription, spread evenly across the month's days like Explore does — so every day shows the flat base with usage stacked on top, instead of empty space on days without API calls. The Spend tile includes it too, noted separately.",
+    ],
+  },
+  {
     date: "2026-08-07",
     title: "OpenRouter: people and workspace keys listed separately",
     items: [

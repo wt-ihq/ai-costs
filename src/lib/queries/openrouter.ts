@@ -1,10 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { earliestFactDay } from "./common";
 
-/** One OpenRouter metered fact, enriched with the attributed employee's name. */
+/** One OpenRouter fact (metered usage or the platform subscription), enriched with the attributed employee's name. */
 export interface OpenRouterRow {
   day: string; // YYYY-MM-DD
-  entityKey: string; // member email, or "unkeyed"
+  costType: "metered" | "subscription"; // subscription = vendor-tagged recurring fee, stamped to the 1st
+  entityKey: string; // member email, workspace name, or "unkeyed"
   model: string;
   costUsd: number;
   tokens: number;
@@ -35,9 +36,11 @@ export async function getOpenRouterScope(supabase: SupabaseClient): Promise<Open
   const page = (withCount: boolean) =>
     supabase
       .from("spend_facts")
-      .select("day, entity_key, model, cost_usd, tokens, requests, employees(full_name)", withCount ? { count: "exact" } : undefined)
+      .select("day, cost_type, entity_key, model, cost_usd, tokens, requests, employees(full_name)", withCount ? { count: "exact" } : undefined)
       .eq("source", "openrouter")
-      .eq("cost_type", "metered")
+      // Usage facts plus the vendor-tagged platform subscription — the trend
+      // amortizes the latter across the month like Explore does.
+      .in("cost_type", ["metered", "subscription"])
       .gte("day", from)
       .lt("day", toExclusive)
       // id tiebreaker keeps page boundaries stable across queries.
@@ -62,6 +65,7 @@ export async function getOpenRouterScope(supabase: SupabaseClient): Promise<Open
     const emp = Array.isArray(r.employees) ? r.employees[0] : r.employees;
     return {
       day: r.day as string,
+      costType: r.cost_type as "metered" | "subscription",
       entityKey: r.entity_key as string,
       model: (r.model as string) ?? "",
       costUsd: Number(r.cost_usd),

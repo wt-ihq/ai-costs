@@ -5,7 +5,8 @@ export type { OpenRouterRow, OpenRouterScope };
 
 export interface SpendTrendPoint {
   label: string;
-  total: number; // USD
+  metered: number; // usage USD in the bucket
+  subscription: number; // amortized platform-fee USD in the bucket
 }
 
 export interface PersonUsage {
@@ -20,13 +21,15 @@ export interface PersonUsage {
 }
 
 export interface OpenRouterData {
-  total: number; // USD
+  total: number; // USD, usage + subscription
+  usage: number; // metered USD only — the denominator for the lists' share bars
+  subscription: number; // platform-fee USD in the period
   tokens: number;
   requests: number;
   people: number; // distinct members with usage in the period
   modelCount: number;
   topModel: string | null; // by spend
-  trend: SpendTrendPoint[]; // total USD per bucket (model split lives in byModel)
+  trend: SpendTrendPoint[]; // per bucket, cost-type split (model split lives in byModel)
   byModel: { model: string; cost: number; tokens: number; requests: number }[];
   byPerson: PersonUsage[]; // members only (incl. unmatched emails)
   byWorkspace: PersonUsage[]; // workspace-owned keys + the unkeyed drift remainder
@@ -56,7 +59,13 @@ function splitByKind(entries: PersonUsage[]): { byPerson: PersonUsage[]; byWorks
 
 /** Pure: slice the scope to the period and aggregate spend + usage. */
 export function buildOpenRouterData(scope: OpenRouterScope, period: Period): OpenRouterData {
-  const rows = scope.rows.filter((r) => r.day >= period.from && r.day < period.toExclusive);
+  const inPeriod = scope.rows.filter((r) => r.day >= period.from && r.day < period.toExclusive);
+  // The platform subscription (month-stamped to the 1st) feeds the total and
+  // the trend's amortized base; every per-model/per-person aggregation below
+  // is usage only — a flat fee has no model or person.
+  const subsRows = inPeriod.filter((r) => r.costType === "subscription");
+  const rows = inPeriod.filter((r) => r.costType !== "subscription");
+  const subscription = Math.round(subsRows.reduce((s, r) => s + r.costUsd, 0) * 100) / 100;
 
   let total = 0;
   let tokens = 0;
@@ -80,12 +89,38 @@ export function buildOpenRouterData(scope: OpenRouterScope, period: Period): Ope
     personAgg.set(person, p);
   }
 
-  // Total spend per bucket (the model split lives in byModel below). The full
-  // period is enumerated — empty buckets keep their axis slot with no bar —
-  // exactly like the Explore trend.
-  const trend: SpendTrendPoint[] = enumerateBuckets(period).map((b) => ({
-    label: b.label,
-    total: Math.round(rows.reduce((s, r) => (r.day >= b.from && r.day < b.toExclusive ? s + r.costUsd : s), 0) * 100) / 100,
+  // Per-bucket cost-type split, the full period enumerated (empty buckets
+  // keep their axis slot) — exactly like the Explore trend. The subscription
+  // is month-stamped to the 1st; on day/week buckets it's amortized evenly
+  // across its month's days (Explore's monthly-level treatment), so the flat
+  // base shows on every day instead of spiking the 1st.
+  const buckets = enumerateBuckets(period);
+  const points = buckets.map((b) => ({ label: b.label, metered: 0, subscription: 0 }));
+  const bucketOf = (day: string) => buckets.findIndex((b) => day >= b.from && day < b.toExclusive);
+  for (const r of rows) {
+    const i = bucketOf(r.day);
+    if (i >= 0) points[i].metered += r.costUsd;
+  }
+  const DAY_MS = 86_400_000;
+  const amortize = period.granularity === "month" || period.granularity === "quarter";
+  for (const s of subsRows) {
+    if (!amortize) {
+      const i = bucketOf(s.day);
+      if (i >= 0) points[i].subscription += s.costUsd;
+      continue;
+    }
+    const [y, m] = s.day.slice(0, 7).split("-").map(Number);
+    const start = Date.parse(`${s.day.slice(0, 7)}-01T00:00:00Z`);
+    const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    for (let d = 0; d < days; d++) {
+      const i = bucketOf(new Date(start + d * DAY_MS).toISOString().slice(0, 10));
+      if (i >= 0) points[i].subscription += s.costUsd / days;
+    }
+  }
+  const trend: SpendTrendPoint[] = points.map((p) => ({
+    label: p.label,
+    metered: Math.round(p.metered * 100) / 100,
+    subscription: Math.round(p.subscription * 100) / 100,
   }));
 
   const byModel = [...modelAgg.entries()]
@@ -93,7 +128,9 @@ export function buildOpenRouterData(scope: OpenRouterScope, period: Period): Ope
     .sort((a, b) => b.cost - a.cost || b.tokens - a.tokens);
 
   return {
-    total,
+    total: Math.round((total + subscription) * 100) / 100,
+    usage: Math.round(total * 100) / 100,
+    subscription,
     tokens,
     requests,
     people: members.size,
