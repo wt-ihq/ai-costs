@@ -80,18 +80,13 @@ export function buildOpenRouterData(scope: OpenRouterScope, period: Period): Ope
     personAgg.set(person, p);
   }
 
-  // Total spend per bucket (the model split lives in byModel below).
-  const allBuckets: SpendTrendPoint[] = enumerateBuckets(period).map((b) => ({
+  // Total spend per bucket (the model split lives in byModel below). The full
+  // period is enumerated — empty buckets keep their axis slot with no bar —
+  // exactly like the Explore trend.
+  const trend: SpendTrendPoint[] = enumerateBuckets(period).map((b) => ({
     label: b.label,
     total: Math.round(rows.reduce((s, r) => (r.day >= b.from && r.day < b.toExclusive ? s + r.costUsd : s), 0) * 100) / 100,
   }));
-  // Clip empty edge buckets (months before the data starts, days/months still
-  // in the future) so a young data set isn't a sliver in a mostly-blank year;
-  // interior gaps are kept — a quiet month mid-range is real signal.
-  const first = allBuckets.findIndex((p) => p.total > 0);
-  let last = allBuckets.length - 1;
-  while (last >= 0 && allBuckets[last].total === 0) last--;
-  const trend = first === -1 ? [] : allBuckets.slice(first, last + 1);
 
   const byModel = [...modelAgg.entries()]
     .map(([model, agg]) => ({ model, ...agg }))

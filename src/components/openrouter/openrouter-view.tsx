@@ -23,7 +23,11 @@ export function OpenRouterView({
   const data = useMemo(() => buildOpenRouterData(scope, period), [scope, period]);
   // Rendered with Explore's TrendChart (same axis/tooltip/bar styling) as a
   // single vendor-keyed series — it picks up the OpenRouter color and label.
-  const trendPoints = useMemo(() => data.trend.map((p) => ({ label: p.label, openrouter: p.total })), [data.trend]);
+  // Zero buckets omit the key (no bar, slot kept), matching trendForPeriod.
+  const trendPoints = useMemo(
+    () => data.trend.map((p) => (p.total > 0 ? { label: p.label, openrouter: p.total } : { label: p.label })),
+    [data.trend],
+  );
 
   const changePeriod = (p: Period) => {
     setPeriod(p);

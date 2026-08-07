@@ -37,15 +37,15 @@ describe("buildOpenRouterData", () => {
     expect(data.byWorkspace.map((p) => p.name)).toEqual(["Unattributed"]); // the unkeyed bucket
   });
 
-  it("builds a daily spend-total trend, clipped to the days that have data", () => {
+  it("builds a daily spend-total trend over the FULL month, like the Explore trend", () => {
     const data = buildOpenRouterData(scope, JULY);
-    expect(data.trend).toEqual([
-      { label: "1", total: 14.75 },
-      { label: "2", total: 3.6 }, // days 3–31 are empty → clipped away
-    ]);
+    expect(data.trend).toHaveLength(31); // empty days keep their axis slot
+    expect(data.trend[0]).toEqual({ label: "1", total: 14.75 });
+    expect(data.trend[1]).toEqual({ label: "2", total: 3.6 });
+    expect(data.trend[2]).toEqual({ label: "3", total: 0 });
   });
 
-  it("clips empty edge buckets in the year view but keeps interior gaps", () => {
+  it("year view enumerates all 12 months", () => {
     const yearScope: OpenRouterScope = {
       rows: [
         { day: "2026-07-01", entityKey: "a@x.com", model: "m", costUsd: 5, tokens: 0, requests: 0, personName: "A" },
@@ -54,12 +54,10 @@ describe("buildOpenRouterData", () => {
       earliest: "2026-07",
     };
     const data = buildOpenRouterData(yearScope, parsePeriod("2026", new Date("2026-10-20T12:00:00Z")));
-    // Jan–Jun and Oct–Dec clipped, empty Aug kept — a quiet month is signal.
-    expect(data.trend).toEqual([
-      { label: "Jul", total: 5 },
-      { label: "Aug", total: 0 },
-      { label: "Sep", total: 7 },
-    ]);
+    expect(data.trend).toHaveLength(12);
+    expect(data.trend.find((p) => p.label === "Jul")).toEqual({ label: "Jul", total: 5 });
+    expect(data.trend.find((p) => p.label === "Sep")).toEqual({ label: "Sep", total: 7 });
+    expect(data.trend.find((p) => p.label === "Aug")).toEqual({ label: "Aug", total: 0 });
   });
 
   it("merges permaslug date snapshots into one display model", () => {
@@ -109,6 +107,6 @@ describe("buildOpenRouterData", () => {
     expect(data.byPerson).toEqual([]);
     expect(data.byWorkspace).toEqual([]);
     expect(data.topModel).toBeNull();
-    expect(data.trend).toEqual([]);
+    expect(data.trend.every((p) => p.total === 0)).toBe(true);
   });
 });
