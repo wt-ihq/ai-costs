@@ -90,7 +90,8 @@ export function OpenRouterView({
                   <li key={m.model} className="flex items-center gap-3 text-sm">
                     <span className="flex w-56 shrink-0 items-center gap-2">
                       <span className="size-2.5 shrink-0 rounded-full" style={{ background: modelColor(m.model) }} />
-                      <span className="truncate font-mono text-xs text-muted" title={m.model}>{m.model}</span>
+                      {/* Provider prefix dropped — the full slug is the tooltip. */}
+                      <span className="truncate font-mono text-xs text-muted" title={m.model}>{m.model.split("/").pop()}</span>
                     </span>
                     <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-2">
                       <div
@@ -139,6 +140,8 @@ export function OpenRouterView({
 }
 
 function UsageRow({ p, total }: { p: PersonUsage; total: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const shown = expanded ? p.models : p.models.slice(0, 3);
   return (
     <li className="space-y-1 text-sm">
       <div className="flex items-center gap-3">
@@ -152,18 +155,24 @@ function UsageRow({ p, total }: { p: PersonUsage; total: number }) {
         <span className="w-20 shrink-0 text-right tabular-nums">{formatUsd(p.cost)}</span>
       </div>
       {/* Per-user model split: top models by spend (provider prefix dropped —
-          the full slug is the tooltip), tail summarized as a dollar amount. */}
+          the full slug is the tooltip); the tail toggles open in place. */}
       {p.models.length > 0 && (
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-muted/80">
-          {p.models.slice(0, 3).map((m) => (
+          {shown.map((m) => (
             <span key={m.model} className="whitespace-nowrap" title={m.model}>
               <span style={{ color: modelColor(m.model) }}>●</span> {m.model.split("/").pop()} {formatUsd(m.cost)}
             </span>
           ))}
           {p.models.length > 3 && (
-            <span className="whitespace-nowrap">
-              +{p.models.length - 3} more · {formatUsd(p.models.slice(3).reduce((s, m) => s + m.cost, 0))}
-            </span>
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="whitespace-nowrap text-accent hover:underline"
+            >
+              {expanded
+                ? "show less"
+                : `+${p.models.length - 3} more · ${formatUsd(p.models.slice(3).reduce((s, m) => s + m.cost, 0))}`}
+            </button>
           )}
         </div>
       )}
