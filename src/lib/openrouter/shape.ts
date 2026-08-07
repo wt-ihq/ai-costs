@@ -28,7 +28,8 @@ export interface OpenRouterData {
   topModel: string | null; // by spend
   trend: SpendTrendPoint[]; // total USD per bucket (model split lives in byModel)
   byModel: { model: string; cost: number; tokens: number; requests: number }[];
-  byPerson: PersonUsage[];
+  byPerson: PersonUsage[]; // members only (incl. unmatched emails)
+  byWorkspace: PersonUsage[]; // workspace-owned keys + the unkeyed drift remainder
 }
 
 /** Unmatched emails stay visible as themselves; only the unkeyed bucket is anonymous. */
@@ -44,6 +45,14 @@ const personKind = (r: OpenRouterRow): PersonUsage["kind"] =>
  * legend. Trim it so snapshots merge for display.
  */
 const displayModel = (model: string): string => (model || "(no model)").replace(/-20\d{6}$/, "");
+
+/** People are one list; workspace keys (and the unkeyed remainder) another — mixing them read as departments among names. */
+function splitByKind(entries: PersonUsage[]): { byPerson: PersonUsage[]; byWorkspace: PersonUsage[] } {
+  return {
+    byPerson: entries.filter((e) => e.kind === "member"),
+    byWorkspace: entries.filter((e) => e.kind !== "member"),
+  };
+}
 
 /** Pure: slice the scope to the period and aggregate spend + usage. */
 export function buildOpenRouterData(scope: OpenRouterScope, period: Period): OpenRouterData {
@@ -97,14 +106,16 @@ export function buildOpenRouterData(scope: OpenRouterScope, period: Period): Ope
     topModel: byModel[0]?.model ?? null,
     trend,
     byModel,
-    byPerson: [...personAgg.entries()]
-      .map(([name, { models, ...agg }]) => ({
-        name,
-        ...agg,
-        models: [...models.entries()]
-          .map(([model, cost]) => ({ model, cost }))
-          .sort((a, b) => b.cost - a.cost),
-      }))
-      .sort((a, b) => b.cost - a.cost || b.tokens - a.tokens),
+    ...splitByKind(
+      [...personAgg.entries()]
+        .map(([name, { models, ...agg }]) => ({
+          name,
+          ...agg,
+          models: [...models.entries()]
+            .map(([model, cost]) => ({ model, cost }))
+            .sort((a, b) => b.cost - a.cost),
+        }))
+        .sort((a, b) => b.cost - a.cost || b.tokens - a.tokens),
+    ),
   };
 }

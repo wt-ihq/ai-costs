@@ -11,6 +11,13 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-08-07",
+    title: "OpenRouter: people and workspace keys listed separately",
+    items: [
+      "The OpenRouter page's 'By person' list no longer mixes in workspace-owned API keys — those now have their own 'Workspace keys' panel, so the person list is actually people.",
+    ],
+  },
+  {
     date: "2026-08-06",
     title: "OpenRouter spend & usage",
     items: [

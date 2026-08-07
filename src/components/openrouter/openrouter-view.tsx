@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { buildOpenRouterData, type OpenRouterScope } from "@/lib/openrouter/shape";
+import { buildOpenRouterData, type OpenRouterScope, type PersonUsage } from "@/lib/openrouter/shape";
 import { modelColor } from "@/lib/cursor-models/shape";
 import { allTimePeriod, parsePeriod, type Period } from "@/lib/explore/period";
 import { PeriodControl } from "@/components/explore/period-control";
@@ -114,49 +114,55 @@ export function OpenRouterView({
             {data.byPerson.length === 0 ? (
               <div className="flex h-24 items-center justify-center text-sm text-muted">No OpenRouter usage in {period.label}.</div>
             ) : (
-              <ShowAllList
-                items={data.byPerson}
-                render={(p) => (
-                  <li key={p.name} className="space-y-1 text-sm">
-                    <div className="flex items-center gap-3">
-                      <span className="flex w-56 shrink-0 items-center gap-2">
-                        <span className="truncate" title={p.name}>{p.name}</span>
-                        {p.kind === "workspace" && (
-                          <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted" title="Usage from a workspace-owned API key, attributed to the workspace's department">
-                            workspace
-                          </span>
-                        )}
-                      </span>
-                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-2">
-                        <div
-                          className="h-full rounded-full bg-accent"
-                          style={{ width: `${data.total > 0 ? (p.cost / data.total) * 100 : 0}%` }}
-                        />
-                      </div>
-                      <span className="w-16 shrink-0 text-right text-xs tabular-nums text-muted" title="Requests">
-                        {formatCount(p.requests)} req
-                      </span>
-                      <span className="w-20 shrink-0 text-right tabular-nums">{formatUsd(p.cost)}</span>
-                    </div>
-                    {/* Per-user model split: top models by spend, tail summarized. */}
-                    {p.models.length > 0 && (
-                      <div className="truncate pl-0 font-mono text-[11px] text-muted/80">
-                        {p.models.slice(0, 3).map((m, i) => (
-                          <span key={m.model}>
-                            {i > 0 && " · "}
-                            <span style={{ color: modelColor(m.model) }}>●</span> {m.model} {formatUsd(m.cost)}
-                          </span>
-                        ))}
-                        {p.models.length > 3 && ` · +${p.models.length - 3} more`}
-                      </div>
-                    )}
-                  </li>
-                )}
-              />
+              <ShowAllList items={data.byPerson} render={(p) => <UsageRow key={p.name} p={p} total={data.total} />} />
             )}
           </Panel>
         </section>
+
+        {/* Usage from workspace-owned API keys — a team's shared keys, not a
+            person. Attributed to the workspace's department in Explore. */}
+        {data.byWorkspace.length > 0 && (
+          <section>
+            <h2 className="mb-3 text-sm font-medium text-muted">Workspace keys · {period.label}</h2>
+            <Panel>
+              <p className="mb-3 text-xs text-muted">
+                Usage from API keys owned by a workspace rather than a person — counted against the
+                workspace&rsquo;s department (mapped on Data → Tools).
+              </p>
+              <ShowAllList items={data.byWorkspace} render={(p) => <UsageRow key={p.name} p={p} total={data.total} />} />
+            </Panel>
+          </section>
+        )}
       </div>
     </div>
+  );
+}
+
+function UsageRow({ p, total }: { p: PersonUsage; total: number }) {
+  return (
+    <li className="space-y-1 text-sm">
+      <div className="flex items-center gap-3">
+        <span className="w-56 shrink-0 truncate" title={p.name}>{p.name}</span>
+        <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-2">
+          <div className="h-full rounded-full bg-accent" style={{ width: `${total > 0 ? (p.cost / total) * 100 : 0}%` }} />
+        </div>
+        <span className="w-16 shrink-0 text-right text-xs tabular-nums text-muted" title="Requests">
+          {formatCount(p.requests)} req
+        </span>
+        <span className="w-20 shrink-0 text-right tabular-nums">{formatUsd(p.cost)}</span>
+      </div>
+      {/* Per-user model split: top models by spend, tail summarized. */}
+      {p.models.length > 0 && (
+        <div className="truncate font-mono text-[11px] text-muted/80">
+          {p.models.slice(0, 3).map((m, i) => (
+            <span key={m.model}>
+              {i > 0 && " · "}
+              <span style={{ color: modelColor(m.model) }}>●</span> {m.model} {formatUsd(m.cost)}
+            </span>
+          ))}
+          {p.models.length > 3 && ` · +${p.models.length - 3} more`}
+        </div>
+      )}
+    </li>
   );
 }

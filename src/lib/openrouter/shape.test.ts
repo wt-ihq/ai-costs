@@ -33,8 +33,8 @@ describe("buildOpenRouterData", () => {
     expect(data.byPerson.map((p) => p.name)).toEqual([
       "Gareth Jones",
       "contractor@external.dev", // unmatched → shown as the raw email
-      "Unattributed", // the unkeyed bucket
     ]);
+    expect(data.byWorkspace.map((p) => p.name)).toEqual(["Unattributed"]); // the unkeyed bucket
   });
 
   it("builds a daily spend-total trend, clipped to the days that have data", () => {
@@ -76,7 +76,7 @@ describe("buildOpenRouterData", () => {
     expect(data.topModel).toBe("anthropic/claude-opus-5");
   });
 
-  it("byPerson carries a per-user model split and tags workspace-keyed usage", () => {
+  it("splits people from workspace-keyed usage, each with a per-entity model split", () => {
     const wsScope: OpenRouterScope = {
       rows: [
         { day: "2026-07-01", entityKey: "gareth.jones@intenthq.com", model: "anthropic/claude-sonnet-5", costUsd: 8, tokens: 100, requests: 4, personName: "Gareth Jones" },
@@ -94,7 +94,8 @@ describe("buildOpenRouterData", () => {
       { model: "openai/gpt-5.6-sol", cost: 2 },
     ]);
 
-    const ws = data.byPerson.find((p) => p.name === "AI Operations");
+    expect(data.byPerson.some((p) => p.name === "AI Operations")).toBe(false); // not mixed in with people
+    const ws = data.byWorkspace.find((p) => p.name === "AI Operations");
     expect(ws?.kind).toBe("workspace");
     expect(ws?.models).toEqual([{ model: "moonshotai/kimi-k3", cost: 5 }]);
 
@@ -106,6 +107,7 @@ describe("buildOpenRouterData", () => {
     expect(data.total).toBe(0);
     expect(data.byModel).toEqual([]);
     expect(data.byPerson).toEqual([]);
+    expect(data.byWorkspace).toEqual([]);
     expect(data.topModel).toBeNull();
     expect(data.trend).toEqual([]);
   });
