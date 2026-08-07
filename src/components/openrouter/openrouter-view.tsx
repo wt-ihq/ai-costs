@@ -6,6 +6,7 @@ import { modelColor } from "@/lib/cursor-models/shape";
 import { allTimePeriod, parsePeriod, type Period } from "@/lib/explore/period";
 import { PeriodControl } from "@/components/explore/period-control";
 import { TrendChart } from "@/components/explore/trend-chart";
+import type { TrendPoint } from "@/lib/explore/types";
 import { Panel } from "@/components/ui";
 import { ShowAllList } from "@/components/show-all-list";
 import { formatCount, formatCountCompact, formatUsd } from "@/lib/utils";
@@ -25,7 +26,7 @@ export function OpenRouterView({
   // single vendor-keyed series — it picks up the OpenRouter color and label.
   // Zero buckets omit the key (no bar, slot kept), matching trendForPeriod.
   const trendPoints = useMemo(
-    () => data.trend.map((p) => (p.total > 0 ? { label: p.label, openrouter: p.total } : { label: p.label })),
+    () => data.trend.map((p): TrendPoint => (p.total > 0 ? { label: p.label, openrouter: p.total } : { label: p.label })),
     [data.trend],
   );
 
