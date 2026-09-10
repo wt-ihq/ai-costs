@@ -47,6 +47,15 @@ function ProjectedCard({ p, delay }: { p: PeriodProjection; delay: number }) {
   );
 }
 
+const ALL_TIME_LABEL = "All time";
+
+// Tailwind needs literal class names — no interpolated `lg:grid-cols-${n}`.
+const COLUMN_CLASS: Record<number, string> = {
+  5: "lg:grid-cols-5",
+  6: "lg:grid-cols-6",
+  7: "lg:grid-cols-7",
+};
+
 export function Scorecards({
   totalToDate,
   sc,
@@ -58,10 +67,15 @@ export function Scorecards({
   periodLabel: string;
   projection?: PeriodProjection | null;
 }) {
+  // On the All time period the second card would repeat the hero card verbatim
+  // (same label, same total), so it collapses to one.
+  const showPeriodCard = periodLabel !== ALL_TIME_LABEL;
+  const columns = 5 + (showPeriodCard ? 1 : 0) + (projection ? 1 : 0);
+
   return (
-    <div className={cn("grid grid-cols-2 gap-4", projection ? "lg:grid-cols-7" : "lg:grid-cols-6")}>
-      <Card label="All time" value={formatUsd(totalToDate)} delay={0} hero />
-      <Card label={periodLabel} value={formatUsd(sc.total)} delay={0.04} />
+    <div className={cn("grid grid-cols-2 gap-4", COLUMN_CLASS[columns])}>
+      <Card label={ALL_TIME_LABEL} value={formatUsd(totalToDate)} delay={0} hero />
+      {showPeriodCard && <Card label={periodLabel} value={formatUsd(sc.total)} delay={0.04} />}
       {projection && <ProjectedCard p={projection} delay={0.06} />}
       <Card label="Seat" value={formatUsd(sc.seat)} delay={0.08} />
       <Card label="Subscription" value={formatUsd(sc.subscription)} delay={0.12} />
