@@ -60,7 +60,7 @@ export function Scorecards({
 }) {
   return (
     <div className={cn("grid grid-cols-2 gap-4", projection ? "lg:grid-cols-7" : "lg:grid-cols-6")}>
-      <Card label="Total to date" value={formatUsd(totalToDate)} delay={0} hero />
+      <Card label="All time" value={formatUsd(totalToDate)} delay={0} hero />
       <Card label={periodLabel} value={formatUsd(sc.total)} delay={0.04} />
       {projection && <ProjectedCard p={projection} delay={0.06} />}
       <Card label="Seat" value={formatUsd(sc.seat)} delay={0.08} />

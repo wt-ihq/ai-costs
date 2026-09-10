@@ -174,7 +174,7 @@ export function ExploreView({
         </section>
 
         <section className="rounded-xl border border-border bg-surface p-5">
-          <h2 className="mb-4 text-sm font-medium">Where it&rsquo;s going · {data.period.label}</h2>
+          <h2 className="mb-4 text-sm font-medium">Breakdown · {data.period.label}</h2>
           <CompositionBreakdown
             nodes={data.treemap[effectiveDim]}
             onSelect={effectiveDim === "vendor" ? (key) => (key.startsWith("__") ? undefined : changeVendor(key as VendorKey)) : undefined}
