@@ -61,7 +61,7 @@ export function ExploreView({ scope, initialPeriodParam, initialDim }: { scope: 
         </section>
 
         <section className="rounded-xl border border-border bg-surface p-5">
-          <h2 className="mb-4 text-sm font-medium">Where it&rsquo;s going · {data.period.label}</h2>
+          <h2 className="mb-4 text-sm font-medium">Breakdown · {data.period.label}</h2>
           <CompositionBreakdown nodes={data.treemap[dim]} />
         </section>
       </div>
