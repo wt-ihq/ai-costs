@@ -53,6 +53,8 @@ export interface ExploreData {
   allStaff?: RankRow[];
   /** Month-end forecast + dashed trend extension, from the same filtered facts. */
   projection: { periodEnd: import("./project").PeriodProjection | null; trend: TrendPoint[] };
+  /** How this period moved against the previous one (null on All time). */
+  trends: import("./trends").TrendsData | null;
 }
 
 export type { Vendor, CostType, Period, Granularity };

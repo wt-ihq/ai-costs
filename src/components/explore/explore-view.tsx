@@ -12,6 +12,7 @@ import { Scorecards } from "./scorecards";
 import { TrendChart } from "./trend-chart";
 import { CompositionBreakdown } from "./composition-breakdown";
 import { RankedPanel } from "./ranked-panel";
+import { TrendsSection } from "./trends-section";
 import { PeriodControl } from "./period-control";
 
 /** Mirror state into a query param without a navigation/refetch. */
@@ -187,6 +188,8 @@ export function ExploreView({
           />
         </section>
       </div>
+
+      {data.trends && <TrendsSection t={data.trends} periodLabel={data.period.label} linkQuery={linkQuery} />}
 
       <RankedPanel ranked={data.ranked} allStaff={data.allStaff} dim={effectiveDim} linkQuery={linkQuery} />
     </div>
