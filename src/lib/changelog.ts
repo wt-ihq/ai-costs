@@ -11,6 +11,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-09-11",
+    title: "Day and week views",
+    items: [
+      "The period picker now offers Day and Week alongside Month, Quarter, Year and All time — on Explore, API, Cursor and OpenRouter. Weeks run Monday to Sunday.",
+      "A single day's chart would be one lone bar, so the Day view charts the fortnight leading up to the day you picked, with that day highlighted. The totals and breakdown beside it still cover the selected day alone.",
+      "Seats and subscriptions are billed by the month, so on day and week views they're spread evenly across that month's days — a week that doesn't happen to include the 1st still shows its share of them, instead of reading as free.",
+      "Day and week views don't show a projection: the forecast works in whole months, and a few days of spend isn't enough to forecast from.",
+      "Two labels are clearer: 'Where it's going' is now 'Breakdown', and the 'Total to date' tile is now 'All time'.",
+    ],
+  },
+  {
     date: "2026-08-08",
     title: "OpenRouter chart shows the subscription base",
     items: [
