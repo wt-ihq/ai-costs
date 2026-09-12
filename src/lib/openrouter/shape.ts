@@ -97,13 +97,25 @@ export function buildOpenRouterData(scope: OpenRouterScope, period: Period): Ope
   const buckets = enumerateBuckets(period);
   const points = buckets.map((b) => ({ label: b.label, metered: 0, subscription: 0 }));
   const bucketOf = (day: string) => buckets.findIndex((b) => day >= b.from && day < b.toExclusive);
-  for (const r of rows) {
+  // The Day view's buckets reach back before `period.from`, so the trend reads
+  // the span the buckets cover; the tiles and per-model/person aggregations
+  // above stay on the period itself. Identical for every other granularity.
+  const windowFrom = buckets[0].from;
+  const windowTo = buckets[buckets.length - 1].toExclusive;
+  const inWindow = scope.rows.filter((r) => r.day >= windowFrom && r.day < windowTo);
+  // The month-stamped subscription is matched on its month, not its day — a
+  // week that excludes the 1st still carries its share of the platform fee.
+  const trendSubs = scope.rows.filter(
+    (r) => r.costType === "subscription" && `${r.day.slice(0, 7)}-01` < windowTo && `${r.day.slice(0, 7)}-32` > windowFrom,
+  );
+  for (const r of inWindow) {
+    if (r.costType === "subscription") continue;
     const i = bucketOf(r.day);
     if (i >= 0) points[i].metered += r.costUsd;
   }
   const DAY_MS = 86_400_000;
-  const amortize = period.granularity === "month" || period.granularity === "quarter";
-  for (const s of subsRows) {
+  const amortize = period.granularity !== "year" && period.granularity !== "all";
+  for (const s of trendSubs) {
     if (!amortize) {
       const i = bucketOf(s.day);
       if (i >= 0) points[i].subscription += s.costUsd;

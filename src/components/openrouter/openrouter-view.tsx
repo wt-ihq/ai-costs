@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { buildOpenRouterData, type OpenRouterScope, type PersonUsage } from "@/lib/openrouter/shape";
 import { modelColor } from "@/lib/cursor-models/shape";
-import { allTimePeriod, parsePeriod, type Period } from "@/lib/explore/period";
+import { allTimePeriod, parsePeriod, highlightBucketLabel, DAY_TREND_WINDOW, type Period } from "@/lib/explore/period";
 import { PeriodControl } from "@/components/explore/period-control";
 import { TrendChart } from "@/components/explore/trend-chart";
 import type { TrendPoint } from "@/lib/explore/types";
@@ -83,12 +83,15 @@ export function OpenRouterView({
       </div>
 
       <section>
-        <h2 className="mb-3 text-sm font-medium text-muted">Spend over time · {period.label}</h2>
+        {/* The Day view's chart deliberately spans more than its period. */}
+        <h2 className="mb-3 text-sm font-medium text-muted">
+          Spend over time · {period.granularity === "day" ? `last ${DAY_TREND_WINDOW} days` : period.label}
+        </h2>
         <Panel>
           {data.total === 0 ? (
             <div className="flex h-40 items-center justify-center text-sm text-muted">No OpenRouter spend in {period.label}.</div>
           ) : (
-            <TrendChart data={trendPoints} dim="cost_type" />
+            <TrendChart data={trendPoints} dim="cost_type" highlightLabel={highlightBucketLabel(period)} />
           )}
         </Panel>
       </section>

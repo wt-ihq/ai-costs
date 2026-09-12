@@ -132,6 +132,26 @@ describe("trendForPeriod", () => {
     // Seats spread across May AND June weeks — many buckets carry cursor spend.
     expect(t.filter((p) => p.cursor).length).toBeGreaterThan(8);
   });
+  it("week granularity: 7 daily buckets with monthly-level costs amortized", () => {
+    const t = trendForPeriod(rows, parsePeriod("2026-W25", NOW2), "vendor"); // Mon 15 – Sun 21 Jun
+    expect(t).toHaveLength(7);
+    // The June seat is stamped Jun 1 — without amortization this whole week
+    // reads as $0 cursor while the week holding the 1st towers.
+    expect(t[0].cursor).toBeCloseTo(40 / 30, 6);
+    const totalCursor = t.reduce((s, p) => s + ((p.cursor as number) ?? 0), 0);
+    expect(totalCursor).toBeCloseTo((40 / 30) * 7, 6);
+    // Jun 9 metered spend is outside this week.
+    expect(t.some((p) => p.anthropic)).toBe(false);
+  });
+  it("day granularity: trailing 14 daily buckets, populated beyond the selected day", () => {
+    const t = trendForPeriod(rows, parsePeriod("2026-06-17", NOW2), "vendor"); // Jun 4 .. Jun 17
+    expect(t).toHaveLength(14);
+    // Jun 9 falls inside the trailing window but outside the one-day period —
+    // the trend reads the bucket span, not the period.
+    expect(t.find((p) => p.label === "9 Jun")).toMatchObject({ anthropic: 100 });
+    const totalCursor = t.reduce((s, p) => s + ((p.cursor as number) ?? 0), 0);
+    expect(totalCursor).toBeCloseTo((40 / 30) * 14, 6);
+  });
   it("excludes rows outside the period range", () => {
     const t = trendForPeriod(rows, parsePeriod("2026-05", NOW2), "vendor"); // only the 2026-05-03 row
     const total = t.reduce((s, p) => s + ((p.cursor as number) ?? 0) + ((p.anthropic as number) ?? 0), 0);

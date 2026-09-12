@@ -137,8 +137,8 @@ function groupBy(rows: ShapeFact[], key: (r: ShapeFact) => string | null): Map<s
 }
 
 /**
- * Period-scoped trend, adaptively bucketed (month→day, quarter→week,
- * year→month). On day/week charts, monthly-level costs (seats,
+ * Period-scoped trend, adaptively bucketed (day→the trailing fortnight,
+ * week→day, month→day, quarter→week, year→month). On day/week charts, monthly-level costs (seats,
  * subscriptions, monthly snapshots — all stamped to the 1st) are amortized
  * evenly across their month's days: without this a quarter's first week
  * towers with the whole quarter's fixed spend while later weeks look free.
@@ -148,19 +148,31 @@ export function trendForPeriod(rows: ShapeFact[], period: Period, dim: Dim): Tre
   const DAY_MS = 86_400_000;
   const buckets = enumerateBuckets(period);
   const points = new Map<string, TrendPoint>(buckets.map((b) => [b.key, { label: b.label }]));
-  const amortize = period.granularity === "month" || period.granularity === "quarter";
+  const amortize = period.granularity !== "year" && period.granularity !== "all";
+  // Read the window the buckets actually cover, not the period: the Day view's
+  // buckets reach back before `period.from`, and for every other granularity
+  // the two are identical.
+  const windowFrom = buckets[0].from;
+  const windowTo = buckets[buckets.length - 1].toExclusive;
+  // Guarding here rather than per row is what lets a monthly-level fact be
+  // spread across its whole month and land only on the days the window keeps:
+  // a seat stamped 1 June belongs in a 15–21 June week even though the 1st
+  // doesn't. It also keeps out-of-range days away from bucketKey's index math.
   const add = (day: string, k: string, usd: number) => {
+    if (day < windowFrom || day >= windowTo) return;
     const pt = points.get(bucketKey(day, period, buckets));
     if (!pt) return;
     pt[k] = ((pt[k] as number) ?? 0) + usd;
   };
   for (const r of rows) {
-    if (r.day < period.from || r.day >= period.toExclusive) continue;
     const k = dimKey(r, dim);
     if (amortize && isMonthlyLevelFact(r)) {
-      const start = Date.parse(`${r.day.slice(0, 7)}-01T00:00:00Z`);
-      const [y, m] = r.day.slice(0, 7).split("-").map(Number);
+      const month = r.day.slice(0, 7);
+      const start = Date.parse(`${month}-01T00:00:00Z`);
+      const [y, m] = month.split("-").map(Number);
       const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      // Skip months the window can't touch — otherwise every scope row spreads.
+      if (`${month}-01` >= windowTo || new Date(start + days * DAY_MS).toISOString().slice(0, 10) <= windowFrom) continue;
       for (let i = 0; i < days; i++) add(new Date(start + i * DAY_MS).toISOString().slice(0, 10), k, r.costUsd / days);
     } else {
       add(r.day, k, r.costUsd);
@@ -170,7 +182,8 @@ export function trendForPeriod(rows: ShapeFact[], period: Period, dim: Dim): Tre
 }
 
 function bucketKey(day: string, period: Period, buckets: Bucket[]): string {
-  if (period.granularity === "month") return day;          // bucket key === the day
+  // Day-grain buckets (day / week / month) key straight off the date.
+  if (period.granularity === "day" || period.granularity === "week" || period.granularity === "month") return day;
   if (period.granularity === "year" || period.granularity === "all") return day.slice(0, 7); // "YYYY-MM"
   const DAY_MS = 86_400_000;
   const idx = Math.floor((Date.parse(`${day}T00:00:00Z`) - Date.parse(`${period.from}T00:00:00Z`)) / (7 * DAY_MS));

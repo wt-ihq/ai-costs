@@ -382,3 +382,14 @@ describe("projectTrendForPeriod", () => {
     expect(projectTrendForPeriod(paceFacts(), NOW, QUARTER)).toEqual([]);
   });
 });
+
+describe("sub-month periods", () => {
+  const WEEK: ProjectionPeriod = { granularity: "week", from: "2026-07-13", toExclusive: "2026-07-20", label: "13–19 Jul 2026" };
+  const DAY: ProjectionPeriod = { granularity: "day", from: "2026-07-15", toExclusive: "2026-07-16", label: "15 Jul 2026" };
+
+  it("does not project a week or a day", () => {
+    // The model works in whole months; a part-day run-rate is noise.
+    expect(projectPeriodEnd(julyUsage(), NOW, WEEK)).toBeNull();
+    expect(projectPeriodEnd(julyUsage(), NOW, DAY)).toBeNull();
+  });
+});

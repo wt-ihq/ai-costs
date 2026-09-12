@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import type { Dim } from "@/lib/explore/types";
 import { dimColorFor, dimLabel, vendorFixedShare } from "@/lib/explore/shape";
 import type { ToolColors } from "@/lib/explore/shape";
-import { parsePeriod, allTimePeriod, type Period } from "@/lib/explore/period";
+import { parsePeriod, allTimePeriod, highlightBucketLabel, DAY_TREND_WINDOW, type Period } from "@/lib/explore/period";
 import { buildExploreData, unpackScope, type PackedScope, type RawScope } from "@/lib/explore/build";
 import { matchesVendorKey, parseVendorParam, vendorsInFacts, type VendorKey } from "@/lib/explore/vendor-filter";
 import { cn } from "@/lib/utils";
@@ -113,10 +113,12 @@ export function ExploreView({
   const fixedShare = useMemo(() => vendorFixedShare(facts), [facts]);
 
   // The projected tile only makes sense for a period with an end to project
-  // to that includes today — so not All time, and not past periods. (The
+  // to that includes today — so not All time, not sub-month, and not past
+  // periods. (The
   // trend projection self-gates: it's [] except on year/all charts.)
   const showProjection = useMemo(() => {
-    if (period.granularity === "all") return false;
+    // Nothing worth projecting inside a day or a week — and All time has no end.
+    if (period.granularity === "all" || period.granularity === "day" || period.granularity === "week") return false;
     const today = new Date().toISOString().slice(0, 10);
     return period.from <= today && today < period.toExclusive;
   }, [period]);
@@ -160,7 +162,10 @@ export function ExploreView({
             this card to its neighbor's height, and a fixed-height chart left
             a squashed plot above dead space. */}
         <section className="flex flex-col rounded-xl border border-border bg-surface p-5">
-          <h2 className="mb-4 text-sm font-medium">Trend · {data.period.label}</h2>
+          {/* The Day view's chart deliberately spans more than its period. */}
+          <h2 className="mb-4 text-sm font-medium">
+            Trend · {period.granularity === "day" ? `last ${DAY_TREND_WINDOW} days` : data.period.label}
+          </h2>
           <div className="min-h-[300px] flex-1">
             <TrendChart
               data={data.trend[effectiveDim]}
@@ -168,6 +173,7 @@ export function ExploreView({
               toolColors={scope.toolColors}
               fixedShare={fixedShare}
               projection={data.projection.trend}
+              highlightLabel={highlightBucketLabel(period)}
               height="100%"
             />
           </div>
