@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import type { TrendsData, TrendMover, NotableDay } from "@/lib/explore/trends";
 import { formatUsd, cn } from "@/lib/utils";
 
@@ -103,11 +104,26 @@ function NotableDays({ days }: { days: NotableDay[] }) {
  * days that stood out. All derived in-memory from the scope's facts.
  */
 export function TrendsSection({ t, periodLabel, linkQuery }: { t: TrendsData; periodLabel: string; linkQuery?: string }) {
+  // Collapsed by default: the header still carries the headline change, so
+  // the section reads as a one-line summary until someone wants the detail.
+  const [open, setOpen] = useState(false);
   const quiet = t.risers.length + t.fallers.length + t.newSpenders.length + t.goneQuiet.length + t.notableDays.length === 0;
-  const headline = t.pct === null && t.prior === 0 && t.current === 0 ? "No spend in either period." : null;
+  const empty = t.pct === null && t.prior === 0 && t.current === 0;
   return (
     <section className="rounded-xl border border-border bg-surface p-5">
-      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left"
+      >
+        <svg
+          viewBox="0 0 16 16"
+          className={cn("size-3.5 shrink-0 text-muted transition-transform", open && "rotate-90")}
+          fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden
+        >
+          <path d="M6 3.5 10.5 8 6 12.5" />
+        </svg>
         <h2 className="text-sm font-medium">
           Trends · {periodLabel} vs {t.priorLabel}
         </h2>
@@ -117,44 +133,48 @@ export function TrendsSection({ t, periodLabel, linkQuery }: { t: TrendsData; pe
         >
           Beta
         </span>
-        {t.truncatedDays !== null && (
-          <span className="text-xs text-muted">
-            first {t.truncatedDays} {t.truncatedDays === 1 ? "day" : "days"} of each · seats and subscriptions left out
-          </span>
-        )}
-      </div>
+        <span className="ml-auto flex flex-wrap items-baseline gap-x-2 text-sm tabular-nums">
+          {empty ? (
+            <span className="text-muted">no spend either period</span>
+          ) : (
+            <>
+              <span className="font-semibold">{formatUsd(t.current)}</span>
+              <span className="text-muted">vs {formatUsd(t.prior)}</span>
+              <span className={cn("font-semibold", t.delta > 0 ? upClass : t.delta < 0 ? downClass : "text-muted")}>
+                {t.delta === 0 ? "no change" : deltaText(t)}
+              </span>
+            </>
+          )}
+        </span>
+      </button>
 
-      <div className="mb-5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        {headline ? (
-          <span className="text-sm text-muted">{headline}</span>
-        ) : (
-          <>
-            <span className="text-2xl font-semibold tabular-nums">{formatUsd(t.current)}</span>
-            <span className="text-sm tabular-nums text-muted">vs {formatUsd(t.prior)}</span>
-            <span className={cn("text-sm font-semibold tabular-nums", t.delta > 0 ? upClass : t.delta < 0 ? downClass : "text-muted")}>
-              {t.delta === 0 ? "no change" : deltaText(t)}
-            </span>
-          </>
-        )}
-      </div>
+      {open && (
+        <div className="mt-4">
+          {t.truncatedDays !== null && (
+            <div className="mb-4 text-xs text-muted">
+              Comparing the first {t.truncatedDays} {t.truncatedDays === 1 ? "day" : "days"} of each period · seats and subscriptions left out
+            </div>
+          )}
 
-      {quiet ? (
-        <div className="text-sm text-muted">Nothing moved much against {t.priorLabel}.</div>
-      ) : (
-        <div className="space-y-5">
-          <div className="grid gap-4 lg:grid-cols-2">
-            <MoverList title="Biggest increases" rows={t.risers} empty="No increases." linkQuery={linkQuery} />
-            <MoverList title="Biggest decreases" rows={t.fallers} empty="No decreases." linkQuery={linkQuery} />
-          </div>
-          <ChipList title="New this period" rows={t.newSpenders} amount={(m) => m.current} linkQuery={linkQuery} />
-          <ChipList title="Gone quiet" rows={t.goneQuiet} amount={(m) => m.prior} linkQuery={linkQuery} />
-          <NotableDays days={t.notableDays} />
-        </div>
-      )}
+          {quiet ? (
+            <div className="text-sm text-muted">Nothing moved much against {t.priorLabel}.</div>
+          ) : (
+            <div className="space-y-5">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <MoverList title="Biggest increases" rows={t.risers} empty="No increases." linkQuery={linkQuery} />
+                <MoverList title="Biggest decreases" rows={t.fallers} empty="No decreases." linkQuery={linkQuery} />
+              </div>
+              <ChipList title="New this period" rows={t.newSpenders} amount={(m) => m.current} linkQuery={linkQuery} />
+              <ChipList title="Gone quiet" rows={t.goneQuiet} amount={(m) => m.prior} linkQuery={linkQuery} />
+              <NotableDays days={t.notableDays} />
+            </div>
+          )}
 
-      {t.hasEstimatedAllocation && (
-        <div className="mt-4 text-xs text-muted">
-          Per-person Anthropic figures are an estimated split of the exact daily total, so small movements there may be allocation noise.
+          {t.hasEstimatedAllocation && (
+            <div className="mt-4 text-xs text-muted">
+              Per-person Anthropic figures are an estimated split of the exact daily total, so small movements there may be allocation noise.
+            </div>
+          )}
         </div>
       )}
     </section>
