@@ -11,6 +11,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-09-12",
+    title: "Trends (beta)",
+    items: [
+      "Explore pages now have a Trends section showing how the selected period moved against the previous one: the overall change, the biggest increases and decreases (teams on the company page, people and tools on a team page, vendors and models on a person page), anything spending for the first time, and anything that has gone quiet.",
+      "Month, quarter and year views also list notable days — days where usage spend ran well above a typical day in that period — with who drove them.",
+      "A period that is still in progress is compared like-for-like: the same number of elapsed days on each side, with seats and subscriptions left out so a half-finished month doesn't read as a drop.",
+      "It's marked beta because the thresholds may still change. There's nothing on the All time view, since there's no earlier period to compare with.",
+    ],
+  },
+  {
     date: "2026-09-11",
     title: "Day and week views",
     items: [

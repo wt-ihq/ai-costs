@@ -40,6 +40,14 @@ describe("buildExploreData", () => {
     expect(data.trend.vendor.length).toBeGreaterThan(0); // monthly buckets across the span
   });
 
+  it("carries period-over-period trends, null on All time", () => {
+    // May is complete relative to NOW (17 Jun): Eng went 40 → 140 May → June.
+    const june = buildExploreData(companyScope, parsePeriod("2026-06", NOW), NOW);
+    expect(june.trends).not.toBeNull();
+    expect(june.trends!.priorLabel).toBe("May 2026");
+    expect(buildExploreData(companyScope, allTimePeriod("2026-05", NOW), NOW).trends).toBeNull();
+  });
+
   it("includes the company All-staff roster ($0 staff kept)", () => {
     const data = buildExploreData(companyScope, parsePeriod("2026-06", NOW));
     expect(data.allStaff).toBeDefined();
