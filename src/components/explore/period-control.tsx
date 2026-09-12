@@ -4,6 +4,8 @@ import { currentPeriod, allTimePeriod, stepPeriod, canStepBack, canStepForward, 
 import { cn } from "@/lib/utils";
 
 const GRANS: { g: Granularity; label: string }[] = [
+  { g: "day", label: "Day" },
+  { g: "week", label: "Week" },
   { g: "month", label: "Month" },
   { g: "quarter", label: "Quarter" },
   { g: "year", label: "Year" },
@@ -17,7 +19,7 @@ export function PeriodControl({ period, earliest, onChange }: { period: Period; 
   const fwd = canStepForward(period);
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <div className="inline-flex rounded-md border border-border bg-surface-2 p-0.5 text-xs">
         {GRANS.map(({ g, label }) => (
           <button
@@ -42,7 +44,7 @@ export function PeriodControl({ period, earliest, onChange }: { period: Period; 
           >
             ‹
           </button>
-          <span className="min-w-[8rem] text-center tabular-nums">
+          <span className="min-w-[10.5rem] text-center tabular-nums">
             {period.label}
             {period.isCurrent && <span className="ml-1 text-xs text-muted">· to date</span>}
           </span>

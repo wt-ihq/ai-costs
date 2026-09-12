@@ -1,5 +1,6 @@
 import { isMonthlyLevelFact, type ShapeFact } from "./shape";
 import type { TrendPoint } from "./types";
+import type { Granularity } from "./period";
 
 /**
  * Projected spend — ONE model everywhere ("at the current pace and
@@ -38,7 +39,7 @@ const FULL = ["January", "February", "March", "April", "May", "June", "July", "A
 
 /** The slice of a Period the projection needs (month/all collapse to the current month). */
 export interface ProjectionPeriod {
-  granularity: "month" | "quarter" | "year" | "all";
+  granularity: Granularity;
   from: string; // YYYY-MM-DD inclusive
   toExclusive: string; // YYYY-MM-DD exclusive
   label: string; // "July 2026" | "Q3 2026" | "2026" | "All time"
@@ -243,6 +244,9 @@ const shortLabel = (label: string) => label.replace(/ 20(\d\d)$/, " $1").replace
  * call with a period that includes `now`.
  */
 export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: ProjectionPeriod, sourceHorizons?: Record<string, string>): PeriodProjection | null {
+  // Nothing meaningful to project inside a day or a week: the model works in
+  // months, and a few hours of run-rate is noise, not a forecast.
+  if (period.granularity === "day" || period.granularity === "week") return null;
   const m = monthModel(facts, now, sourceHorizons);
   if (!m) return null;
   const { month, basis } = m;

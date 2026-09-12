@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Area, Bar, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, Bar, Cell, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Dim, TrendPoint } from "@/lib/explore/types";
 import { dimColorFor, dimLabel, seriesOrder } from "@/lib/explore/shape";
 import type { ToolColors } from "@/lib/explore/shape";
@@ -96,6 +96,7 @@ export function TrendChart({
   toolColors,
   fixedShare,
   projection,
+  highlightLabel,
 }: {
   data: TrendPoint[];
   dim: Dim;
@@ -108,6 +109,9 @@ export function TrendChart({
    * matches an existing bucket merge into it (year view enumerates the whole
    * year, so Aug–Dec already exist); the rest append (all-time view). */
   projection?: TrendPoint[];
+  /** Bucket label to pick out — the Day view's chart looks back a fortnight,
+   * so the selected day needs to stand out from its context. */
+  highlightLabel?: string;
 }) {
   const points = useMemo(() => {
     if (!projection?.length) return data;
@@ -170,7 +174,14 @@ export function TrendChart({
           )}
         />
         {series.map((k) => (
-          <Bar key={k} dataKey={k} name={label(k)} hide={hidden.has(k)} stackId="1" fill={color(k)} radius={[2, 2, 0, 0]} maxBarSize={48} isAnimationActive />
+          <Bar key={k} dataKey={k} name={label(k)} hide={hidden.has(k)} stackId="1" fill={color(k)} radius={[2, 2, 0, 0]} maxBarSize={48} isAnimationActive>
+            {/* Cells only when something is highlighted — a stacked bar with no
+                Cell children keeps Recharts' own fill handling. */}
+            {highlightLabel !== undefined &&
+              points.map((p) => (
+                <Cell key={`${k}-${p.label}`} fillOpacity={p.label === highlightLabel ? 1 : 0.35} />
+              ))}
+          </Bar>
         ))}
         {projection && projection.length > 0 && (
           // Translucent low–high band behind the dashed line: the honest
