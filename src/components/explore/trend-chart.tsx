@@ -63,12 +63,15 @@ type TooltipEntry = { dataKey?: string | number; name?: string; value?: number |
 function TotalTooltip({ active, payload, label }: { active?: boolean; payload?: TooltipEntry[]; label?: string | number }) {
   if (!active || !payload?.length) return null;
   // The range band is drawn, not itemized — its [low, high] shows as its own line.
-  const entries = payload.filter((e) => e.dataKey !== "projectedRange");
   const range = payload.find((e) => e.dataKey === "projectedRange")?.value as unknown as [number, number] | undefined;
-  const actual = entries
-    .filter((e) => e.dataKey !== "projected")
-    .reduce((s, e) => s + (typeof e.value === "number" ? e.value : 0), 0);
-  const projected = entries.find((e) => e.dataKey === "projected");
+  const projected = payload.find((e) => e.dataKey === "projected");
+  // Component rows list highest spend first (Recharts hands them in draw
+  // order); the projected total, being a total, stays last beside the range.
+  const components = payload
+    .filter((e) => e.dataKey !== "projectedRange" && e.dataKey !== "projected")
+    .sort((a, b) => Number(b.value ?? 0) - Number(a.value ?? 0));
+  const entries = projected ? [...components, projected] : components;
+  const actual = components.reduce((s, e) => s + (typeof e.value === "number" ? e.value : 0), 0);
   const total = actual > 0 || !projected ? actual : Number(projected.value);
   return (
     <div style={{ background: "#14171f", border: "1px solid #262b38", borderRadius: 8, fontSize: 12, padding: "8px 12px" }}>

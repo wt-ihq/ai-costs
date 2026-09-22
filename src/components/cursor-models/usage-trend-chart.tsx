@@ -32,6 +32,8 @@ export function UsageTrendChart({ data, height = 280 }: { data: UsageTrendPoint[
           labelStyle={{ color: "#e6e8ee" }}
           cursor={{ fill: "#ffffff0a" }}
           formatter={(v: unknown) => `${formatCount(Number(v))} msgs`}
+          // Recharts sorts ascending by the sorter's return; negate to list the busiest model first.
+          itemSorter={(item) => -Number(item.value ?? 0)}
         />
         <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} iconType="circle" iconSize={8} />
         {series.map((k) => (
