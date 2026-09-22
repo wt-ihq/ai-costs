@@ -66,12 +66,14 @@ function TotalTooltip({ active, payload, label }: { active?: boolean; payload?: 
   const range = payload.find((e) => e.dataKey === "projectedRange")?.value as unknown as [number, number] | undefined;
   const projected = payload.find((e) => e.dataKey === "projected");
   // Component rows list highest spend first (Recharts hands them in draw
-  // order); the projected total, being a total, stays last beside the range.
+  // order). The projected line's point on the current month is its anchor —
+  // the posted MTD total, identical to the header — so the row only shows on
+  // buckets with no actuals (the forecast months), where it IS the total.
   const components = payload
     .filter((e) => e.dataKey !== "projectedRange" && e.dataKey !== "projected")
     .sort((a, b) => Number(b.value ?? 0) - Number(a.value ?? 0));
-  const entries = projected ? [...components, projected] : components;
   const actual = components.reduce((s, e) => s + (typeof e.value === "number" ? e.value : 0), 0);
+  const entries = projected && actual === 0 ? [...components, projected] : components;
   const total = actual > 0 || !projected ? actual : Number(projected.value);
   return (
     <div style={{ background: "#14171f", border: "1px solid #262b38", borderRadius: 8, fontSize: 12, padding: "8px 12px" }}>
