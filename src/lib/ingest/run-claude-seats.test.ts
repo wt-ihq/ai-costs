@@ -7,7 +7,7 @@ import { syncClaudeSeats } from "./run-claude-seats";
  * Stateful fake covering every table syncClaudeSeats touches, adapted from
  * fakeChatGptSeatsDb in run-chatgpt-seats.test.ts (itself modeled on
  * fakeSpendFactsDb in persist.test.ts) and extended with a seat_assignments
- * table (select→eq→order→range → empty rows, so resolveClaudeTiers falls back
+ * table (select→eq→order→range → empty rows, so resolveSeatTiers falls back
  * to "standard" for everyone) since claude_seats also resolves tiers.
  */
 function fakeClaudeSeatsDb(initialSpendFacts: Record<string, unknown>[]) {
@@ -86,7 +86,7 @@ function fakeClaudeSeatsDb(initialSpendFacts: Record<string, unknown>[]) {
         case "employees":
           return { select: () => ({ order: () => ({ range: () => Promise.resolve({ data: [], error: null }) }) }) };
         case "seat_assignments":
-          // resolveClaudeTiers: select().eq().order().range() → no rows, every
+          // resolveSeatTiers: select().eq().order().range() → no rows, every
           // member falls back to "standard".
           return {
             select: () => ({

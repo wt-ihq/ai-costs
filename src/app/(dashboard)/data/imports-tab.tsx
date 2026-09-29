@@ -1,6 +1,6 @@
 import { Panel } from "@/components/ui";
 import { ClaudeSpendImport } from "@/components/claude-spend-import";
-import { ClaudeRosterImport } from "@/components/claude-roster-import";
+import { SeatRosterImport } from "@/components/seat-roster-import";
 import { OpenAiCreditsImport } from "@/components/openai-credits-import";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { buildImportCoverage } from "@/lib/queries/import-coverage";
@@ -58,7 +58,17 @@ export async function ImportsTab() {
           (Name, Email, Role, Status, Seat Tier) only when someone&rsquo;s tier changes — it updates
           standard/premium assignments and re-prices the current month.
         </p>
-        <ClaudeRosterImport />
+        <SeatRosterImport vendor="claude_team" />
+      </Panel>
+
+      <Panel>
+        <h2 className="mb-1 text-sm font-medium">ChatGPT Business — roster (seat tiers)</h2>
+        <p className="mb-4 text-xs text-muted">
+          Membership syncs nightly from the Okta <strong>access-chatgpt</strong> group; this upload sets each
+          member&rsquo;s licence level. Upload the workspace members CSV (Name, Email, Role, Status, Seat Tier)
+          when someone moves between Standard and Premium — it updates their tier and re-prices the current month.
+        </p>
+        <SeatRosterImport vendor="chatgpt_business" />
       </Panel>
 
       <Panel>
@@ -72,8 +82,8 @@ export async function ImportsTab() {
       <Panel>
         <h2 className="mb-1 text-sm font-medium">Monthly seats (ChatGPT &amp; Claude)</h2>
         <p className="mb-4 text-xs text-muted">
-          The authoritative seat counts and prices for a month — synced members share the entered totals,
-          extra seats show as &ldquo;unassigned seats&rdquo;. ChatGPT is priced in $; Claude in £ (converted
+          The authoritative seat counts and prices for a month, per tier — synced members share their tier&rsquo;s
+          entered total, extra seats show as &ldquo;unassigned seats&rdquo;. ChatGPT is priced in $; Claude in £ (converted
           at your rate). The most recent entry&rsquo;s price becomes the default for later months without
           their own entry. Removing an entry reverts that tier to synced members × default price.
         </p>

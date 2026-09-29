@@ -26,7 +26,7 @@ export interface ClaudeSpendResult {
   errors: ParseRowError[];
 }
 
-/** A Claude Team seat from the roster CSV (priced per tier downstream). */
+/** A seat from a member roster CSV (Claude Team / ChatGPT Business; priced per tier downstream). */
 export interface SeatRow {
   email: string;
   fullName: string;

@@ -2,13 +2,14 @@
 
 import { useState, useTransition } from "react";
 import {
-  previewClaudeRoster,
-  commitClaudeRoster,
+  previewSeatRoster,
+  commitSeatRoster,
   type RosterPreview,
 } from "@/app/(dashboard)/imports/actions";
+import type { TieredVendor } from "@/lib/ingest/seat-months";
 import { formatUsd, localDateISO } from "@/lib/utils";
 
-export function ClaudeRosterImport() {
+export function SeatRosterImport({ vendor }: { vendor: TieredVendor }) {
   const [text, setText] = useState("");
   const [fileName, setFileName] = useState<string | null>(null);
   const [asOf, setAsOf] = useState(() => localDateISO());
@@ -37,13 +38,13 @@ export function ClaudeRosterImport() {
   const onPreview = () =>
     run(async () => {
       setResult(null);
-      setPreview(await previewClaudeRoster(text));
+      setPreview(await previewSeatRoster(vendor, text));
     });
 
   const onCommit = () =>
     run(async () => {
       if (!preview) return;
-      setResult(await commitClaudeRoster(preview.rows, asOf));
+      setResult(await commitSeatRoster(vendor, preview.rows, asOf));
       setPreview(null);
       setText("");
       setFileName(null);
