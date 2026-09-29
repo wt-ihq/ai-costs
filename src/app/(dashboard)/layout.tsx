@@ -1,10 +1,13 @@
 import Image from "next/image";
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { Nav } from "@/components/nav";
+import { SidebarShell } from "@/components/sidebar-shell";
 import { SearchBox } from "@/components/explore/search-box";
 import { WhatsNew } from "@/components/whats-new";
 import { getSearchIndexCached } from "@/lib/queries/cached";
 import { requireRole } from "@/lib/auth-guard";
+import { SIDEBAR_COOKIE, isSidebarCollapsed } from "@/lib/sidebar";
 
 export default async function DashboardLayout({
   children,
@@ -14,10 +17,11 @@ export default async function DashboardLayout({
   const role = await requireRole();
   const isAdmin = role === "admin";
   const searchIndex = await getSearchIndexCached();
+  const sidebarCollapsed = isSidebarCollapsed((await cookies()).get(SIDEBAR_COOKIE)?.value);
 
   return (
     <div className="flex min-h-screen">
-      <aside className="flex w-60 shrink-0 flex-col gap-6 border-r border-border bg-surface px-4 py-6">
+      <SidebarShell initialCollapsed={sidebarCollapsed}>
         <div className="px-3">
           {/* Logo + app name link home (/ redirects to Explore). */}
           <Link href="/" className="block">
@@ -33,7 +37,7 @@ export default async function DashboardLayout({
           </Link>
         </div>
         <Nav isAdmin={isAdmin} />
-      </aside>
+      </SidebarShell>
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Slim status bar — date range / department filtering live in the
