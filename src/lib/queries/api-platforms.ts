@@ -30,7 +30,14 @@ export interface PlatformEntity {
   models: { model: string; cost: number }[];
 }
 
-/** Pure: group metered facts by (source, key/project) with a model breakdown. */
+/** True when a cost would display as more than $0.00. */
+const hasSpend = (usd: number) => Math.abs(usd) >= 0.005;
+
+/**
+ * Pure: group metered facts by (source, key/project) with a model breakdown.
+ * Line items and entities that would display as $0.00 are left out (Vercel
+ * bills dozens of zero-cost usage lines); entity totals still include them.
+ */
 export function buildPlatformRows(
   rows: PlatformFactRow[],
   nameByKey: Map<string, string>,
@@ -57,9 +64,11 @@ export function buildPlatformRows(
   }
 
   return [...groups.values()]
+    .filter((g) => hasSpend(g.total))
     .map(({ _models, ...g }) => ({
       ...g,
       models: [..._models.entries()]
+        .filter(([, cost]) => hasSpend(cost))
         .map(([model, cost]) => ({ model, cost }))
         .sort((a, b) => b.cost - a.cost),
     }))

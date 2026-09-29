@@ -18,6 +18,30 @@ describe("buildPlatformRows", () => {
     expect(top.models[0]).toEqual({ model: "claude-opus-4-8", cost: 412.5 }); // largest first
     expect(out[1].name).toBe("proj_search"); // falls back to id when unnamed
   });
+
+  it("hides line items that would show as $0.00, but keeps them in the card total", () => {
+    const out = buildPlatformRows(
+      [
+        { source: "vercel", entityKey: "team", model: "Additional Team Seats", costUsd: 277, ownerName: null },
+        { source: "vercel", entityKey: "team", model: "Blob Simple Operations", costUsd: 0, ownerName: null },
+        { source: "vercel", entityKey: "team", model: "Drive Reads", costUsd: 0.004, ownerName: null },
+      ],
+      new Map(),
+    );
+    expect(out[0].models).toEqual([{ model: "Additional Team Seats", cost: 277 }]);
+    expect(out[0].total).toBeCloseTo(277.004); // the total stays exact
+  });
+
+  it("drops an entity with no spend at all", () => {
+    const out = buildPlatformRows(
+      [
+        { source: "vercel", entityKey: "team", model: "Pro", costUsd: 18.48, ownerName: null },
+        { source: "vercel", entityKey: "idle-project", model: "Function Duration", costUsd: 0, ownerName: null },
+      ],
+      new Map(),
+    );
+    expect(out.map((e) => e.entityKey)).toEqual(["team"]);
+  });
 });
 
 const row = (over: Partial<PlatformFactRow>): PlatformFactRow => ({
