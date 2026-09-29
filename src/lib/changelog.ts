@@ -11,6 +11,13 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-09-30",
+    title: "Tidier API breakdowns",
+    items: [
+      "The API page now lists only line items with actual spend. Vercel reports dozens of usage lines at $0.00, which are now hidden; the totals are unchanged.",
+    ],
+  },
+  {
     date: "2026-09-29",
     title: "Hide the menu",
     items: [
