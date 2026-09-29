@@ -25,10 +25,13 @@ describe("toSeatMembers", () => {
 /**
  * Stateful fake covering every table syncChatGptSeats touches, modeled on
  * fakeSpendFactsDb in persist.test.ts and extended with table dispatch since
- * this orchestrator hits sync_runs, raw_payloads, employees, seat_month_entries,
- * seat_prices, and spend_facts.
+ * this orchestrator hits sync_runs, raw_payloads, employees, seat_assignments,
+ * seat_month_entries, seat_prices, and spend_facts.
  */
-function fakeChatGptSeatsDb(initialSpendFacts: Record<string, unknown>[]) {
+function fakeChatGptSeatsDb(
+  initialSpendFacts: Record<string, unknown>[],
+  seed: { employees?: { id: string; email: string }[]; seatAssignments?: Record<string, unknown>[] } = {},
+) {
   const rows: Record<string, unknown>[] = initialSpendFacts.map((r, i) => ({ id: `seed${i}`, ...r }));
   let nextId = 0;
   let runId = 0;
@@ -102,7 +105,21 @@ function fakeChatGptSeatsDb(initialSpendFacts: Record<string, unknown>[]) {
         case "raw_payloads":
           return { insert: () => Promise.resolve({ error: null }) };
         case "employees":
-          return { select: () => ({ order: () => ({ range: () => Promise.resolve({ data: [], error: null }) }) }) };
+          return {
+            select: () => ({ order: () => ({ range: () => Promise.resolve({ data: seed.employees ?? [], error: null }) }) }),
+          };
+        case "seat_assignments":
+          // resolveSeatTiers: select().eq("vendor", v).order().range().
+          return {
+            select: () => ({
+              eq: (c: string, v: unknown) => ({
+                order: () => ({
+                  range: () =>
+                    Promise.resolve({ data: (seed.seatAssignments ?? []).filter((r) => r[c] === v), error: null }),
+                }),
+              }),
+            }),
+          };
         case "seat_month_entries":
         case "seat_prices":
           return {
@@ -151,5 +168,21 @@ describe("syncChatGptSeats — empty group can't wipe the month (gotcha #4)", ()
     expect(result.rowsWritten).toBe(0);
     const keys = rows.map((r) => `${r.source}|${r.cost_type}|${r.entity_key}`);
     expect(keys).toContain("chatgpt_business|seat|alex.morgan@intenthq.com"); // survives
+  });
+});
+
+describe("syncChatGptSeats — licence level from the roster upload", () => {
+  it("prices an Okta member with a ChatGPT premium assignment at $125, others at $25", async () => {
+    const month = new Date().toISOString().slice(0, 7) + "-01";
+    const { client, rows } = fakeChatGptSeatsDb([], {
+      employees,
+      seatAssignments: [{ employee_id: "e1", vendor: "chatgpt_business", seat_type: "premium", period_start: month }],
+    });
+    const fetcher: OktaGroupFetcher = async () => [{ email: "alex.morgan@intenthq.com" }, { email: "jamie.lee@intenthq.com" }];
+
+    await syncChatGptSeats(client, fetcher);
+
+    const cost = Object.fromEntries(rows.map((r) => [r.entity_key, r.cost_usd]));
+    expect(cost).toEqual({ "alex.morgan@intenthq.com": 125, "jamie.lee@intenthq.com": 25 });
   });
 });

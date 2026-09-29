@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { computeSeatFacts, replaceSeatMonth, UNASSIGNED_SEATS_KEY, pickTier } from "./seat-months";
-import { computeClaudeSeatFacts, CLAUDE_UNASSIGNED_KEY, defaultSeatPrice, rebuildClaudeSeatMonth } from "./seat-months";
+import { computeSeatFacts, replaceSeatMonth, UNASSIGNED_SEATS_KEY, pickTier, isTieredVendor } from "./seat-months";
+import { computeTieredSeatFacts, UNASSIGNED_TIER_KEY, defaultSeatPrice, rebuildSeatMonth } from "./seat-months";
 
 const MONTH = "2026-06-01";
 const members = (n: number) =>
@@ -81,7 +81,7 @@ describe("computeSeatFacts with source/unassignedKey opts", () => {
   it("stamps the given source and unassigned key", () => {
     const facts = computeSeatFacts(MONTH, { seats: 2, priceUsd: 19.05 }, [], 19.05, {
       source: "claude_team",
-      unassignedKey: CLAUDE_UNASSIGNED_KEY.standard,
+      unassignedKey: UNASSIGNED_TIER_KEY.standard,
     });
     expect(facts).toEqual([
       expect.objectContaining({ source: "claude_team", entityKey: "unassigned seats (standard)", costUsd: 38.1 }),
@@ -153,25 +153,25 @@ describe("replaceSeatMonth — empty-facts path deletes by LIKE prefix", () => {
   });
 });
 
-describe("computeClaudeSeatFacts", () => {
+describe("computeTieredSeatFacts", () => {
   const std = [{ entityKey: "a@x.com", employeeId: "e1" }, { entityKey: "b@x.com", employeeId: null }];
   const prem = [{ entityKey: "c@x.com", employeeId: "e3" }];
 
   it("computes per tier with distinct unassigned keys, cent-exact per tier", () => {
-    const facts = computeClaudeSeatFacts(MONTH, [
+    const facts = computeTieredSeatFacts(MONTH, "claude_team", [
       { seatType: "standard", entry: { seats: 3, priceUsd: 19.05 }, members: std, defaultPriceUsd: 19.05 },
       { seatType: "premium", entry: { seats: 2, priceUsd: 95.25 }, members: prem, defaultPriceUsd: 95.25 },
     ]);
     // standard: 2 members at 19.05 + remainder (3-2)×19.05; premium: 1 member + 1 unassigned
     expect(facts.filter((f) => f.source === "claude_team")).toHaveLength(facts.length);
-    expect(facts.find((f) => f.entityKey === CLAUDE_UNASSIGNED_KEY.standard)?.costUsd).toBe(19.05);
-    expect(facts.find((f) => f.entityKey === CLAUDE_UNASSIGNED_KEY.premium)?.costUsd).toBe(95.25);
+    expect(facts.find((f) => f.entityKey === UNASSIGNED_TIER_KEY.standard)?.costUsd).toBe(19.05);
+    expect(facts.find((f) => f.entityKey === UNASSIGNED_TIER_KEY.premium)?.costUsd).toBe(95.25);
     const total = Math.round(facts.reduce((s, f) => s + f.costUsd * 100, 0));
     expect(total).toBe(Math.round((3 * 19.05 + 2 * 95.25) * 100)); // 5715 + 19050
   });
 
   it("no entries: each tier's members at that tier's default price", () => {
-    const facts = computeClaudeSeatFacts(MONTH, [
+    const facts = computeTieredSeatFacts(MONTH, "claude_team", [
       { seatType: "standard", entry: null, members: std, defaultPriceUsd: 19.05 },
       { seatType: "premium", entry: null, members: prem, defaultPriceUsd: 95.25 },
     ]);
@@ -180,11 +180,31 @@ describe("computeClaudeSeatFacts", () => {
     expect(facts.filter((f) => f.entityKey.startsWith("unassigned seats"))).toHaveLength(0);
   });
 
+  it("stamps the given vendor — ChatGPT tiers share the per-tier unassigned keys", () => {
+    const facts = computeTieredSeatFacts(MONTH, "chatgpt_business", [
+      { seatType: "standard", entry: { seats: 2, priceUsd: 25 }, members: std, defaultPriceUsd: 25 },
+      { seatType: "premium", entry: { seats: 2, priceUsd: 125 }, members: prem, defaultPriceUsd: 125 },
+    ]);
+    expect(facts.every((f) => f.source === "chatgpt_business")).toBe(true);
+    expect(facts.find((f) => f.entityKey === "c@x.com")?.costUsd).toBe(125);
+    expect(facts.find((f) => f.entityKey === UNASSIGNED_TIER_KEY.premium)?.costUsd).toBe(125);
+    expect(facts.find((f) => f.entityKey === UNASSIGNED_TIER_KEY.standard)).toBeUndefined(); // 2 seats, 2 members
+  });
+
   it("returns [] only when every tier yields [] (zero totals, no members)", () => {
-    expect(computeClaudeSeatFacts(MONTH, [
+    expect(computeTieredSeatFacts(MONTH, "claude_team", [
       { seatType: "standard", entry: { seats: 0, priceUsd: 19.05 }, members: [], defaultPriceUsd: 19.05 },
       { seatType: "premium", entry: null, members: [], defaultPriceUsd: 95.25 },
     ])).toEqual([]);
+  });
+});
+
+describe("isTieredVendor", () => {
+  it("accepts the two roster vendors and rejects anything else (server-action input guard)", () => {
+    expect(isTieredVendor("chatgpt_business")).toBe(true);
+    expect(isTieredVendor("claude_team")).toBe(true);
+    expect(isTieredVendor("cursor")).toBe(false);
+    expect(isTieredVendor(undefined)).toBe(false);
   });
 });
 
@@ -279,10 +299,16 @@ describe("defaultSeatPrice — price as-of the month, not the global latest", ()
     const price = await defaultSeatPrice(client, "claude_team", "standard", "2025-12-01");
     expect(price).toBe(19.05); // SEAT_PRICE_FALLBACK["claude_team:standard"]
   });
+
+  it("ChatGPT falls back to $25 standard / $125 premium (monthly billing)", async () => {
+    const client = fakeSeatPricingDb([]);
+    expect(await defaultSeatPrice(client, "chatgpt_business", "standard", "2026-09-01")).toBe(25);
+    expect(await defaultSeatPrice(client, "chatgpt_business", "premium", "2026-09-01")).toBe(125);
+  });
 });
 
 /**
- * Fake covering every table rebuildClaudeSeatMonth touches directly (no
+ * Fake covering every table rebuildSeatMonth touches directly (no
  * sync_runs/raw_payloads/employees — the orchestrator layer isn't exercised
  * here): spend_facts (member facts in, rebuilt facts out via replaceWindowFacts),
  * seat_assignments (tier resolution), seat_month_entries + seat_prices (pricing).
@@ -359,12 +385,17 @@ function fakeClaudeRebuildDb(opts: {
         case "spend_facts":
           return spendFactsTable();
         case "seat_assignments":
+          // Honors the vendor filter so a test can prove one vendor's tiers
+          // never price the other's seats.
           return {
             select: () => ({
-              eq: () => ({
+              eq: (c: string, v: unknown) => ({
                 order: () => ({
                   range: (from: number, to: number) =>
-                    Promise.resolve({ data: opts.seatAssignments.slice(from, to + 1), error: null }),
+                    Promise.resolve({
+                      data: opts.seatAssignments.filter((r) => r[c] === v).slice(from, to + 1),
+                      error: null,
+                    }),
                 }),
               }),
             }),
@@ -411,7 +442,7 @@ function fakeClaudeRebuildDb(opts: {
   return { client, rows };
 }
 
-describe("rebuildClaudeSeatMonth — direct regression lock", () => {
+describe("rebuildSeatMonth(claude_team) — direct regression lock", () => {
   // Regression lock (should pass immediately, no implementation change
   // required): pins the full tier-resolution + as-of-pricing + authoritative-
   // entry chain together for a Claude month, independent of the orchestrator
@@ -440,7 +471,7 @@ describe("rebuildClaudeSeatMonth — direct regression lock", () => {
       seatPrices: [], // no seat_prices rows either
     });
 
-    const written = await rebuildClaudeSeatMonth(client, MONTH);
+    const written = await rebuildSeatMonth(client, "claude_team", MONTH);
     expect(written).toBeGreaterThan(0);
 
     const byKey = Object.fromEntries(
@@ -451,5 +482,54 @@ describe("rebuildClaudeSeatMonth — direct regression lock", () => {
     expect((byKey["y@intenthq.com"] as { cost_usd: number }).cost_usd).toBe(95.25); // premium, constant fallback
     expect((byKey["unassigned seats (standard)"] as { cost_usd: number }).cost_usd).toBe(19.05); // entry authoritative: 2 seats, 1 member -> 1 seat unassigned
     expect(byKey["unassigned seats (premium)"]).toBeUndefined(); // no premium entry -> no unassigned fact
+  });
+});
+
+describe("rebuildSeatMonth(chatgpt_business) — tiers from seat_assignments", () => {
+  const MONTH = "2026-09-01";
+  const member = (key: string, employeeId: string) => ({
+    source: "chatgpt_business", day: MONTH, cost_type: "seat",
+    entity_key: key, model: "", cost_usd: 25, employee_id: employeeId,
+  });
+
+  it("prices a ChatGPT premium assignment at $125; another vendor's premium assignment doesn't leak in", async () => {
+    const { client, rows } = fakeClaudeRebuildDb({
+      spendFacts: [member("p@intenthq.com", "e1"), member("s@intenthq.com", "e2")],
+      seatAssignments: [
+        { employee_id: "e1", vendor: "chatgpt_business", seat_type: "premium", period_start: MONTH },
+        { employee_id: "e2", vendor: "claude_team", seat_type: "premium", period_start: MONTH },
+      ],
+      seatMonthEntries: [],
+    });
+
+    await rebuildSeatMonth(client, "chatgpt_business", MONTH);
+
+    const cost = Object.fromEntries(
+      rows.filter((r) => r.source === "chatgpt_business").map((r) => [r.entity_key, r.cost_usd]),
+    );
+    expect(cost).toEqual({ "p@intenthq.com": 125, "s@intenthq.com": 25 });
+  });
+
+  it("per-tier entries stay authoritative: unassigned premium seats land on the premium key", async () => {
+    const { client, rows } = fakeClaudeRebuildDb({
+      spendFacts: [member("p@intenthq.com", "e1"), member("s@intenthq.com", "e2")],
+      seatAssignments: [{ employee_id: "e1", vendor: "chatgpt_business", seat_type: "premium", period_start: MONTH }],
+      seatMonthEntries: [
+        { vendor: "chatgpt_business", seat_type: "standard", month: MONTH, seats: 3, price_usd: 25 },
+        { vendor: "chatgpt_business", seat_type: "premium", month: MONTH, seats: 2, price_usd: 125 },
+      ],
+    });
+
+    await rebuildSeatMonth(client, "chatgpt_business", MONTH);
+
+    const cost = Object.fromEntries(
+      rows.filter((r) => r.source === "chatgpt_business").map((r) => [r.entity_key, r.cost_usd]),
+    );
+    expect(cost).toEqual({
+      "p@intenthq.com": 125,
+      "s@intenthq.com": 25,
+      "unassigned seats (premium)": 125, // 2 premium seats, 1 member
+      "unassigned seats (standard)": 50, // 3 standard seats, 1 member
+    });
   });
 });

@@ -63,4 +63,22 @@ describe("buildImportCoverage", () => {
     expect(rows[0].claudeSeats?.lastImport).toBe("2026-06-05");
     expect(rows[0].claudeSpend).toBeNull();
   });
+
+  it("roster uploads (kind 'roster') count as seat coverage for both vendors", () => {
+    const rows = buildImportCoverage(
+      [
+        fact({ day: "2026-09-01", costType: "seat", costUsd: 25 }),
+        fact({ day: "2026-09-01", source: "claude_team", costType: "seat", costUsd: 19.05 }),
+        fact({ day: "2026-09-01", source: "claude_team", costType: "overage", costUsd: 7 }),
+      ],
+      [
+        log({ kind: "roster", dataAsOf: "2026-09-28", createdAt: "2026-09-28T10:00:00Z" }),
+        log({ source: "claude_team", kind: "roster", dataAsOf: "2026-09-28", createdAt: "2026-09-27T10:00:00Z" }),
+      ],
+      "2026-09",
+    );
+    expect(rows[0].chatgptSeats?.lastImport).toBe("2026-09-28");
+    expect(rows[0].claudeSeats?.lastImport).toBe("2026-09-27");
+    expect(rows[0].claudeSpend?.lastImport).toBeNull(); // a roster is not a spend import
+  });
 });

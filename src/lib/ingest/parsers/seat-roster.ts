@@ -1,8 +1,8 @@
 import type { SeatParseResult, SeatRow } from "./types";
 
 /**
- * Claude Team member roster CSV (reports/claude team.csv).
- * Columns: Name, Email, Role, Status, Seat Tier.
+ * Member roster CSV — Claude Team (reports/claude team.csv) and ChatGPT
+ * Business export the same shape: Name, Email, Role, Status, Seat Tier.
  *
  * This is NOT a spend export — it gives seats + tier only. Seat cost is
  * generated from these rows via per-tier prices (seat_prices). Per-user
@@ -13,7 +13,7 @@ import type { SeatParseResult, SeatRow } from "./types";
  */
 /**
  * Split one CSV line, honouring double-quoted fields: strips surrounding quotes,
- * keeps commas inside quotes, and unescapes "" → ". The real Claude export quotes
+ * keeps commas inside quotes, and unescapes "" → ". The real exports quote
  * every field (`"Name","Email",...`), so a naive split(",") leaves quote chars on
  * the header and the column lookup fails.
  */
@@ -41,7 +41,7 @@ function splitCsvLine(line: string): string[] {
   return out.map((c) => c.trim());
 }
 
-export function parseClaudeRoster(csv: string): SeatParseResult {
+export function parseSeatRoster(csv: string): SeatParseResult {
   const seats: SeatRow[] = [];
   const errors: SeatParseResult["errors"] = [];
 

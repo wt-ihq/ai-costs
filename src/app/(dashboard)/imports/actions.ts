@@ -9,10 +9,10 @@ import { syncCursor } from "@/lib/ingest/run-cursor";
 import { syncAnthropic, syncOpenAI } from "@/lib/ingest/run-platforms";
 import { syncVercel } from "@/lib/ingest/run-vercel";
 import { parseClaudeSpend } from "@/lib/ingest/parsers/claude-spend";
-import { parseClaudeRoster } from "@/lib/ingest/parsers/claude-roster";
+import { parseSeatRoster } from "@/lib/ingest/parsers/seat-roster";
 import { parseOpenAiCreditsCsv, coveredWindow, type CreditUsageFact } from "@/lib/ingest/parsers/openai-credits";
 import { loadEmployeesFull, upsertSpendFacts, replaceWindowFacts, type ResolvedFact } from "@/lib/ingest/persist";
-import { rebuildChatGptSeatMonth, rebuildClaudeSeatMonth } from "@/lib/ingest/seat-months";
+import { isTieredVendor, rebuildSeatMonth, type TieredVendor } from "@/lib/ingest/seat-months";
 import {
   fetchRecurringEntries,
   rebuildRecurringFacts,
@@ -35,33 +35,27 @@ export interface ImportCommitResult {
   seats?: number;
 }
 
-// ---- ChatGPT monthly seat entries (manual count × price) --------------------
+// ---- Monthly seat entries (manual count × price, per tier) -----------------
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 export interface SeatEntryInput {
-  seatType: string; // 'chatgpt' | 'standard' | 'premium'
+  seatType: string; // 'standard' | 'premium'
   seats: number;
   price: number; // USD for chatgpt_business, £ for claude_team
 }
 
-const VALID_TIERS: Record<string, string[]> = {
-  chatgpt_business: ["chatgpt"],
-  claude_team: ["standard", "premium"],
-};
-
-async function rebuildSeatMonth(supabase: SupabaseClient, vendor: string, day: string): Promise<number> {
-  return vendor === "claude_team" ? rebuildClaudeSeatMonth(supabase, day) : rebuildChatGptSeatMonth(supabase, day);
-}
+const VALID_TIERS = ["standard", "premium"];
 
 /** Save a month's authoritative entries (per tier), then rebuild its facts. Claude prices are £ × fxRate. */
 export async function saveSeatMonthEntries(
   month: string,
-  vendor: "chatgpt_business" | "claude_team",
+  vendor: TieredVendor,
   inputs: SeatEntryInput[],
   fxRate: number | null,
 ): Promise<{ written: number }> {
   await requireAdmin();
+  if (!isTieredVendor(vendor)) throw new Error(`Invalid vendor "${vendor}".`);
   if (!MONTH_RE.test(month)) throw new Error(`Invalid month "${month}" — expected YYYY-MM.`);
   if (!inputs.length) throw new Error("Nothing to save — no tier rows.");
   const isClaude = vendor === "claude_team";
@@ -70,7 +64,7 @@ export async function saveSeatMonthEntries(
   const day = `${month}-01`;
 
   const rows = inputs.map((i) => {
-    if (!VALID_TIERS[vendor].includes(i.seatType)) throw new Error(`Invalid tier "${i.seatType}" for ${vendor}.`);
+    if (!VALID_TIERS.includes(i.seatType)) throw new Error(`Invalid tier "${i.seatType}" for ${vendor}.`);
     if (!Number.isInteger(i.seats) || i.seats < 0) throw new Error("Seats must be a whole number ≥ 0.");
     if (!Number.isFinite(i.price) || i.price < 0) throw new Error("Price must be a number ≥ 0.");
     // Round to cents post-conversion: sub-cent prices break cent-exactness.
@@ -100,10 +94,11 @@ export async function saveSeatMonthEntries(
 /** Delete one tier's entry for a month and revert its facts to members × default price. */
 export async function deleteSeatMonthEntry(
   month: string,
-  vendor: "chatgpt_business" | "claude_team",
+  vendor: TieredVendor,
   seatType: string,
 ): Promise<{ written: number }> {
   await requireAdmin();
+  if (!isTieredVendor(vendor)) throw new Error(`Invalid vendor "${vendor}".`);
   if (!MONTH_RE.test(month)) throw new Error(`Invalid month "${month}" — expected YYYY-MM.`);
   const supabase = getSupabaseAdminClient();
   const day = `${month}-01`;
@@ -381,7 +376,7 @@ export async function commitClaudeSpendImport(
   return { written, attributed, queued: facts.length - attributed };
 }
 
-// ---- Claude Team roster CSV (seats) ----------------------------------------
+// ---- Roster CSV (seat tiers: Claude Team, ChatGPT Business) ----------------
 
 export interface RosterPreviewRow {
   name: string;
@@ -402,16 +397,14 @@ export interface RosterPreview {
 }
 
 /** Parse the roster CSV, match seats to employees by email, price by tier. */
-export async function previewClaudeRoster(csv: string): Promise<RosterPreview> {
+export async function previewSeatRoster(vendor: TieredVendor, csv: string): Promise<RosterPreview> {
   await requireAdmin();
+  if (!isTieredVendor(vendor)) throw new Error(`Invalid vendor "${vendor}".`);
   const supabase = getSupabaseAdminClient();
-  const [{ data: emps }, prices] = await Promise.all([
-    supabase.from("employees").select("id, email, full_name"),
-    loadSeatPrices(supabase),
-  ]);
-  const byEmail = new Map((emps ?? []).map((e) => [(e.email as string).toLowerCase(), e]));
+  const [emps, prices] = await Promise.all([loadEmployeesFull(supabase), loadSeatPrices(supabase)]);
+  const byEmail = new Map(emps.map((e) => [e.email.toLowerCase(), e]));
 
-  const { seats, errors } = parseClaudeRoster(csv);
+  const { seats, errors } = parseSeatRoster(csv);
   const byTier: Record<string, number> = {};
   const rows: RosterPreviewRow[] = seats.map((s) => {
     const e = byEmail.get(s.email);
@@ -420,9 +413,9 @@ export async function previewClaudeRoster(csv: string): Promise<RosterPreview> {
       name: s.fullName,
       email: s.email,
       seatType: s.seatType,
-      priceUsd: prices[`claude_team:${s.seatType}`] ?? 0,
-      employeeId: (e?.id as string) ?? null,
-      employeeName: (e?.full_name as string) ?? null,
+      priceUsd: prices[`${vendor}:${s.seatType}`] ?? 0,
+      employeeId: e?.id ?? null,
+      employeeName: e?.fullName ?? null,
       matched: !!e,
     };
   });
@@ -436,22 +429,24 @@ export async function previewClaudeRoster(csv: string): Promise<RosterPreview> {
   };
 }
 
-export async function commitClaudeRoster(
+export async function commitSeatRoster(
+  vendor: TieredVendor,
   rows: RosterPreviewRow[],
   asOf: string,
 ): Promise<{ written: number; seats: number; attributed: number }> {
   await requireAdmin();
+  if (!isTieredVendor(vendor)) throw new Error(`Invalid vendor "${vendor}".`);
   const supabase = getSupabaseAdminClient();
   // Never delete a month when the insert would be empty (gotcha #4).
   if (!rows.length) throw new Error("Nothing to import — the preview has no rows.");
   const day = asOf.slice(0, 7) + "-01";
 
-  // Seat assignments for matched employees. Membership itself now comes from
-  // the nightly claude_seats sync (Task 4) — this upload only refreshes tiers.
+  // Seat assignments for matched employees. Membership itself comes from the
+  // nightly Okta group sync — this upload only refreshes tiers (licence level).
   const assignments = rows
     .filter((r) => r.employeeId)
     .map((r) => ({
-      vendor: "claude_team" as const,
+      vendor,
       employee_id: r.employeeId,
       seat_type: r.seatType,
       monthly_price_usd: r.priceUsd,
@@ -467,28 +462,33 @@ export async function commitClaudeRoster(
     // leaving two rows and making tier resolution ambiguous. Delete exactly
     // the (employee_id, period_start) keys we're about to (re)write first;
     // this is a scoped replace of rows we're rewriting, not a window wipe.
-    await supabase
+    const { error } = await supabase
       .from("seat_assignments")
       .delete()
-      .eq("vendor", "claude_team")
+      .eq("vendor", vendor)
       .eq("period_start", day)
       .in("employee_id", matchedEmployeeIds);
+    if (error) throw new Error(`commitSeatRoster (clear tiers): ${error.message}`);
   }
   if (assignments.length) {
-    await supabase.from("seat_assignments").upsert(assignments, { onConflict: "vendor,employee_id,seat_type,period_start" });
+    const { error } = await supabase
+      .from("seat_assignments")
+      .upsert(assignments, { onConflict: "vendor,employee_id,seat_type,period_start" });
+    if (error) throw new Error(`commitSeatRoster (tiers): ${error.message}`);
   }
 
+  // kind 'roster', not 'csv': ChatGPT's credits import owns chatgpt_business 'csv' rows.
   await supabase.from("imports").insert({
-    source: "claude_team",
-    kind: "csv",
+    source: vendor,
+    kind: "roster",
     data_as_of: asOf,
     status: "success",
     row_counts: { seats: rows.length, attributed: assignments.length },
   });
 
   // Tier changes re-price the month immediately; membership itself comes from
-  // the nightly claude_seats sync (entries stay authoritative when present).
-  const written = await rebuildClaudeSeatMonth(supabase, day);
+  // the nightly Okta group sync (entries stay authoritative when present).
+  const written = await rebuildSeatMonth(supabase, vendor, day);
 
   updateTag(FACTS_TAG);
   revalidatePath("/data");

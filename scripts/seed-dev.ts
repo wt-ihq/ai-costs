@@ -7,7 +7,7 @@
  */
 import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
-import { parseClaudeRoster } from "@/lib/ingest/parsers/claude-roster";
+import { parseSeatRoster } from "@/lib/ingest/parsers/seat-roster";
 import { parseClaudeSpend, buildClaudeSpendFacts } from "@/lib/ingest/parsers/claude-spend";
 import { buildSeatFacts, type SeatAssignment } from "@/lib/ingest/seats";
 import { normalizeCursor } from "@/lib/ingest/normalizers/cursor";
@@ -42,7 +42,7 @@ async function main() {
   await supabase.from("employees").delete().neq("id", "00000000-0000-0000-0000-000000000000");
 
   // 1) Employees + seats from the Claude roster CSV.
-  const roster = parseClaudeRoster(readFileSync("reports/claude team.csv", "utf8"));
+  const roster = parseSeatRoster(readFileSync("reports/claude team.csv", "utf8"));
   console.log(`roster: ${roster.seats.length} seats, ${roster.errors.length} errors`);
 
   // Employees flow through the Okta normalizer (the identity spine). In dev we

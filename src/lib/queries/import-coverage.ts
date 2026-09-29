@@ -12,7 +12,7 @@ export interface CoverageFactRow {
 /** One `imports` audit-log row. */
 export interface CoverageImportRow {
   source: string;
-  kind: string; // 'csv' | 'clipboard' | 'manual'
+  kind: string; // 'csv' | 'clipboard' | 'manual' | 'roster'
   dataAsOf: string; // YYYY-MM-DD
   createdAt: string; // ISO timestamp
   status: string;
@@ -43,9 +43,10 @@ const factColumn = (r: CoverageFactRow): ColumnKey =>
     ? (r.costType === "seat" ? "chatgptSeats" : "chatgptCredits")
     : (r.costType === "seat" ? "claudeSeats" : "claudeSpend");
 
+// Roster uploads log kind 'roster'; older Claude roster uploads logged 'csv'.
 const importColumn = (r: CoverageImportRow): ColumnKey | null => {
   if (r.source === "chatgpt_business") return r.kind === "csv" ? "chatgptCredits" : "chatgptSeats";
-  if (r.source === "claude_team") return r.kind === "csv" ? "claudeSeats" : "claudeSpend";
+  if (r.source === "claude_team") return r.kind === "csv" || r.kind === "roster" ? "claudeSeats" : "claudeSpend";
   return null;
 };
 

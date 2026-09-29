@@ -8,9 +8,16 @@ export const UNASSIGNED_SEATS_KEY = "unassigned seats";
 /** All unassigned-seat keys start with this prefix. */
 export const UNASSIGNED_PREFIX = "unassigned seats";
 
-export type ClaudeTier = "standard" | "premium";
+/** Vendors whose seats are priced per tier (roster CSV "Seat Tier"). */
+export type TieredVendor = Extract<Vendor, "chatgpt_business" | "claude_team">;
 
-export const CLAUDE_UNASSIGNED_KEY: Record<ClaudeTier, string> = {
+export function isTieredVendor(v: unknown): v is TieredVendor {
+  return v === "chatgpt_business" || v === "claude_team";
+}
+
+export type SeatTier = "standard" | "premium";
+
+export const UNASSIGNED_TIER_KEY: Record<SeatTier, string> = {
   standard: "unassigned seats (standard)",
   premium: "unassigned seats (premium)",
 };
@@ -87,18 +94,18 @@ export function computeSeatFacts(
 }
 
 export interface TierInput {
-  seatType: ClaudeTier;
+  seatType: SeatTier;
   entry: SeatMonthEntry | null;
   members: SeatMember[];
   defaultPriceUsd: number;
 }
 
-/** Claude month = the single-tier computation per tier, concatenated. */
-export function computeClaudeSeatFacts(month: string, tiers: TierInput[]): ResolvedFact[] {
+/** A tiered month = the single-tier computation per tier, concatenated. */
+export function computeTieredSeatFacts(month: string, source: TieredVendor, tiers: TierInput[]): ResolvedFact[] {
   return tiers.flatMap((t) =>
     computeSeatFacts(month, t.entry, t.members, t.defaultPriceUsd, {
-      source: "claude_team",
-      unassignedKey: CLAUDE_UNASSIGNED_KEY[t.seatType],
+      source,
+      unassignedKey: UNASSIGNED_TIER_KEY[t.seatType],
     }),
   );
 }
@@ -107,8 +114,8 @@ export function computeClaudeSeatFacts(month: string, tiers: TierInput[]): Resol
 export async function getSeatMonthEntry(
   supabase: SupabaseClient,
   month: string, // YYYY-MM-01
-  vendor: Vendor = "chatgpt_business",
-  seatType = "chatgpt",
+  vendor: Vendor,
+  seatType: string,
 ): Promise<SeatMonthEntry | null> {
   const { data, error } = await supabase
     .from("seat_month_entries")
@@ -127,7 +134,8 @@ export async function getSeatMonthEntry(
  * overage/credits are never touched). An empty fact set is the intentional
  * zero case: remove only leftover unassigned facts, surgically (gotcha #4:
  * no window wipe). The LIKE-prefix delete covers all of a source's
- * unassigned-seat keys (e.g. Claude's "unassigned seats (standard/premium)").
+ * unassigned-seat keys ("unassigned seats (standard/premium)", plus the legacy
+ * single-tier "unassigned seats").
  */
 export async function replaceSeatMonth(
   supabase: SupabaseClient,
@@ -180,7 +188,8 @@ export async function readSeatMonthMembers(
 
 /** "vendor:seatType" → hardcoded floor when neither an entry nor seat_prices exists. */
 export const SEAT_PRICE_FALLBACK: Record<string, number> = {
-  "chatgpt_business:chatgpt": 25,
+  "chatgpt_business:standard": 25,
+  "chatgpt_business:premium": 125,
   "claude_team:standard": 19.05,
   "claude_team:premium": 95.25,
 };
@@ -221,46 +230,45 @@ export async function defaultSeatPrice(
 }
 
 /**
- * Rebuild a month's ChatGPT seat facts after a manual-entry change. Members
- * come from the month's existing member seat facts (i.e. the latest paste);
- * the paste commit itself passes fresh members directly instead.
+ * Write a tiered vendor's month for the given members: tier per member from
+ * seat_assignments (default standard; unmatched members are standard), each
+ * tier's entry authoritative when present, else members × that tier's default
+ * price. The nightly Okta sync passes fresh members; rebuildSeatMonth passes
+ * the month's stored ones.
  */
-export async function rebuildChatGptSeatMonth(
+export async function writeTieredSeatMonth(
   supabase: SupabaseClient,
+  vendor: TieredVendor,
   month: string, // YYYY-MM-01
+  members: SeatMember[],
 ): Promise<number> {
-  const entry = await getSeatMonthEntry(supabase, month);
-  const members = await readSeatMonthMembers(supabase, "chatgpt_business", month);
-  const defaultPriceUsd = await defaultSeatPrice(supabase, "chatgpt_business", "chatgpt", month);
-
-  return replaceSeatMonth(supabase, month, computeSeatFacts(month, entry, members, defaultPriceUsd));
-}
-
-/**
- * Rebuild a Claude month after an entry change or roster (tier) upload:
- * members from the month's stored seat facts, tiers re-resolved, entries
- * authoritative per tier.
- */
-export async function rebuildClaudeSeatMonth(supabase: SupabaseClient, month: string): Promise<number> {
-  const members = await readSeatMonthMembers(supabase, "claude_team", month);
-  const tiers = await resolveClaudeTiers(supabase, month);
-  const byTier: Record<ClaudeTier, SeatMember[]> = { standard: [], premium: [] };
+  const tiers = await resolveSeatTiers(supabase, vendor, month);
+  const byTier: Record<SeatTier, SeatMember[]> = { standard: [], premium: [] };
   for (const m of members) byTier[m.employeeId ? tiers.get(m.employeeId) ?? "standard" : "standard"].push(m);
 
   const tierInputs: TierInput[] = [];
   for (const seatType of ["standard", "premium"] as const) {
     tierInputs.push({
       seatType,
-      entry: await getSeatMonthEntry(supabase, month, "claude_team", seatType),
+      entry: await getSeatMonthEntry(supabase, month, vendor, seatType),
       members: byTier[seatType],
-      defaultPriceUsd: await defaultSeatPrice(supabase, "claude_team", seatType, month),
+      defaultPriceUsd: await defaultSeatPrice(supabase, vendor, seatType, month),
     });
   }
-  return replaceSeatMonth(supabase, month, computeClaudeSeatFacts(month, tierInputs), "claude_team");
+  return replaceSeatMonth(supabase, month, computeTieredSeatFacts(month, vendor, tierInputs), vendor);
+}
+
+/**
+ * Rebuild a month after an entry change or roster (tier) upload: members from
+ * the month's stored seat facts, tiers re-resolved, entries authoritative per tier.
+ */
+export async function rebuildSeatMonth(supabase: SupabaseClient, vendor: TieredVendor, month: string): Promise<number> {
+  const members = await readSeatMonthMembers(supabase, vendor, month);
+  return writeTieredSeatMonth(supabase, vendor, month, members);
 }
 
 /** premium only when the winning assignment says so; anything else is standard. */
-export function pickTier(assignments: { seatType: string; periodStart: string }[], month: string): ClaudeTier {
+export function pickTier(assignments: { seatType: string; periodStart: string }[], month: string): SeatTier {
   if (assignments.length === 0) return "standard";
   const atOrBefore = assignments.filter((x) => x.periodStart <= month);
   const pool = atOrBefore.length ? atOrBefore : assignments;
@@ -268,18 +276,22 @@ export function pickTier(assignments: { seatType: string; periodStart: string }[
   return winner.seatType === "premium" ? "premium" : "standard";
 }
 
-/** employee_id → tier for a month, from seat_assignments (paginated, gotcha #1). */
-export async function resolveClaudeTiers(supabase: SupabaseClient, month: string): Promise<Map<string, ClaudeTier>> {
+/** employee_id → tier for a month, from the vendor's seat_assignments (paginated, gotcha #1). */
+export async function resolveSeatTiers(
+  supabase: SupabaseClient,
+  vendor: TieredVendor,
+  month: string,
+): Promise<Map<string, SeatTier>> {
   const byEmployee = new Map<string, { seatType: string; periodStart: string }[]>();
   const PAGE = 1000;
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await supabase
       .from("seat_assignments")
       .select("employee_id, seat_type, period_start")
-      .eq("vendor", "claude_team")
+      .eq("vendor", vendor)
       .order("id")
       .range(from, from + PAGE - 1);
-    if (error) throw new Error(`resolveClaudeTiers: ${error.message}`);
+    if (error) throw new Error(`resolveSeatTiers: ${error.message}`);
     for (const r of data ?? []) {
       if (!r.employee_id) continue;
       const list = byEmployee.get(r.employee_id as string) ?? [];

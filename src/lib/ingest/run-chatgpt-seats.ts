@@ -2,13 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchOktaGroupMembers, type OktaGroupFetcher } from "@/lib/ingest/sources/okta";
 import { finishSyncRun, loadEmployees, saveRawPayload, startSyncRun } from "@/lib/ingest/persist";
 import { matchIdentity } from "@/lib/ingest/identity";
-import {
-  computeSeatFacts,
-  defaultSeatPrice,
-  getSeatMonthEntry,
-  replaceSeatMonth,
-  type SeatMember,
-} from "@/lib/ingest/seat-months";
+import { writeTieredSeatMonth, type SeatMember } from "@/lib/ingest/seat-months";
 
 /** The Okta group whose membership defines who holds a ChatGPT seat. */
 export const CHATGPT_OKTA_GROUP = "access-chatgpt";
@@ -31,12 +25,14 @@ export function toSeatMembers(
 
 /**
  * ChatGPT seats from Okta: refresh the CURRENT UTC month's seat facts from the
- * access-chatgpt group. The month's last daily run (e.g. Jul 31, 06:00 UTC) is
- * naturally its final snapshot; past months are never touched. A manual
- * seat_month_entries row stays authoritative — computeSeatFacts distributes
- * its total across these members. Fetcher failures (incl. group not found)
- * throw and land on Data Health; an empty member list can't wipe the month
- * (replaceSeatMonth's empty path only removes the unassigned fact, gotcha #4).
+ * access-chatgpt group (who is assigned a seat), each member priced at their
+ * licence level from the roster upload (seat_assignments; default standard).
+ * The month's last daily run (e.g. Jul 31, 06:00 UTC) is naturally its final
+ * snapshot; past months are never touched. A manual seat_month_entries row
+ * stays authoritative per tier — computeSeatFacts distributes its total across
+ * that tier's members. Fetcher failures (incl. group not found) throw and land
+ * on Data Health; an empty member list can't wipe the month (replaceSeatMonth's
+ * empty path only removes unassigned facts, gotcha #4).
  */
 export async function syncChatGptSeats(
   supabase: SupabaseClient,
@@ -51,10 +47,7 @@ export async function syncChatGptSeats(
     const employees = await loadEmployees(supabase);
     const members = toSeatMembers(groupMembers.map((m) => m.email), employees);
 
-    const entry = await getSeatMonthEntry(supabase, month);
-    const defaultPrice = await defaultSeatPrice(supabase, "chatgpt_business", "chatgpt", month);
-
-    const rowsWritten = await replaceSeatMonth(supabase, month, computeSeatFacts(month, entry, members, defaultPrice));
+    const rowsWritten = await writeTieredSeatMonth(supabase, "chatgpt_business", month, members);
     await finishSyncRun(supabase, runId, { status: "success", rowsWritten });
     return { rowsWritten };
   } catch (err) {

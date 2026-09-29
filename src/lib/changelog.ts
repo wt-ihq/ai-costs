@@ -11,6 +11,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-09-28",
+    title: "ChatGPT Premium seats",
+    items: [
+      "ChatGPT Business now has Standard ($25) and Premium ($125) seats, like Claude Team. Upload the workspace members CSV on Data → Imports to set each person's licence level — Premium holders are then charged $125 on their own row and their team's, instead of everyone counting as a $25 seat.",
+      "Who holds a seat still comes from the Okta access-chatgpt group each night; the upload only sets the level. Upload again whenever someone moves between Standard and Premium.",
+      "Monthly seat entries for ChatGPT now take separate Standard and Premium counts, the same way Claude's do. Earlier ChatGPT entries are now listed as Standard.",
+    ],
+  },
+  {
     date: "2026-09-12",
     title: "Trends (beta)",
     items: [
