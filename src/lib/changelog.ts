@@ -11,6 +11,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-09-29",
+    title: "Hide the menu",
+    items: [
+      "The round ‹› button on the edge of the left menu hides it, giving the page the full width of the screen. Click it again to bring the menu back.",
+      "Your choice is remembered in this browser. The menu now also stays in place as you scroll down long pages.",
+    ],
+  },
+  {
     date: "2026-09-28",
     title: "ChatGPT Premium seats",
     items: [
