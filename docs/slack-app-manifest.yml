@@ -1,0 +1,28 @@
+# Slack app for AI spend digests. Create at https://api.slack.com/apps →
+# "Create New App" → "From an app manifest" → paste this → Install to
+# workspace → copy the Bot User OAuth Token (xoxb-…) into Vercel env as
+# SLACK_BOT_TOKEN (sensitive). Scopes are the minimum the digests need.
+display_information:
+  name: AI Spend
+  description: Your AI tool spend, from the Intent HQ AI costs dashboard.
+  background_color: "#1d4ed8"
+features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: true
+  bot_user:
+    display_name: AI Spend
+    always_online: false
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - im:write
+      - users:read
+      - users:read.email
+      - files:write
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
