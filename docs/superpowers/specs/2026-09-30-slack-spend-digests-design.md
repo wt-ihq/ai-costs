@@ -192,9 +192,10 @@ export function buildDigest(input: {
 ```
 
 Rules:
-- **Headline basis.** Daily and weekly are **usage** (`overage` +
-  `metered`), because seat/subscription costs post as a monthly lump and
-  would distort day/week comparisons. Monthly is the **total** (all cost
+- **Headline basis.** Daily and weekly are **usage**: facts where
+  `!isMonthlyLevelFact(f)` (`src/lib/explore/shape.ts`). That excludes seats,
+  subscriptions *and* Claude Team's monthly usage lump, which all post as one
+  monthly amount and would distort day/week comparisons. Monthly is the **total** (all cost
   types) and must equal Explore's month view for the same person to the cent.
   Charts follow the same basis.
 - **Tool keys** use `vendorKeyOf` / `OTHER_KEY_PREFIX` and the dashboard
@@ -251,8 +252,11 @@ image.** A chart is never a reason not to send.
 
 ## 6. Sending
 
-**`src/lib/notify/slack.ts`** (`import "server-only"`) implements an
-injectable client (same pattern as `ingest/sources/`):
+**`src/lib/notify/slack-client.ts`** implements an injectable client (same
+pattern as `ingest/sources/`). The token is a parameter; the only module
+that reads `SLACK_BOT_TOKEN` from env is `src/lib/notify/wiring.ts`
+(`import "server-only"`), which keeps the client unit-testable
+(`server-only` doesn't resolve under vitest):
 
 ```ts
 export interface SlackClient {
@@ -343,7 +347,7 @@ targets the session's own email, never an argument.
 
 ## 8. Security and PII
 
-- The bot token lives only in Vercel env; the Slack module is `server-only`.
+- The bot token lives only in Vercel env and is read only by `notify/wiring.ts` (`server-only`).
 - A manager's digest contains only people in their own tree (data
   minimisation). Personal sections contain only the recipient's own spend.
 - Server logs and `notification_sends.detail` never contain names or amounts.
@@ -384,12 +388,14 @@ targets the session's own email, never an argument.
 
 ## 10. Step 0: checks before feature code
 
-1. **Okta manager audit:** a temporary CRON_SECRET-gated route under
-   `src/app/api/debug/` returning **aggregates only**: the share of active
-   users with `managerId`, its format distribution (email-like / `00u…` /
-   numeric / other), and the share that resolves to an employee. Delete the
-   route afterwards. **If well under ~80% resolves, stop and revisit
-   Decision 3 with Gareth** (fallback: admin-assigned managers).
+1. **Okta manager audit:** once migration 0015 and the normalizer change
+   are live and an Okta sync has stored `manager_ref`, run an
+   **aggregates-only** SQL query: the share of active users with a ref, its
+   format distribution (email-like / `00u…` / numeric), and the share that
+   resolves to an employee. (This replaces a throwaway debug route: the
+   Okta token only exists in Vercel, so either way needs the field shipped
+   first.) **If well under ~80% resolves, stop and revisit Decision 3 with
+   Gareth** (fallback: admin-assigned managers).
 2. **Slack private image:** confirm that an uploaded PNG referenced by
    `slack_file` id renders in a bot DM. Fallback: attach both charts to the
    DM as files (still private, but they sit together below the text instead
