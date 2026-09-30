@@ -1384,7 +1384,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
   - `niceMax(v: number): number`, `axisUsd(v: number): string`, `chartLayout(title: string, buckets: ChartBucket[], chartTools: ToolAmount[], legendTools: ToolAmount[]): ChartLayout`
   - `renderChartPng(layout: ChartLayout): Promise<Uint8Array<ArrayBuffer>>`
 
-- [ ] **Step 1: Write the failing test.** `src/lib/notify/chart.test.ts`:
+- [x] **Step 1: Write the failing test.** `src/lib/notify/chart.test.ts`:
 ```ts
 import { describe, expect, it } from "vitest";
 import { axisUsd, CHART_PLOT, chartLayout, niceMax } from "./chart";
@@ -1445,12 +1445,12 @@ describe("chartLayout", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test and check it fails**
+- [x] **Step 2: Run the test and check it fails**
 
 Run: `npx vitest run src/lib/notify/chart.test.ts`
 Expected: FAIL. Cannot find module `./chart`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `src/lib/notify/chart.ts`:
 ```ts
@@ -1583,12 +1583,12 @@ export async function renderChartPng(layout: ChartLayout): Promise<Uint8Array<Ar
 }
 ```
 
-- [ ] **Step 4: Run the test and check it passes**
+- [x] **Step 4: Run the test and check it passes**
 
 Run: `npx vitest run src/lib/notify/chart.test.ts`
 Expected: PASS. (`chart-image.tsx` is exercised by the build and by Task 13's visual check. Satori isn't run under vitest.)
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run: `npm run test && npm run lint && CI=true npm run build`
 Expected: the build type-checks `chart-image.tsx`. If TS rejects `Uint8Array<ArrayBuffer>` from `new Uint8Array(ArrayBuffer)`, keep the annotation and wrap as `new Uint8Array(await image.arrayBuffer()) as Uint8Array<ArrayBuffer>`.

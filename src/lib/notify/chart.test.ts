@@ -1,0 +1,57 @@
+import { describe, expect, it } from "vitest";
+import { axisUsd, CHART_PLOT, chartLayout, niceMax } from "./chart";
+import type { ChartBucket, ToolAmount } from "./digest";
+
+const tools: ToolAmount[] = [
+  { key: "cursor", label: "Cursor", color: "#f59e0b", usd: 380 },
+  { key: "anthropic", label: "Anthropic API", color: "#d2845a", usd: 190 },
+];
+const buckets: ChartBucket[] = [
+  { label: "14 Sep", current: false, byTool: { cursor: 300, anthropic: 150 }, totalUsd: 450 },
+  { label: "21", current: true, byTool: { cursor: 380, anthropic: 190 }, totalUsd: 570 },
+];
+
+describe("niceMax / axisUsd", () => {
+  it("rounds up to 1/2/2.5/5 × 10^k, with a floor for empty charts", () => {
+    expect([niceMax(0), niceMax(38.2), niceMax(570), niceMax(1100), niceMax(210)]).toEqual([10, 50, 1000, 2000, 250]);
+  });
+  it("formats compact axis labels", () => {
+    expect([axisUsd(0), axisUsd(25), axisUsd(125), axisUsd(1000), axisUsd(2500)]).toEqual(["$0", "$25", "$125", "$1k", "$2.5k"]);
+  });
+});
+
+describe("chartLayout", () => {
+  const l = chartLayout("YOU · USAGE, LAST 8 WEEKS", buckets, tools, tools);
+
+  it("stacks the biggest tool at the bottom, sitting on the baseline", () => {
+    const [first] = l.bars[1].segments;
+    expect(first.color).toBe("#f59e0b");
+    expect(first.y + first.h).toBeCloseTo(CHART_PLOT.bottom, 5);
+    const top = l.bars[1].segments[1];
+    expect(top.y + top.h).toBeCloseTo(first.y, 5);
+  });
+
+  it("labels only the current bar's total and keeps every bar inside the plot", () => {
+    expect(l.bars.map((b) => b.totalLabel)).toEqual([null, "$570"]);
+    for (const b of l.bars) expect(b.x + b.w).toBeLessThanOrEqual(CHART_PLOT.right);
+  });
+
+  it("draws three gridlines on the section's own scale", () => {
+    expect(l.gridlines.map((g) => g.label)).toEqual(["$0", "$500", "$1k"]);
+    expect(l.gridlines[0].y).toBe(CHART_PLOT.bottom);
+  });
+
+  it("handles an all-zero chart (no segments, $0/$5/$10 axis)", () => {
+    const empty = chartLayout("YOU", [{ label: "1", current: true, byTool: {}, totalUsd: 0 }], [], []);
+    expect(empty.bars[0].segments).toEqual([]);
+    expect(empty.gridlines.map((g) => g.label)).toEqual(["$0", "$5", "$10"]);
+  });
+
+  it("caps the legend at 4 tools plus a '+N more' entry", () => {
+    const six = Array.from({ length: 6 }, (_, i) => ({ key: `k${i}`, label: `Tool ${i}`, color: "#000", usd: 10 - i }));
+    const legend = chartLayout("YOU", buckets, six, six).legend;
+    expect(legend).toHaveLength(5);
+    expect(legend[4].text).toBe("+2 more");
+    expect(legend[0].text).toBe("Tool 0 $10.00");
+  });
+});
