@@ -1004,7 +1004,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
   - `interface DigestInput { recipient: NotifyEmployee; reportIds: string[]; employeesById: ReadonlyMap<string, NotifyEmployee>; facts: ShapeFact[]; period: DigestPeriod; now: Date; sourceHorizons: Record<string, string>; toolColors: Record<string, string>; freshness: SourceFreshness[]; missingImports: MissingImport[]; baseUrl: string }`
   - `personHref(baseUrl, e: Pick<NotifyEmployee, "id" | "department">): string`, `buildDigest(input: DigestInput): Digest | null`
 
-- [ ] **Step 1: Write the failing test.** `src/lib/notify/digest.test.ts`:
+- [x] **Step 1: Write the failing test.** `src/lib/notify/digest.test.ts`:
 ```ts
 import { describe, expect, it } from "vitest";
 import type { ShapeFact } from "@/lib/explore/shape";
@@ -1129,12 +1129,12 @@ describe("buildDigest — edge cases", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test and check it fails**
+- [x] **Step 2: Run the test and check it fails**
 
 Run: `npx vitest run src/lib/notify/digest.test.ts`
 Expected: FAIL. Cannot find module `./digest`.
 
-- [ ] **Step 3: Implement.** `src/lib/notify/digest.ts`:
+- [x] **Step 3: Implement.** `src/lib/notify/digest.ts`:
 ```ts
 import { dimColorFor, dimLabel, isMonthlyLevelFact, UNATTRIBUTED, type ShapeFact } from "@/lib/explore/shape";
 import { vendorKeyOf } from "@/lib/explore/vendor-filter";
@@ -1351,12 +1351,12 @@ export function buildDigest(input: DigestInput): Digest | null {
 }
 ```
 
-- [ ] **Step 4: Run the test and check it passes**
+- [x] **Step 4: Run the test and check it passes**
 
 Run: `npx vitest run src/lib/notify/digest.test.ts`
 Expected: PASS. If the `soFarUsd` assertion fails, recompute it: 30.10 + 8.10 + 34.10 + 40 = 112.30 (all of m's September facts, every cost type).
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run: `npm run test && npm run lint && CI=true npm run build`
 ```bash
