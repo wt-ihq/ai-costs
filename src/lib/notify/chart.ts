@@ -3,7 +3,7 @@ import type { ChartBucket, ToolAmount } from "./digest";
 
 /** Rendered at 2× (Slack displays ~460px wide) so bars stay crisp on retina screens. */
 export const CHART_W = 920;
-export const CHART_H = 380;
+export const CHART_H = 420;
 export const CHART_PLOT = { left: 88, right: 900, top: 76, bottom: 296 } as const;
 const LEGEND_MAX = 4;
 
@@ -28,7 +28,7 @@ export function niceMax(v: number): number {
 }
 
 export function axisUsd(v: number): string {
-  return v >= 1000 ? `$${(v / 1000).toLocaleString("en-US", { maximumFractionDigits: 1 })}k` : `$${v.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+  return v >= 1000 ? `$${(v / 1000).toLocaleString("en-US", { maximumFractionDigits: 2 })}k` : `$${v.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 }
 
 /**

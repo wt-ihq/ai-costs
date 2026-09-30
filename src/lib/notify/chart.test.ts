@@ -16,7 +16,7 @@ describe("niceMax / axisUsd", () => {
     expect([niceMax(0), niceMax(38.2), niceMax(570), niceMax(1100), niceMax(210)]).toEqual([10, 50, 1000, 2000, 250]);
   });
   it("formats compact axis labels", () => {
-    expect([axisUsd(0), axisUsd(25), axisUsd(125), axisUsd(1000), axisUsd(2500)]).toEqual(["$0", "$25", "$125", "$1k", "$2.5k"]);
+    expect([axisUsd(0), axisUsd(25), axisUsd(125), axisUsd(1000), axisUsd(1250), axisUsd(2500)]).toEqual(["$0", "$25", "$125", "$1k", "$1.25k", "$2.5k"]);
   });
 });
 

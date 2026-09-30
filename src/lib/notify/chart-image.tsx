@@ -30,9 +30,9 @@ export async function renderChartPng(layout: ChartLayout): Promise<Uint8Array<Ar
             ? [<div key={`t${i}`} style={abs({ left: b.x - 60, top: (b.segments.at(-1)?.y ?? CHART_PLOT.bottom) - 30, width: b.w + 120, justifyContent: "center", fontSize: 21, color: "#1d1c1d" })}>{b.totalLabel}</div>]
             : []),
         ])}
-        <div style={abs({ left: CHART_PLOT.left, top: CHART_PLOT.bottom + 46, alignItems: "center" })}>
+        <div style={abs({ left: CHART_PLOT.left, top: CHART_PLOT.bottom + 46, width: layout.width - CHART_PLOT.left - 20, alignItems: "center", flexWrap: "wrap" })}>
           {layout.legend.map((e, i) => (
-            <div key={`k${i}`} style={{ display: "flex", alignItems: "center", marginRight: 26 }}>
+            <div key={`k${i}`} style={{ display: "flex", alignItems: "center", marginRight: 26, marginBottom: 6 }}>
               <div style={{ width: 18, height: 18, borderRadius: 4, backgroundColor: e.color, marginRight: 8 }} />
               <div style={{ fontSize: 19, color: "#555555" }}>{e.text}</div>
             </div>
