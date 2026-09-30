@@ -1616,7 +1616,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
   - `renderDigest(d: Digest, files: ChartFileIds, opts?: { previewFor?: string }): RenderedDigest`
   - `type MrkNode = { t: "text"; v: string } | { t: "bold"; v: string } | { t: "link"; href: string; v: string } | { t: "br" }`, `parseMrkdwn(s: string): MrkNode[]`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `src/lib/notify/render.test.ts`:
 ```ts
@@ -1746,12 +1746,12 @@ describe("parseMrkdwn", () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests and check they fail**
+- [x] **Step 2: Run the tests and check they fail**
 
 Run: `npx vitest run src/lib/notify/render.test.ts src/lib/notify/mrkdwn.test.ts`
 Expected: FAIL. Cannot find module `./render` / `./mrkdwn`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `src/lib/notify/render.ts`:
 ```ts
@@ -1874,12 +1874,12 @@ export function parseMrkdwn(s: string): MrkNode[] {
 }
 ```
 
-- [ ] **Step 4: Run the tests and check they pass**
+- [x] **Step 4: Run the tests and check they pass**
 
 Run: `npx vitest run src/lib/notify/render.test.ts src/lib/notify/mrkdwn.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run: `npm run test && npm run lint && CI=true npm run build`
 ```bash
