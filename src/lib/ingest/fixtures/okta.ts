@@ -12,13 +12,13 @@ export const oktaUsersFixture: OktaUsersResponse = {
       status: "ACTIVE",
       activated: "2019-04-01T00:00:00.000Z",
       statusChanged: "2019-04-01T00:00:00.000Z",
-      profile: { firstName: "Gareth", lastName: "Jones", email: "Gareth.Jones@intenthq.com", login: "gareth.jones@intenthq.com", department: "Engineering" },
+      profile: { firstName: "Gareth", lastName: "Jones", email: "Gareth.Jones@intenthq.com", login: "gareth.jones@intenthq.com", department: "Engineering", employeeNumber: "1001" },
     },
     {
       id: "00u2",
       status: "ACTIVE",
       activated: "2021-09-13T00:00:00.000Z",
-      profile: { displayName: "Tom Reeve", email: "tom.reeve@intenthq.com", login: "tom.reeve@intenthq.com", department: "Product" },
+      profile: { displayName: "Tom Reeve", email: "tom.reeve@intenthq.com", login: "tom.reeve@intenthq.com", department: "Product", managerId: " 00u1 " },
     },
     {
       id: "00u3",

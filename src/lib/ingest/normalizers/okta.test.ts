@@ -36,6 +36,16 @@ describe("normalizeOkta", () => {
     expect(rows.some((r) => r.okta_id === "00u4")).toBe(false);
   });
 
+  it("captures the raw Okta managerId and employeeNumber (reporting tree inputs)", () => {
+    const rows = normalizeOkta(oktaUsersFixture);
+    const tom = rows.find((r) => r.email === "tom.reeve@intenthq.com")!;
+    const gareth = rows.find((r) => r.email === "gareth.jones@intenthq.com")!;
+    expect(tom.manager_ref).toBe("00u1");
+    expect(gareth.manager_ref).toBeNull(); // no managerId → null, never ""
+    expect(gareth.employee_number).toBe("1001");
+    expect(tom.employee_number).toBeNull();
+  });
+
   it("throws on schema drift (missing users array)", () => {
     expect(() => normalizeOkta({} as OktaUsersResponse)).toThrow(SchemaDriftError);
   });

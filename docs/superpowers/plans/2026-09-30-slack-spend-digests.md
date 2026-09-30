@@ -79,7 +79,7 @@
 **Interfaces:**
 - Produces: DB columns `employees.manager_ref text`, `employees.employee_number text`; tables `notification_subscriptions`, `notification_sends`, `slack_users` (columns exactly as in the SQL below); `EmployeeUpsert.manager_ref: string | null`, `EmployeeUpsert.employee_number: string | null`.
 
-- [ ] **Step 1: Write the failing test.** Add to the `describe("normalizeOkta")` block in `src/lib/ingest/normalizers/okta.test.ts`:
+- [x] **Step 1: Write the failing test.** Add to the `describe("normalizeOkta")` block in `src/lib/ingest/normalizers/okta.test.ts`:
 
 ```ts
   it("captures the raw Okta managerId and employeeNumber (reporting tree inputs)", () => {
@@ -104,12 +104,12 @@ And in `src/lib/ingest/fixtures/okta.ts`, give Gareth an `employeeNumber` and To
 
 (The surrounding spaces in `" 00u1 "` are deliberate: the normalizer must trim.)
 
-- [ ] **Step 2: Run the test and check it fails**
+- [x] **Step 2: Run the test and check it fails**
 
 Run: `npx vitest run src/lib/ingest/normalizers/okta.test.ts`
 Expected: FAIL. `manager_ref` is `undefined`, and TS complains the fixture keys aren't on the profile type.
 
-- [ ] **Step 3: Implement.** In `src/lib/ingest/normalizers/okta.ts`:
+- [x] **Step 3: Implement.** In `src/lib/ingest/normalizers/okta.ts`:
 
 Add to the `profile` type in `OktaUser` (after `department?: string;`):
 ```ts
@@ -186,14 +186,14 @@ alter table slack_users enable row level security;
 grant all on public.slack_users to service_role;
 ```
 
-- [ ] **Step 4: Run the tests and check they pass**
+- [x] **Step 4: Run the tests and check they pass**
 
 Run: `npx vitest run src/lib/ingest/normalizers/okta.test.ts`
 Expected: PASS (all existing tests plus the new one).
 
-- [ ] **Step 5: Apply the migration to the LOCAL database** (if the local Supabase stack is running: `supabase status`). Run `supabase migration up`. Expected: `0015_slack_notifications.sql` applies without error. If the local stack isn't running, note that in the task report and move on. **Don't touch production.**
+- [x] **Step 5: Apply the migration to the LOCAL database** (if the local Supabase stack is running: `supabase status`). Run `supabase migration up`. Expected: `0015_slack_notifications.sql` applies without error. If the local stack isn't running, note that in the task report and move on. **Don't touch production.**
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit**
 
 Run: `npm run test && npm run lint && CI=true npm run build`
 ```bash
