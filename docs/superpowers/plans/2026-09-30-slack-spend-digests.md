@@ -764,7 +764,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
   - `monthlyReadiness(rows: CoverageMonthRow[], month: string): { ready: boolean; missing: MissingImport[] }`
   - `caveatsFor(args: { period: DigestPeriod; sourcesUsed: ReadonlySet<string>; freshness: SourceFreshness[]; missingImports: MissingImport[] }): string[]`
 
-- [ ] **Step 1: Write the failing test.** `src/lib/notify/freshness.test.ts`:
+- [x] **Step 1: Write the failing test.** `src/lib/notify/freshness.test.ts`:
 ```ts
 import { describe, expect, it } from "vitest";
 import type { CoverageMonthRow } from "@/lib/queries/import-coverage";
@@ -845,12 +845,12 @@ describe("caveatsFor", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test and check it fails**
+- [x] **Step 2: Run the test and check it fails**
 
 Run: `npx vitest run src/lib/notify/freshness.test.ts`
 Expected: FAIL. Cannot find module `./freshness`.
 
-- [ ] **Step 3: Implement.** `src/lib/notify/freshness.ts`:
+- [x] **Step 3: Implement.** `src/lib/notify/freshness.ts`:
 ```ts
 import { MONTHLY_SNAPSHOT_SOURCES } from "@/lib/explore/shape";
 import type { CoverageMonthRow } from "@/lib/queries/import-coverage";
@@ -968,12 +968,12 @@ export function caveatsFor(args: {
 }
 ```
 
-- [ ] **Step 4: Run the test and check it passes**
+- [x] **Step 4: Run the test and check it passes**
 
 Run: `npx vitest run src/lib/notify/freshness.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run: `npm run test && npm run lint && CI=true npm run build`
 ```bash
