@@ -251,7 +251,7 @@ from active;
   - `NOTIFY_EMPLOYEE_COLUMNS: string`, `toNotifyEmployee(row): NotifyEmployee`, `isActiveEmployee(e): boolean`
   - `interface ReportingTree { reportsOf(id): string[]; managerOf(id): string | null; unresolved: string[] }`, `buildReportingTree(employees: NotifyEmployee[]): ReportingTree`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `src/lib/notify/types.test.ts`:
 ```ts
@@ -354,12 +354,12 @@ describe("buildReportingTree", () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests and check they fail**
+- [x] **Step 2: Run the tests and check they fail**
 
 Run: `npx vitest run src/lib/notify/types.test.ts src/lib/notify/tree.test.ts`
 Expected: FAIL. Cannot find module `./types` / `./tree`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `src/lib/notify/types.ts`:
 ```ts
@@ -495,12 +495,12 @@ export function buildReportingTree(employees: NotifyEmployee[]): ReportingTree {
 }
 ```
 
-- [ ] **Step 4: Run the tests and check they pass**
+- [x] **Step 4: Run the tests and check they pass**
 
 Run: `npx vitest run src/lib/notify/types.test.ts src/lib/notify/tree.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run: `npm run test && npm run lint && CI=true npm run build`
 ```bash
