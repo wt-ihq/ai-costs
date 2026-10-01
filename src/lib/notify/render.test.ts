@@ -87,7 +87,8 @@ describe("renderDigest", () => {
 
   it("keeps the cron's preview line and its text prefix exactly", () => {
     const r = renderDigest(digest(), {}, { previewFor: "Priya Nair (weekly)" });
-    expect(r.blocks).toHaveLength(renderDigest(digest(), {}).blocks.length + 1);
+    expect(r.blocks[0]).toEqual({ type: "context", elements: [{ type: "mrkdwn", text: "🔍 Preview · would send to Priya Nair (weekly)" }] });
+    expect(r.blocks.slice(1)).toEqual(renderDigest(digest(), {}).blocks);
     expect(r.text.startsWith("[Preview for Priya Nair (weekly)] Your AI spend")).toBe(true);
   });
 

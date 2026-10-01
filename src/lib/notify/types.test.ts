@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isActiveEmployee, isCadence, isUuid, notifyMode, toNotifyEmployee } from "./types";
+import { activeDepartments, isActiveEmployee, isCadence, isUuid, notifyMode, toNotifyEmployee, type NotifyEmployee } from "./types";
 
 describe("notifyMode", () => {
   it("defaults to off unless explicitly preview or live", () => {
@@ -37,5 +37,16 @@ describe("toNotifyEmployee / isActiveEmployee", () => {
     expect(isActiveEmployee({ ...e, leaveDate: "2026-03-31" })).toBe(false);
     expect(isActiveEmployee({ ...e, employmentStatus: "DEPROVISIONED" })).toBe(false);
     expect(isActiveEmployee({ ...e, employmentStatus: "leaver" })).toBe(false); // legacy HiBob rows
+  });
+});
+
+describe("activeDepartments", () => {
+  const e = (department: string | null, over: Partial<NotifyEmployee> = {}): NotifyEmployee => ({
+    id: department ?? "none", email: "x@x.com", fullName: "X", department, oktaId: null, employeeNumber: null,
+    managerRef: null, employmentStatus: "active", leaveDate: null, ...over,
+  });
+  it("lists each department of an ACTIVE employee once, sorted; leaver-only and empty departments are not teams", () => {
+    const list = [e("Sales"), e("Eng"), e("Sales"), e(null), e("Gone", { leaveDate: "2026-03-31" }), e("Eng", { employmentStatus: "suspended" })];
+    expect(activeDepartments(list)).toEqual(["Eng", "Sales"]);
   });
 });

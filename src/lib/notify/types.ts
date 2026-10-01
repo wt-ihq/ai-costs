@@ -60,3 +60,8 @@ const LEFT = new Set(["deprovisioned", "suspended", "leaver"]);
 export function isActiveEmployee(e: Pick<NotifyEmployee, "employmentStatus" | "leaveDate">): boolean {
   return e.leaveDate === null && !LEFT.has((e.employmentStatus ?? "").toLowerCase());
 }
+
+/** The teams a preview/test can target: each department of at least one active employee, sorted. */
+export function activeDepartments(employees: readonly NotifyEmployee[]): string[] {
+  return [...new Set(employees.filter(isActiveEmployee).map((e) => e.department).filter((d): d is string => !!d))].sort();
+}
