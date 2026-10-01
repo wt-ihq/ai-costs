@@ -2213,7 +2213,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
   - `interface NotifyContext { now: Date; baseUrl: string; employees: NotifyEmployee[]; employeesById: Map<string, NotifyEmployee>; tree: ReportingTree; facts: ShapeFact[]; sourceHorizons: Record<string, string>; toolColors: Record<string, string>; freshness: SourceFreshness[]; coverage: CoverageMonthRow[]; syncRuns: SyncRunRow[] }`
   - `HISTORY_MONTHS = 7`, `factsWindow(now, earliest?)`, `syncRunsSince(now): string`, `loadNotifyContext(store, now, baseUrl, opts?: { earliest?: string; coverage?: CoverageMonthRow[]; syncRuns?: SyncRunRow[] }): Promise<NotifyContext>`, `digestFor(ctx, employeeId, period): Digest | null`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `src/lib/notify/store.test.ts`:
 ```ts
@@ -2277,12 +2277,12 @@ describe("loadNotifyContext / digestFor", () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests and check they fail**
+- [x] **Step 2: Run the tests and check they fail**
 
 Run: `npx vitest run src/lib/notify/store.test.ts src/lib/notify/context.test.ts`
 Expected: FAIL. Modules not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `src/lib/notify/store.ts`:
 ```ts
@@ -2639,12 +2639,12 @@ export function digestFor(ctx: NotifyContext, employeeId: string, period: Digest
 }
 ```
 
-- [ ] **Step 4: Run the tests and check they pass**
+- [x] **Step 4: Run the tests and check they pass**
 
 Run: `npx vitest run src/lib/notify/store.test.ts src/lib/notify/context.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run: `npm run test && npm run lint && CI=true npm run build`
 Expected: the build type-checks `store.ts` against the real Supabase client types. If `.match({... attempts: existing.attempts })` complains about the value type, cast `existing` once as `{ status: string; attempts: number }` at the read.
