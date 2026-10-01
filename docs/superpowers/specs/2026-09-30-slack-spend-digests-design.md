@@ -208,15 +208,21 @@ Rules:
 - Person-less facts (department `subscription` rows, `unkeyed`) never appear
   in a "You" or "Reports" figure. They belong to no one.
 
-**Caveats** — `src/lib/notify/freshness.ts` (pure) turns the latest
-`sync_runs` per source, `getDataHealth`'s `latestDayByCostType`, and import
-coverage into a `SourceFreshness[]`. `buildDigest` includes a caveat **only
-for sources the recipient or their tree had spend with across the chart
-span**:
-- latest sync failed, or usage data doesn't reach the end of the period:
-  "⚠ Cursor data may be incomplete (last updated 28 Sep)"
-- monthly with a missing manual import:
-  "⚠ ChatGPT Business seats for September aren't imported yet"
+**Caveats** — `src/lib/notify/freshness.ts` (pure). `sourceFreshness(runs)`
+turns the loaded `sync_runs` into one `SourceFreshness` per **synced**
+source (cursor, anthropic, openai, vercel, openrouter): whether its latest
+run failed, and the UTC day of its latest successful run. `buildDigest`
+includes a caveat **only for sources the recipient or their tree used on the
+headline basis within the chart span** (daily/weekly: usage facts, so a seat
+stamped on the 1st doesn't count; monthly: every fact):
+- a synced source is stale when its latest sync run failed, or it has no
+  successful run on or after the period's end (`toExclusive`):
+  "⚠ Cursor data may be incomplete (last synced 28 Sep)" (no date suffix
+  when there is no successful run in the loaded window)
+- manual sources (ChatGPT Business, Claude Team) never get a freshness
+  caveat; they get only the monthly missing-import caveat from
+  `monthlyReadiness`:
+  "⚠ ChatGPT Business seats for September not imported yet"
 
 ## 5. Rendering
 
