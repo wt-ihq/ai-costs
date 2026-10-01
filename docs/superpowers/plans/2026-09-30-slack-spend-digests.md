@@ -3872,7 +3872,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 - Modify: `CLAUDE.md`
 - Modify: `docs/superpowers/specs/2026-09-30-slack-spend-digests-design.md` (record the Checkpoint A/B outcomes)
 
-- [ ] **Step 1: Local QA** (use the `agent-standards:local-qa` skill). Against the local stack with migration 0015 applied, `SLACK_BOT_TOKEN` + `SLACK_PREVIEW_EMAIL` in `.env.local`, and `SLACK_NOTIFY_MODE=preview`:
+- [x] **Step 1: Local QA** (use the `agent-standards:local-qa` skill). Against the local stack with migration 0015 applied, `SLACK_BOT_TOKEN` + `SLACK_PREVIEW_EMAIL` in `.env.local`, and `SLACK_NOTIFY_MODE=preview`:
   1. Give two local employees a manager link: `update employees set manager_ref = (select okta_id from employees where email = '<manager>') where email in ('<report1>', '<report2>');`
   2. On `/data?tab=notifications`, add the manager (weekly + monthly) and one report (daily). The table shows cadences, a report count of 2 for the manager, and Slack "not looked up".
   3. Click Preview for the manager. Expected: header, "YOU" with its own titled chart, "YOUR REPORTS · 2 PEOPLE" with its own chart and linked names, an Open-in-dashboard button. Step ◀ back a week. ▶ disappears at the latest complete week.
@@ -3882,7 +3882,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
   7. The same curl with `SLACK_NOTIFY_MODE=live` must return **400** (replays are preview-only). Set the mode back afterwards.
   8. The "Recent sends" table lists the preview rows. "Last run" shows today's counts.
 
-- [ ] **Step 2: Changelog entry.** Add at the top of `CHANGELOG` in `src/lib/changelog.ts` (use the date of the final commit):
+- [x] **Step 2: Changelog entry.** Add at the top of `CHANGELOG` in `src/lib/changelog.ts` (use the date of the final commit):
 ```ts
   {
     date: "2026-10-01",
@@ -3894,14 +3894,14 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
   },
 ```
 
-- [ ] **Step 3: CLAUDE.md.** Add under "Source-specific notes" (after the Okta bullet):
+- [x] **Step 3: CLAUDE.md.** Add under "Source-specific notes" (after the Okta bullet):
 ```markdown
 - **Slack digests** (`src/lib/notify/`, spec `docs/superpowers/specs/2026-09-30-slack-spend-digests-design.md`) — `/api/cron/notify` at 07:00 UTC; `SLACK_NOTIFY_MODE` off|preview|live (unset = **off**; preview sends every DM to `SLACK_PREVIEW_EMAIL`). Reporting tree = Okta `managerId` stored raw in `employees.manager_ref`, resolved at read time (`tree.ts`) against okta_id/email/employee_number. `notification_sends` is claim-before-send: never make a row retryable once a DM may have gone out. Daily/weekly headlines are usage (`!isMonthlyLevelFact`); monthly is the total and must match Explore. `?date=` replays are preview-only. `SLACK_BOT_TOKEN` is read only in `notify/wiring.ts`.
 ```
 
-- [ ] **Step 4: Spec follow-ups.** In the spec's §10, record the Checkpoint A numbers (active / resolvable, format mix) and the Checkpoint B result (inline images worked, or the fallback was applied).
+- [x] **Step 4: Spec follow-ups.** In the spec's §10, record the Checkpoint A numbers (active / resolvable, format mix) and the Checkpoint B result (inline images worked, or the fallback was applied).
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run: `npm run test && npm run lint && CI=true npm run build`
 ```bash
@@ -3911,4 +3911,4 @@ git commit -m "docs: Slack digests changelog, CLAUDE.md notes, spec outcomes
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 6: Hand back.** Report: the branch state, test count, Checkpoint A/B outcomes, and the go-live steps that need Gareth: apply 0015 to production if not done at Checkpoint A, set the Vercel env (`SLACK_BOT_TOKEN`, `SLACK_NOTIFY_MODE=preview`, `SLACK_PREVIEW_EMAIL`), deploy when he asks, enrol the pilot, review a week of previews, then switch to `live`. **Don't push or deploy without being asked.**
+- [x] **Step 6: Hand back.** Report: the branch state, test count, Checkpoint A/B outcomes, and the go-live steps that need Gareth: apply 0015 to production if not done at Checkpoint A, set the Vercel env (`SLACK_BOT_TOKEN`, `SLACK_NOTIFY_MODE=preview`, `SLACK_PREVIEW_EMAIL`), deploy when he asks, enrol the pilot, review a week of previews, then switch to `live`. **Don't push or deploy without being asked.**

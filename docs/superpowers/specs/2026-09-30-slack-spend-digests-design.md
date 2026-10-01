@@ -401,6 +401,12 @@ targets the session's own email, never an argument.
    DM as files (still private, but they sit together below the text instead
    of under each section).
 
+**Status (2026-10-01):** Code shipped on branch `slack-digests` with inline
+`slack_file` chart images assumed. Checkpoint A (production migration 0015 +
+Okta manager audit) and Checkpoint B (Slack app + `scripts/slack-smoke.ts`)
+are pending Gareth; if B fails, the fallback touches only `slack-client.ts`
+`uploadImage` and `deliver.ts`.
+
 ## 11. Rollout
 
 1. Ship with `SLACK_NOTIFY_MODE` unset (= `off`).
