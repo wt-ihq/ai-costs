@@ -14,7 +14,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: "2026-10-01",
     title: "New joiners back on the dashboard",
     items: [
-      "The nightly sync of people and teams had been stuck since late July because one person's email address changed. It's fixed: everyone who joined since then now appears, and their spend shows under their name instead of Unmatched.",
+      "The nightly sync of people and teams had been stuck since late July because one person's email address changed. It's fixed: everyone who joined since then appears again, team moves and leavers are up to date, and their spend moves from Unmatched to their name.",
     ],
   },
   {

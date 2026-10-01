@@ -112,33 +112,56 @@ interface EmployeeKey {
 export function planEmployeeUpserts(
   existing: EmployeeKey[],
   incoming: Record<string, unknown>[],
-): { updates: Record<string, unknown>[]; inserts: Record<string, unknown>[]; emailClashes: number } {
+): { updates: Record<string, unknown>[]; inserts: Record<string, unknown>[]; clashes: string[]; skipped: string[] } {
   const byOkta = new Map(existing.filter((e) => e.okta_id).map((e) => [e.okta_id as string, e]));
   const byEmail = new Map(existing.map((e) => [e.email, e]));
+  const oktaIdOf = (row: Record<string, unknown>) => (typeof row.okta_id === "string" ? row.okta_id : "");
+
+  // Two passes so okta_id wins across the WHOLE batch, not just within a row:
+  // otherwise someone given a renamed person's old address could claim that
+  // row by email first and silently take over their spend history. A row is
+  // claimed at most once (one statement can't update a row twice).
   const claimed = new Set<string>();
+  const targetOf = new Map<number, EmployeeKey>();
+  incoming.forEach((row, i) => {
+    const e = byOkta.get(oktaIdOf(row));
+    if (e && !claimed.has(e.id)) { claimed.add(e.id); targetOf.set(i, e); }
+  });
+  incoming.forEach((row, i) => {
+    if (targetOf.has(i)) return;
+    const e = byEmail.get(row.email as string);
+    if (e && !claimed.has(e.id)) { claimed.add(e.id); targetOf.set(i, e); }
+  });
+
   const updates: Record<string, unknown>[] = [];
-  const inserts: Record<string, unknown>[] = [];
-  let emailClashes = 0;
-  for (const row of incoming) {
-    const viaOkta = typeof row.okta_id === "string" ? byOkta.get(row.okta_id) : undefined;
-    const viaEmail = byEmail.get(row.email as string);
-    const target = viaOkta ?? viaEmail;
-    // One statement can't update a row twice: a second claimant is a new person.
-    if (!target || claimed.has(target.id)) {
-      inserts.push(row);
-      continue;
-    }
-    claimed.add(target.id);
-    if (viaOkta && viaEmail && viaEmail.id !== viaOkta.id) {
+  const clashes: string[] = [];
+  const heldAfterUpdates = new Set(existing.map((e) => e.email));
+  const candidates: Record<string, unknown>[] = [];
+  incoming.forEach((row, i) => {
+    const target = targetOf.get(i);
+    if (!target) { candidates.push(row); return; }
+    const owner = byEmail.get(row.email as string);
+    if (owner && owner.id !== target.id) {
       // The new address already belongs to another row (e.g. a legacy HiBob row):
       // keep this row's email rather than violate the unique email index.
-      emailClashes++;
+      clashes.push(oktaIdOf(row));
       updates.push({ ...row, id: target.id, email: target.email });
     } else {
+      heldAfterUpdates.delete(target.email);
+      heldAfterUpdates.add(row.email as string);
       updates.push({ ...row, id: target.id });
     }
+  });
+
+  // A new person whose address will still be held after the updates would hit
+  // ON CONFLICT (email) and overwrite that row with their identity — skip them.
+  const inserts: Record<string, unknown>[] = [];
+  const skipped: string[] = [];
+  for (const row of candidates) {
+    if (heldAfterUpdates.has(row.email as string)) skipped.push(oktaIdOf(row));
+    else inserts.push(row);
   }
-  return { updates, inserts, emailClashes };
+  return { updates, inserts, clashes, skipped };
 }
 
 /** Upsert employees from Okta (the identity spine): existing rows by okta_id/email → update by id; new people → insert. */
@@ -148,9 +171,12 @@ export async function upsertEmployees(
 ): Promise<number> {
   if (rows.length === 0) return 0;
   const existing = await selectAllRows<EmployeeKey>(supabase, "employees", "id, email, okta_id", "upsertEmployees(existing)");
-  const { updates, inserts, emailClashes } = planEmployeeUpserts(existing, rows);
-  if (emailClashes) {
-    console.warn(`upsertEmployees: ${emailClashes} Okta user(s) kept their previous email — the new address already belongs to another employee row`);
+  const { updates, inserts, clashes, skipped } = planEmployeeUpserts(existing, rows);
+  if (clashes.length) {
+    console.warn(`upsertEmployees: kept the previous email for okta_id ${clashes.join(", ")} — the new address already belongs to another employee row`);
+  }
+  if (skipped.length) {
+    console.warn(`upsertEmployees: skipped new okta_id ${skipped.join(", ")} — their address is still held by another employee row`);
   }
   if (updates.length) {
     const { error } = await supabase.from("employees").upsert(updates, { onConflict: "id" });

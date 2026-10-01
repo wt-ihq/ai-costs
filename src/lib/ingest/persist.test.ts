@@ -208,7 +208,7 @@ describe("planEmployeeUpserts", () => {
       ["e2", "legacy@intenthq.com", "00uB"],
     ]);
     expect(plan.inserts.map((r) => r.email)).toEqual(["fresh@intenthq.com"]);
-    expect(plan.emailClashes).toBe(0);
+    expect(plan.clashes).toEqual([]);
   });
 
   it("keeps the row's current email when the new address already belongs to another row", () => {
@@ -221,7 +221,7 @@ describe("planEmployeeUpserts", () => {
     );
     expect(plan.updates).toEqual([expect.objectContaining({ id: "e1", email: "old@personal.example", okta_id: "00uA" })]);
     expect(plan.inserts).toEqual([]);
-    expect(plan.emailClashes).toBe(1);
+    expect(plan.clashes).toEqual(["00uA"]);
   });
 
   it("never targets the same existing row twice in one batch", () => {
@@ -232,5 +232,31 @@ describe("planEmployeeUpserts", () => {
     );
     expect(plan.updates.map((r) => r.id)).toEqual(["e1"]);
     expect(plan.inserts.map((r) => r.okta_id)).toEqual(["00uB"]);
+  });
+
+  it("lets okta_id matches win across the whole batch, whatever order Okta returns users in", () => {
+    // Same as above but B (who now has e1's OLD address) comes first: B must not
+    // take over e1 by email — that would silently move A's spend history to B.
+    const plan = planEmployeeUpserts(
+      [{ id: "e1", email: "old@intenthq.com", okta_id: "00uA" }],
+      [oktaRow("00uB", "old@intenthq.com"), oktaRow("00uA", "renamed@intenthq.com")],
+    );
+    expect(plan.updates.map((r) => [r.id, r.okta_id, r.email])).toEqual([["e1", "00uA", "renamed@intenthq.com"]]);
+    expect(plan.inserts.map((r) => r.okta_id)).toEqual(["00uB"]);
+  });
+
+  it("skips a new person whose address is still held after the updates, instead of overwriting that row", () => {
+    // A wants X (held by legacy row L) so e1 keeps P; new user D arrives with P.
+    // Inserting D would ON CONFLICT (email) rewrite e1 — A's row — with D's identity.
+    const plan = planEmployeeUpserts(
+      [
+        { id: "e1", email: "p@intenthq.com", okta_id: "00uA" },
+        { id: "L", email: "x@intenthq.com", okta_id: null },
+      ],
+      [oktaRow("00uA", "x@intenthq.com"), oktaRow("00uD", "p@intenthq.com")],
+    );
+    expect(plan.updates.map((r) => [r.id, r.email])).toEqual([["e1", "p@intenthq.com"]]);
+    expect(plan.inserts).toEqual([]);
+    expect(plan.skipped).toEqual(["00uD"]);
   });
 });
