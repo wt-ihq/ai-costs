@@ -5,7 +5,8 @@ import { finishSyncRun, saveRawPayload, startSyncRun, upsertEmployees } from "@/
 
 /**
  * Okta identity pipeline (replaces HiBob): fetch users → persist raw →
- * normalize → upsert employees (keyed on email). Department comes straight from
+ * normalize → upsert employees (matched by okta_id, then email — see
+ * persist.ts:upsertEmployees). Department comes straight from
  * the Okta profile, so there's no named-list resolution step. The fetcher is
  * injected so tests/proofs run against fixtures.
  */

@@ -12,6 +12,13 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-10-01",
+    title: "New joiners back on the dashboard",
+    items: [
+      "The nightly sync of people and teams had been stuck since late July because one person's email address changed. It's fixed: everyone who joined since then appears again, team moves and leavers are up to date, and their spend moves from Unmatched to their name.",
+    ],
+  },
+  {
+    date: "2026-10-01",
     title: "Slack spend digests (setup)",
     items: [
       "Admins have a new Data → Notifications tab to choose who gets a Slack summary of their AI spend — daily, weekly or monthly — with managers also seeing everyone who reports to them.",
