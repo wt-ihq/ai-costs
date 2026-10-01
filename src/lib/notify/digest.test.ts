@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ShapeFact } from "@/lib/explore/shape";
 import type { CostType, Vendor } from "@/lib/types";
-import { buildDigest, type DigestInput } from "./digest";
+import { buildDigest, buildTeamDigest, type DigestInput, type TeamDigestInput } from "./digest";
 import { periodFor } from "./schedule";
 import type { NotifyEmployee } from "./types";
 
@@ -147,5 +147,120 @@ describe("buildDigest — edge cases", () => {
     }))!;
     expect(d.you.byTool.map((t) => t.key)).toEqual(["anthropic"]);
     expect(d.caveats).toEqual([]);
+  });
+});
+
+// ---- Team digests (preview/test only) ----------------------------------------------------------------------------
+const deptFact = (day: string, source: Vendor, costType: CostType, costUsd: number, department: string, model = ""): ShapeFact => ({
+  ...fact(day, source, costType, costUsd, null, model), department,
+});
+const teamFacts: ShapeFact[] = [
+  ...facts, // Engineering person-less Figma AI subscription (999) is in here
+  deptFact("2026-09-23", "openrouter", "metered", 5, "Engineering", "ws"), // department-attributed usage
+  deptFact("2026-09-23", "openrouter", "metered", 77, "Data Science", "ws"), // another team's: never ours
+];
+const teamInput = (over: Partial<TeamDigestInput> = {}): TeamDigestInput => ({
+  department: "Engineering", employeesById: byId, facts: teamFacts, period: periodFor("weekly", "2026-W39", now), now,
+  sourceHorizons: {}, toolColors: {}, freshness: [], missingImports: [], baseUrl: "https://x.test", ...over,
+});
+
+describe("buildTeamDigest — weekly (usage basis)", () => {
+  const d = buildTeamDigest(teamInput())!;
+
+  it("counts members' usage (leavers included) plus person-less department usage, nothing from other teams", () => {
+    // m 38.2 + a 140 + leaver 42 + dept 5; Sam (Data Science), the Data Science dept fact and monthly-level facts are out.
+    expect(d.team).toMatchObject({ basis: "usage", headlineUsd: 225.2, prevUsd: 34.1 });
+    expect(d.team.deltaPct).toBe(560.4);
+    expect(d.team.byTool.map((t) => [t.key, t.usd])).toEqual([["cursor", 170.1], ["openrouter", 47], ["anthropic", 8.1]]);
+  });
+
+  it("names the department, links to its Explore page and lists the top people with the remainder as others", () => {
+    expect(d).toMatchObject({ kind: "team", department: "Engineering", dashboardUrl: "https://x.test/explore/Engineering" });
+    expect(d.team.top.map((p) => [p.name, p.usd])).toEqual([["Alex Kim", 140], ["Former Person", 42], ["Priya Nair", 38.2]]);
+    expect(d.team.top[0].href).toBe("https://x.test/explore/Engineering/a");
+    // the department-level $5 has no person: it lands in the remainder so top + others is the headline
+    expect(d.team).toMatchObject({ othersCount: 0, othersUsd: 5 });
+  });
+
+  it("headcount is active members only, even though a leaver's spend counts", () => {
+    expect(d.team.headcount).toBe(3); // m, a, n — not the leaver, not Sam
+  });
+
+  it("month context covers all cost types for the team, including the department subscription", () => {
+    // m 112.3 + a (140 + 500 lump) + leaver 42 + Figma AI 999 + dept usage 5
+    expect(d.team.month).toMatchObject({ monthLabel: "September", soFarUsd: 1798.3, complete: false });
+  });
+
+  it("charts 8 weekly buckets on the same basis", () => {
+    expect(d.team.chart).toHaveLength(8);
+    expect(d.team.chart[7]).toMatchObject({ current: true, totalUsd: 225.2 });
+    expect(d.team.chart[6]).toMatchObject({ current: false, totalUsd: 34.1 });
+  });
+
+  it("encodes the department in the dashboard link", () => {
+    expect(buildTeamDigest(teamInput({ department: "R&D Ops" }))!.dashboardUrl).toBe("https://x.test/explore/R%26D%20Ops");
+  });
+});
+
+describe("buildTeamDigest — monthly (total basis)", () => {
+  it("monthly total is the sum of the team's facts to the cent, including the department's recurring cost", () => {
+    const aug: ShapeFact[] = [
+      fact("2026-08-01", "cursor", "seat", 40, "m"),
+      fact("2026-08-10", "cursor", "overage", 20.05, "m"),
+      fact("2026-08-12", "openrouter", "metered", 7.77, "l"), // leaver
+      deptFact("2026-08-05", "other", "subscription", 100.1, "Engineering", "Figma AI"),
+      fact("2026-08-03", "cursor", "overage", 55, "s"), // Data Science member
+      deptFact("2026-08-04", "other", "subscription", 33, "Data Science", "Notion"),
+      fact("2026-07-03", "cursor", "overage", 7, "m"),
+    ];
+    const d = buildTeamDigest(teamInput({ facts: aug, period: periodFor("monthly", "2026-08", now) }))!;
+    expect(d.team).toMatchObject({ basis: "total", headlineUsd: 167.92, prevUsd: 7, month: null });
+    expect(d.team.byTool.map((t) => [t.key, t.usd])).toEqual([["other:Figma AI", 100.1], ["cursor", 60.05], ["openrouter", 7.77]]);
+    // top people exclude the person-less subscription; it is part of the remainder
+    expect(d.team.top.map((p) => [p.name, p.usd])).toEqual([["Priya Nair", 60.05], ["Former Person", 7.77]]);
+    expect(d.team.othersUsd).toBe(100.1);
+  });
+});
+
+describe("buildTeamDigest — daily", () => {
+  it("is null when the team had no usage that day, even though a department subscription exists", () => {
+    expect(buildTeamDigest(teamInput({ period: periodFor("daily", "2026-09-26", now) }))).toBeNull();
+    // 24 Sep: Alex's $140 usage, plus the (monthly-level, therefore ignored) $999 subscription
+    expect(buildTeamDigest(teamInput({ period: periodFor("daily", "2026-09-24", now) }))!.team.headlineUsd).toBe(140);
+    // the department-level usage alone is still usage
+    expect(buildTeamDigest(teamInput({ period: periodFor("daily", "2026-09-23", now) }))!.team.headlineUsd).toBe(13.1);
+  });
+});
+
+describe("buildTeamDigest — edge cases", () => {
+  it("top 5 + others equal the headline to the cent with fractional amounts (≥7 members)", () => {
+    const amounts = [10.333, 9.334, 8.334, 7.127, 6.334, 5.334, 4.334, 2.226];
+    const many = amounts.map((_, i) => emp(`o${i}`, `Ops Person ${i}`, { department: "Ops" }));
+    const f = [
+      ...many.map((p, i) => ({ ...fact("2026-09-22", "cursor", "overage", amounts[i], p.id), department: "Ops" })),
+      deptFact("2026-09-23", "openrouter", "metered", 3.337, "Ops", "ws"),
+    ];
+    const map = new Map([...byId, ...many.map((p) => [p.id, p] as const)]);
+    const t = buildTeamDigest(teamInput({ department: "Ops", facts: f, employeesById: map }))!.team;
+    expect(t.top).toHaveLength(5);
+    expect(t.othersCount).toBe(3);
+    expect(t.headcount).toBe(8);
+    const cents = (n: number) => Math.round(n * 100);
+    expect(cents(t.top.reduce((s, p) => s + p.usd, 0) + t.othersUsd)).toBe(cents(t.headlineUsd));
+  });
+
+  it("caveats mention only sources the team used on the headline basis", () => {
+    const d = buildTeamDigest(teamInput({
+      freshness: [
+        { source: "cursor", lastSyncFailed: true, lastSuccessDay: "2026-09-29" },
+        { source: "openai", lastSyncFailed: true, lastSuccessDay: "2026-09-29" },
+      ],
+    }))!;
+    expect(d.caveats).toEqual(["⚠ Cursor data may be incomplete (last synced 29 Sep)"]);
+  });
+
+  it("an unknown or empty team still yields a valid $0 digest on a non-daily cadence", () => {
+    const d = buildTeamDigest(teamInput({ department: "Nobody Here" }))!;
+    expect(d.team).toMatchObject({ headlineUsd: 0, headcount: 0, top: [], othersCount: 0, othersUsd: 0 });
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ShapeFact } from "@/lib/explore/shape";
-import { digestFor, factsWindow, loadNotifyContext } from "./context";
+import { digestFor, factsWindow, loadNotifyContext, teamDigestFor } from "./context";
 import { memoryStore } from "./memory-store";
 import { periodFor } from "./schedule";
 import type { NotifyEmployee } from "./types";
@@ -40,5 +40,24 @@ describe("loadNotifyContext / digestFor", () => {
     expect(d.you.headlineUsd).toBe(10);
     expect(d.reports!.headlineUsd).toBe(25);
     expect(digestFor(ctx, "nobody", periodFor("weekly", "2026-W39", now))).toBeNull();
+  });
+});
+
+describe("teamDigestFor", () => {
+  const store = memoryStore({
+    employees: [emp("m"), emp("a", { managerRef: "00um" }), emp("s", { department: "Data" })],
+    facts: [fact("2026-09-22", 10, "m"), fact("2026-09-23", 25, "a"), fact("2026-09-23", 99, "s")],
+  });
+
+  it("builds the department's digest from the shared context, with its Explore link", async () => {
+    const ctx = await loadNotifyContext(store, now, "https://x.test");
+    const d = teamDigestFor(ctx, "Eng", periodFor("weekly", "2026-W39", now))!;
+    expect(d).toMatchObject({ kind: "team", department: "Eng", dashboardUrl: "https://x.test/explore/Eng" });
+    expect(d.team).toMatchObject({ headlineUsd: 35, headcount: 2 });
+  });
+
+  it("is null for a daily with no usage", async () => {
+    const ctx = await loadNotifyContext(store, now, "https://x.test");
+    expect(teamDigestFor(ctx, "Eng", periodFor("daily", "2026-09-26", now))).toBeNull();
   });
 });

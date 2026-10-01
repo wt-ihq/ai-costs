@@ -62,9 +62,21 @@ export interface Digest {
   dashboardUrl: string;
 }
 
-export interface DigestInput {
-  recipient: NotifyEmployee;
-  reportIds: string[];
+/**
+ * One whole team (an Okta department) for one period. Preview/test only: subscriptions stay per
+ * person, so nothing schedules this. The team reuses ReportsSection — it ranks people the same way.
+ */
+export interface TeamDigest {
+  kind: "team";
+  department: string;
+  period: DigestPeriod;
+  team: ReportsSection;
+  caveats: string[];
+  dashboardUrl: string;
+}
+
+/** What every digest kind needs to turn a fact population into a section. */
+export interface SectionInput {
   employeesById: ReadonlyMap<string, NotifyEmployee>;
   facts: ShapeFact[];
   period: DigestPeriod;
@@ -74,6 +86,15 @@ export interface DigestInput {
   freshness: SourceFreshness[];
   missingImports: MissingImport[];
   baseUrl: string;
+}
+
+export interface DigestInput extends SectionInput {
+  recipient: NotifyEmployee;
+  reportIds: string[];
+}
+
+export interface TeamDigestInput extends SectionInput {
+  department: string;
 }
 
 const TOP_N = 5;
@@ -86,8 +107,12 @@ const round2 = (n: number) => {
 const inRange = (f: ShapeFact, from: string, to: string) => f.day >= from && f.day < to;
 const total = (fs: ShapeFact[]) => fs.reduce((s, f) => s + f.costUsd, 0);
 
+export function teamHref(baseUrl: string, department: string): string {
+  return `${baseUrl}/explore/${encodeURIComponent(department)}`;
+}
+
 export function personHref(baseUrl: string, e: Pick<NotifyEmployee, "id" | "department">): string {
-  return `${baseUrl}/explore/${encodeURIComponent(e.department ?? UNATTRIBUTED)}/${e.id}`;
+  return `${teamHref(baseUrl, e.department ?? UNATTRIBUTED)}/${e.id}`;
 }
 
 function sumBy(facts: ShapeFact[], key: (f: ShapeFact) => string): Map<string, number> {
@@ -107,7 +132,7 @@ function toolAmounts(totals: Map<string, number>, toolColors: Record<string, str
 const basisOf = (p: DigestPeriod): Basis => (p.cadence === "monthly" ? "total" : "usage");
 const counted = (facts: ShapeFact[], basis: Basis) => (basis === "usage" ? facts.filter((f) => !isMonthlyLevelFact(f)) : facts);
 
-function monthContext(pop: ShapeFact[], { period, now, sourceHorizons }: DigestInput): MonthContext {
+function monthContext(pop: ShapeFact[], { period, now, sourceHorizons }: SectionInput): MonthContext {
   const lastDay = new Date(Date.parse(`${period.toExclusive}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
   const month = lastDay.slice(0, 7);
   const [y, m] = month.split("-").map(Number);
@@ -127,7 +152,7 @@ function monthContext(pop: ShapeFact[], { period, now, sourceHorizons }: DigestI
   };
 }
 
-function section(pop: ShapeFact[], input: DigestInput): DigestSection {
+function section(pop: ShapeFact[], input: SectionInput): DigestSection {
   const { period, toolColors } = input;
   const basis = basisOf(period);
   const base = counted(pop, basis);
@@ -157,59 +182,94 @@ function section(pop: ShapeFact[], input: DigestInput): DigestSection {
 }
 
 /**
+ * A section for a group of people: the group's figures plus its ranked people. `memberIds` are the
+ * people the group is made of (leavers included — their spend counts, they just aren't headcount);
+ * `pop` may also hold person-less facts (a team's department-attributed costs), which count in the
+ * headline but belong to no one, so they end up in the remainder.
+ */
+function peopleSection(pop: ShapeFact[], memberIds: readonly string[], input: SectionInput): ReportsSection {
+  const { period, employeesById, baseUrl } = input;
+  const base = section(pop, input);
+  const perPerson = sumBy(
+    counted(pop, base.basis).filter((f) => f.employeeId !== null && inRange(f, period.from, period.toExclusive)),
+    (f) => f.employeeId as string,
+  );
+  const ranked = [...perPerson]
+    .map(([id, usd]) => ({ id, usd: round2(usd), name: employeesById.get(id)?.fullName ?? "Unknown" }))
+    .filter((p) => p.usd > 0)
+    .sort((a, b) => b.usd - a.usd || a.name.localeCompare(b.name));
+  const top = ranked.slice(0, TOP_N);
+  return {
+    ...base,
+    headcount: memberIds.filter((id) => {
+      const e = employeesById.get(id);
+      return e ? isActiveEmployee(e) : false;
+    }).length,
+    top: top.map((p) => ({
+      employeeId: p.id,
+      name: p.name,
+      usd: p.usd,
+      href: personHref(baseUrl, employeesById.get(p.id) ?? { id: p.id, department: null }),
+    })),
+    othersCount: ranked.length - top.length,
+    // The remainder of the headline, not a sum of rounded amounts, so top + others equals it to the cent.
+    othersUsd: round2(base.headlineUsd - top.reduce((s, p) => s + p.usd, 0)),
+  };
+}
+
+/** Same basis as the headline: a seat stamped on the 1st doesn't make a weekly recipient a "user" of that source. */
+function caveatsOf(pop: ShapeFact[], basis: Basis, input: SectionInput): string[] {
+  const { period, freshness, missingImports } = input;
+  const sourcesUsed = new Set<string>(counted(pop, basis).filter((f) => inRange(f, period.buckets[0].from, period.toExclusive)).map((f) => f.source));
+  return caveatsFor({ period, sourcesUsed, freshness, missingImports });
+}
+
+/**
  * One recipient's digest for one period, or null to skip (daily with no usage
  * anywhere in their tree). Person-less facts (department subscriptions,
  * unkeyed rows) have no employeeId, so they never enter either population.
  */
 export function buildDigest(input: DigestInput): Digest | null {
-  const { recipient, reportIds, employeesById, facts, period, baseUrl } = input;
+  const { recipient, reportIds, facts, period, baseUrl } = input;
   const reportSet = new Set(reportIds);
   const youFacts = facts.filter((f) => f.employeeId === recipient.id);
   const reportFacts = reportIds.length ? facts.filter((f) => f.employeeId !== null && reportSet.has(f.employeeId)) : [];
 
   const you = section(youFacts, input);
-  let reports: ReportsSection | null = null;
-  if (reportIds.length) {
-    const base = section(reportFacts, input);
-    const perPerson = sumBy(
-      counted(reportFacts, base.basis).filter((f) => inRange(f, period.from, period.toExclusive)),
-      (f) => f.employeeId as string,
-    );
-    const ranked = [...perPerson]
-      .map(([id, usd]) => ({ id, usd: round2(usd), name: employeesById.get(id)?.fullName ?? "Unknown" }))
-      .filter((p) => p.usd > 0)
-      .sort((a, b) => b.usd - a.usd || a.name.localeCompare(b.name));
-    const rest = ranked.slice(TOP_N);
-    reports = {
-      ...base,
-      headcount: reportIds.filter((id) => {
-        const e = employeesById.get(id);
-        return e ? isActiveEmployee(e) : false;
-      }).length,
-      top: ranked.slice(0, TOP_N).map((p) => ({
-        employeeId: p.id,
-        name: p.name,
-        usd: p.usd,
-        href: personHref(baseUrl, employeesById.get(p.id) ?? { id: p.id, department: null }),
-      })),
-      othersCount: rest.length,
-      // The remainder of the headline, not a sum of rounded amounts, so top + others equals it to the cent.
-      othersUsd: round2(base.headlineUsd - ranked.slice(0, TOP_N).reduce((s, p) => s + p.usd, 0)),
-    };
-  }
+  const reports = reportIds.length ? peopleSection(reportFacts, reportIds, input) : null;
 
   if (period.cadence === "daily" && you.headlineUsd === 0 && (reports?.headlineUsd ?? 0) === 0) return null;
 
-  // Same basis as the headline: a seat stamped on the 1st doesn't make a weekly recipient a "user" of that source.
-  const sourcesUsed = new Set<string>(
-    counted([...youFacts, ...reportFacts], you.basis).filter((f) => inRange(f, period.buckets[0].from, period.toExclusive)).map((f) => f.source),
-  );
   return {
     recipient: { employeeId: recipient.id, name: recipient.fullName, team: recipient.department },
     period,
     you,
     reports,
-    caveats: caveatsFor({ period, sourcesUsed, freshness: input.freshness, missingImports: input.missingImports }),
+    caveats: caveatsOf([...youFacts, ...reportFacts], you.basis, input),
     dashboardUrl: personHref(baseUrl, recipient),
+  };
+}
+
+/**
+ * A whole team's digest, or null (daily with no usage). The team is every employee — active or
+ * leaver — currently in the Okta department, plus the person-less facts attributed to that
+ * department (recurring tool costs), so a monthly total matches the Explore team page.
+ */
+export function buildTeamDigest(input: TeamDigestInput): TeamDigest | null {
+  const { department, employeesById, facts, period, baseUrl } = input;
+  const memberIds = [...employeesById.values()].filter((e) => e.department === department).map((e) => e.id);
+  const members = new Set(memberIds);
+  const pop = facts.filter((f) => (f.employeeId === null ? f.department === department : members.has(f.employeeId)));
+
+  const team = peopleSection(pop, memberIds, input);
+  if (period.cadence === "daily" && team.headlineUsd === 0) return null;
+
+  return {
+    kind: "team",
+    department,
+    period,
+    team,
+    caveats: caveatsOf(pop, team.basis, input),
+    dashboardUrl: teamHref(baseUrl, department),
   };
 }
