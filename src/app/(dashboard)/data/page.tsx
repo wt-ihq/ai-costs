@@ -6,6 +6,7 @@ import { HealthTab } from "./health-tab";
 import { ImportsTab } from "./imports-tab";
 import { ToolsTab } from "./tools-tab";
 import { SyncTab } from "./sync-tab";
+import { NotificationsTab } from "./notifications-tab";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,7 @@ const TABS = [
   { key: "imports", label: "Imports", admin: true, subtitle: "The monthly manual-import workflow: coverage and per-vendor import cards." },
   { key: "tools", label: "Tools & projects", admin: true, subtitle: "Recurring tool costs and Vercel project → department mapping." },
   { key: "sync", label: "Sync", admin: true, subtitle: "Manual sync trigger and backfill controls." },
+  { key: "notifications", label: "Notifications", admin: true, subtitle: "Slack spend digests: pilot recipients, cadences, previews and the send log." },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
@@ -22,9 +24,10 @@ type TabKey = (typeof TABS)[number]["key"];
  * Tabs are links (?tab=…) so each renders server-side and fetches only its
  * own data — the old single Imports page fetched every section at once.
  */
-export default async function DataPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+export default async function DataPage({ searchParams }: { searchParams: Promise<{ tab?: string; preview?: string; cadence?: string; at?: string }> }) {
   const isAdmin = (await getRole()) === "admin";
-  const requested = (await searchParams).tab as TabKey | undefined;
+  const sp = await searchParams;
+  const requested = sp.tab as TabKey | undefined;
   const visible = TABS.filter((t) => !t.admin || isAdmin);
   // Non-admins asking for an admin tab just get Health — the nav never links
   // there for them, and the tab's actions are requireAdmin-gated regardless.
@@ -53,6 +56,7 @@ export default async function DataPage({ searchParams }: { searchParams: Promise
       {active.key === "imports" && <ImportsTab />}
       {active.key === "tools" && <ToolsTab />}
       {active.key === "sync" && <SyncTab />}
+      {active.key === "notifications" && <NotificationsTab params={{ preview: sp.preview, cadence: sp.cadence, at: sp.at }} />}
     </>
   );
 }

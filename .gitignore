@@ -52,3 +52,6 @@ yarn-error.log*
 
 # Local credit-usage CSV exports (contain employee PII — never commit)
 analytics/
+
+# brainstorming mockups (superpowers visual companion)
+.superpowers/

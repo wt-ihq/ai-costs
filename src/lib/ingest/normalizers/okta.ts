@@ -23,6 +23,8 @@ export interface OktaUser {
     email?: string;
     login?: string;
     department?: string;
+    managerId?: string;
+    employeeNumber?: string;
     [k: string]: unknown;
   };
 }
@@ -40,6 +42,10 @@ export interface EmployeeUpsert {
   employment_status: string | null;
   start_date: string | null;
   leave_date: string | null;
+  /** Raw Okta profile.managerId — resolved to a manager at read time (src/lib/notify/tree.ts). */
+  manager_ref: string | null;
+  /** Okta profile.employeeNumber — a possible target of another user's managerId. */
+  employee_number: string | null;
 }
 
 // Okta statuses that mean the person has left / lost access. We keep their row
@@ -78,6 +84,8 @@ export function normalizeOkta(raw: OktaUsersResponse): EmployeeUpsert[] {
       employment_status: status ? status.toLowerCase() : null,
       start_date: dateOnly(u.activated),
       leave_date: isLeaver ? dateOnly(u.statusChanged) : null,
+      manager_ref: p.managerId?.toString().trim() || null,
+      employee_number: p.employeeNumber?.toString().trim() || null,
     });
   }
   if (out.length === 0) {
