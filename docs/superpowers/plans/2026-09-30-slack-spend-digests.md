@@ -3104,7 +3104,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 - Consumes: `runNotify` (Task 10), `supabaseNotifyStore` (Task 9), `createSlackClient` (Task 8), `renderChartPng` (Task 6), `resolveRunDate` (Task 3), `notifyMode` (Task 2), `isCronAuthorized`, `getSupabaseAdminClient`.
 - Produces: `slackClientFromEnv(): SlackClient`, `appBaseUrl(): string`; `GET /api/cron/notify` (optional `?date=YYYY-MM-DD`, preview only).
 
-- [ ] **Step 1: Implement the wiring.** `src/lib/notify/wiring.ts`:
+- [x] **Step 1: Implement the wiring.** `src/lib/notify/wiring.ts`:
 ```ts
 import "server-only";
 import { createSlackClient, type SlackClient } from "./slack-client";
@@ -3125,7 +3125,7 @@ export function appBaseUrl(): string {
 }
 ```
 
-- [ ] **Step 2: Implement the route.** `src/app/api/cron/notify/route.ts`:
+- [x] **Step 2: Implement the route.** `src/app/api/cron/notify/route.ts`:
 ```ts
 import { NextResponse } from "next/server";
 import { isCronAuthorized } from "@/lib/cron-auth";
@@ -3174,7 +3174,7 @@ export async function GET(req: Request) {
 }
 ```
 
-- [ ] **Step 3: Register the cron.** Replace the `crons` array in `vercel.json`:
+- [x] **Step 3: Register the cron.** Replace the `crons` array in `vercel.json`:
 ```json
   "crons": [
     {
@@ -3188,7 +3188,7 @@ export async function GET(req: Request) {
   ]
 ```
 
-- [ ] **Step 4: Check the build and the auth gate**
+- [x] **Step 4: Check the build and the auth gate**
 
 Run: `npm run test && npm run lint && CI=true npm run build`
 Expected: PASS. Then, with `npm run dev` running and **`SLACK_NOTIFY_MODE` unset**:
@@ -3198,7 +3198,7 @@ curl -s -H "Authorization: Bearer $(grep ^CRON_SECRET .env.local | cut -d= -f2-)
 ```
 Expected: `401`, then `{"mode":"off","skipped":"SLACK_NOTIFY_MODE is off"}`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add src/lib/notify/wiring.ts src/app/api/cron/notify/route.ts vercel.json
 git commit -m "feat: /api/cron/notify at 07:00 UTC (off by default, preview-only replays)
