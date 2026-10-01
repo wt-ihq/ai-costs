@@ -95,14 +95,71 @@ export async function loadEmployeesFull(supabase: SupabaseClient) {
   );
 }
 
-/** Upsert employees from Okta (the identity spine). Keyed on email. */
+interface EmployeeKey {
+  id: string;
+  email: string;
+  okta_id: string | null;
+}
+
+/**
+ * Resolve incoming Okta rows to existing employees — by `okta_id` first (stable),
+ * then by email — so a matched row is updated by `id` and its email can change.
+ * Okta emails DO change: a pre-provisioned (staged) account created with a
+ * personal address gets the company address on activation. Keying on email
+ * alone tried to insert a second row with the same okta_id and failed the
+ * whole sync every night (29 Jul – 1 Oct 2026).
+ */
+export function planEmployeeUpserts(
+  existing: EmployeeKey[],
+  incoming: Record<string, unknown>[],
+): { updates: Record<string, unknown>[]; inserts: Record<string, unknown>[]; emailClashes: number } {
+  const byOkta = new Map(existing.filter((e) => e.okta_id).map((e) => [e.okta_id as string, e]));
+  const byEmail = new Map(existing.map((e) => [e.email, e]));
+  const claimed = new Set<string>();
+  const updates: Record<string, unknown>[] = [];
+  const inserts: Record<string, unknown>[] = [];
+  let emailClashes = 0;
+  for (const row of incoming) {
+    const viaOkta = typeof row.okta_id === "string" ? byOkta.get(row.okta_id) : undefined;
+    const viaEmail = byEmail.get(row.email as string);
+    const target = viaOkta ?? viaEmail;
+    // One statement can't update a row twice: a second claimant is a new person.
+    if (!target || claimed.has(target.id)) {
+      inserts.push(row);
+      continue;
+    }
+    claimed.add(target.id);
+    if (viaOkta && viaEmail && viaEmail.id !== viaOkta.id) {
+      // The new address already belongs to another row (e.g. a legacy HiBob row):
+      // keep this row's email rather than violate the unique email index.
+      emailClashes++;
+      updates.push({ ...row, id: target.id, email: target.email });
+    } else {
+      updates.push({ ...row, id: target.id });
+    }
+  }
+  return { updates, inserts, emailClashes };
+}
+
+/** Upsert employees from Okta (the identity spine): existing rows by okta_id/email → update by id; new people → insert. */
 export async function upsertEmployees(
   supabase: SupabaseClient,
   rows: Record<string, unknown>[],
 ): Promise<number> {
   if (rows.length === 0) return 0;
-  const { error } = await supabase.from("employees").upsert(rows, { onConflict: "email" });
-  if (error) throw new Error(`upsertEmployees: ${error.message}`);
+  const existing = await selectAllRows<EmployeeKey>(supabase, "employees", "id, email, okta_id", "upsertEmployees(existing)");
+  const { updates, inserts, emailClashes } = planEmployeeUpserts(existing, rows);
+  if (emailClashes) {
+    console.warn(`upsertEmployees: ${emailClashes} Okta user(s) kept their previous email — the new address already belongs to another employee row`);
+  }
+  if (updates.length) {
+    const { error } = await supabase.from("employees").upsert(updates, { onConflict: "id" });
+    if (error) throw new Error(`upsertEmployees: ${error.message}`);
+  }
+  if (inserts.length) {
+    const { error } = await supabase.from("employees").upsert(inserts, { onConflict: "email" });
+    if (error) throw new Error(`upsertEmployees: ${error.message}`);
+  }
   return rows.length;
 }
 
