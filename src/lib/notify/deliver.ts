@@ -62,8 +62,12 @@ export class PostOutcomeUnknownError extends Error {
   }
 }
 
-/** Only a Slack rejection that arrived as an answer (not a 5xx) proves the message was not posted. */
-const isDefinitiveRejection = (err: unknown): boolean => err instanceof SlackApiError && !err.code.startsWith("http_5");
+/** Slack documents these chat.postMessage errors as "some aspect of the operation may have succeeded", so the DM may have gone out. */
+const AMBIGUOUS_SLACK_CODES: ReadonlySet<string> = new Set(["internal_error", "fatal_error", "service_unavailable", "request_timeout"]);
+
+/** Only a Slack rejection that arrived as a clear answer (not a 5xx or an ambiguous code) proves the message was not posted. */
+const isDefinitiveRejection = (err: unknown): boolean =>
+  err instanceof SlackApiError && !err.code.startsWith("http_5") && !AMBIGUOUS_SLACK_CODES.has(err.code);
 
 const isInvalidBlocks = (err: unknown): boolean => err instanceof SlackApiError && err.code.startsWith("invalid_blocks");
 

@@ -187,6 +187,7 @@ describe("runNotify", () => {
   it.each([
     ["a network error", () => new TypeError("fetch failed")],
     ["an HTTP 5xx", () => new SlackApiError("chat.postMessage", "http_502")],
+    ["a Slack internal_error", () => new SlackApiError("chat.postMessage", "internal_error")],
   ])("an ambiguous post failure (%s) leaves the row pending and is never resent", async (_label, boom) => {
     const store = memoryStore(seed({ subscriptions: [{ employeeId: "a", cadence: "daily" }] }), () => MONDAY.getTime());
     const logs: string[] = [];
