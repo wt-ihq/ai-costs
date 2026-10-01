@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchEmployeesAll } from "@/lib/queries/common";
 import { pageAll } from "./store";
 import { buildReportingTree } from "./tree";
-import { CADENCES, isActiveEmployee, NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence, type SendMode } from "./types";
+import { activeDepartments, CADENCES, isActiveEmployee, NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence, type SendMode } from "./types";
 
 export interface RecipientRow {
   employeeId: string;
@@ -24,12 +24,15 @@ export interface LastRun {
   failed: number;
   plusPreview: number; // preview rows the same day when mode is live
 }
+/** A pickable employee: `label` is "Name — Team (email)". */
+export interface PersonOption { id: string; label: string; name: string }
 export interface NotificationsAdminData {
   recipients: RecipientRow[];
   sends: SendLogRow[]; // newest first, ≤ 50
   lastRun: LastRun | null;
   tree: { active: number; resolved: number; unresolved: string[] };
-  people: { id: string; label: string }[]; // active, not yet enrolled — "Name — Team (email)"
+  people: PersonOption[]; // active, not yet enrolled — the recipients table's add-a-person picker
+  activePeople: PersonOption[]; // every active employee — the preview and test-send pickers
   departments: string[];
 }
 
@@ -131,6 +134,9 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
 
   const active = employees.filter(isActiveEmployee);
   const unresolved = new Set(tree.unresolved);
+  const activePeople = active
+    .map((e): PersonOption => ({ id: e.id, name: e.fullName, label: `${e.fullName} — ${e.department ?? "No team"} (${e.email})` }))
+    .sort((a, b) => a.label.localeCompare(b.label));
 
   return {
     recipients,
@@ -140,8 +146,9 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
     })),
     lastRun: summariseLastRun(sends),
     tree: { active: active.length, resolved: active.filter((e) => !unresolved.has(e.id)).length, unresolved: active.filter((e) => unresolved.has(e.id)).map((e) => e.fullName).sort() },
-    people: active.filter((e) => !cadencesBy.has(e.id)).map((e) => ({ id: e.id, label: `${e.fullName} — ${e.department ?? "No team"} (${e.email})` })).sort((a, b) => a.label.localeCompare(b.label)),
-    departments: [...new Set(active.map((e) => e.department).filter((d): d is string => !!d))].sort(),
+    people: activePeople.filter((p) => !cadencesBy.has(p.id)),
+    activePeople,
+    departments: activeDepartments(employees),
   };
 }
 

@@ -24,7 +24,7 @@ type TabKey = (typeof TABS)[number]["key"];
  * Tabs are links (?tab=…) so each renders server-side and fetches only its
  * own data — the old single Imports page fetched every section at once.
  */
-export default async function DataPage({ searchParams }: { searchParams: Promise<{ tab?: string; preview?: string; cadence?: string; at?: string }> }) {
+export default async function DataPage({ searchParams }: { searchParams: Promise<{ tab?: string; preview?: string; team?: string; cadence?: string; at?: string }> }) {
   const isAdmin = (await getRole()) === "admin";
   const sp = await searchParams;
   const requested = sp.tab as TabKey | undefined;
@@ -56,7 +56,7 @@ export default async function DataPage({ searchParams }: { searchParams: Promise
       {active.key === "imports" && <ImportsTab />}
       {active.key === "tools" && <ToolsTab />}
       {active.key === "sync" && <SyncTab />}
-      {active.key === "notifications" && <NotificationsTab params={{ preview: sp.preview, cadence: sp.cadence, at: sp.at }} />}
+      {active.key === "notifications" && <NotificationsTab params={{ preview: sp.preview, team: sp.team, cadence: sp.cadence, at: sp.at }} />}
     </>
   );
 }

@@ -7,10 +7,9 @@ import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchEmployeesAll } from "@/lib/queries/common";
 import { addSubscriptions, removeSubscriptions, setSubscription } from "@/lib/notify/admin-store";
 import { renderChartPng } from "@/lib/notify/chart-image";
-import { digestFor, loadNotifyContext } from "@/lib/notify/context";
-import { deliverDigest, resolveSlackUser } from "@/lib/notify/deliver";
-import { periodFor } from "@/lib/notify/schedule";
+import type { TestSubject, TestTarget } from "@/lib/notify/subject";
 import { supabaseNotifyStore } from "@/lib/notify/store";
+import { sendTest, type TestSendResult } from "@/lib/notify/test-send";
 import { isActiveEmployee, isCadence, isUuid, NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence } from "@/lib/notify/types";
 import { appBaseUrl, slackClientFromEnv } from "@/lib/notify/wiring";
 
@@ -67,25 +66,26 @@ export async function removeRecipient(employeeId: string): Promise<void> {
   revalidatePath("/data");
 }
 
-/** DMs the previewed digest to the SIGNED-IN admin only. Never logged as a send, never sent to the recipient. */
-export async function sendPreviewToMe(employeeId: string, cadence: string, periodKey: string): Promise<{ ok: true } | { ok: false; error: string }> {
+/**
+ * Admin test send: any person's or any team's digest, DM'd to the signed-in admin, to the person
+ * themself, or to any chosen active employee — clearly marked as a test, in ANY SLACK_NOTIFY_MODE,
+ * and never recorded in notification_sends (so it can't block or duplicate the scheduled send).
+ * Public POST endpoint: sendTest re-validates every argument.
+ */
+export async function sendTestDigest(subject: TestSubject, cadence: string, periodKey: string, to: TestTarget): Promise<TestSendResult> {
   await requireAdmin();
-  if (!isUuid(employeeId) || !isCadence(cadence) || typeof periodKey !== "string") return { ok: false, error: "Invalid input" };
   try {
-    const now = new Date();
-    const period = periodFor(cadence, periodKey, now);
-    const store = supabaseNotifyStore(getSupabaseAdminClient());
-    const ctx = await loadNotifyContext(store, now, appBaseUrl(), { earliest: period.buckets[0].from });
-    const digest = digestFor(ctx, employeeId, period);
-    if (!digest) return { ok: false, error: "Nothing to send for that period (no usage)" };
-    const email = await actorEmail();
-    const me = ctx.employees.find((e) => e.email === email);
-    if (!me) return { ok: false, error: "Your email isn't in the employee list" };
-    const slack = slackClientFromEnv();
-    const slackUserId = await resolveSlackUser(store, slack, me, now);
-    if (!slackUserId) return { ok: false, error: "No Slack account found for your email" };
-    await deliverDigest({ slack, renderChart: renderChartPng, slackUserId, digest, previewFor: `${digest.recipient.name} (${cadence})` });
-    return { ok: true };
+    return await sendTest(
+      {
+        store: supabaseNotifyStore(getSupabaseAdminClient()),
+        slack: slackClientFromEnv(),
+        renderChart: renderChartPng,
+        now: new Date(),
+        baseUrl: appBaseUrl(),
+        actorEmail: await actorEmail(),
+      },
+      { subject, cadence, periodKey, to },
+    );
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

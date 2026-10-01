@@ -12,6 +12,14 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-10-01",
+    title: "Test any Slack digest",
+    items: [
+      "On Data → Notifications you can now preview the Slack summary for any person or any whole team, not just the pilot recipients. Pick one from the new list at the top of the preview.",
+      "A new Send test button sends what you're previewing to yourself, straight to that person, or to anyone you choose. Every test message says it's a test and who sent it, and it never counts as one of the real scheduled summaries.",
+    ],
+  },
+  {
+    date: "2026-10-01",
     title: "New joiners back on the dashboard",
     items: [
       "The nightly sync of people and teams had been stuck since late July because one person's email address changed. It's fixed: everyone who joined since then appears again, team moves and leavers are up to date, and their spend moves from Unmatched to their name.",
