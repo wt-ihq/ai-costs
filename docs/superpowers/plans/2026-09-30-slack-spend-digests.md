@@ -3231,7 +3231,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 This task is UI and integration code. The logic underneath is already covered by Tasks 2–10, so it's verified by build, lint and Local QA (Task 13) rather than new unit tests.
 
-- [ ] **Step 1: The admin store.** `src/lib/notify/admin-store.ts`:
+- [x] **Step 1: The admin store.** `src/lib/notify/admin-store.ts`:
 ```ts
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchEmployeesAll } from "@/lib/queries/common";
@@ -3344,7 +3344,7 @@ export async function removeSubscriptions(supabase: SupabaseClient, employeeId: 
 }
 ```
 
-- [ ] **Step 2: Server actions.** `src/app/(dashboard)/data/notifications-actions.ts`:
+- [x] **Step 2: Server actions.** `src/app/(dashboard)/data/notifications-actions.ts`:
 ```ts
 "use server";
 
@@ -3440,7 +3440,7 @@ export async function sendPreviewToMe(employeeId: string, cadence: string, perio
 }
 ```
 
-- [ ] **Step 3: Components**
+- [x] **Step 3: Components**
 
 `src/components/notifications/block-kit-preview.tsx`:
 ```tsx
@@ -3654,7 +3654,7 @@ export function RecipientsTable({ rows, people, departments, previewing }: {
 }
 ```
 
-- [ ] **Step 4: The tab.** `src/app/(dashboard)/data/notifications-tab.tsx`:
+- [x] **Step 4: The tab.** `src/app/(dashboard)/data/notifications-tab.tsx`:
 ```tsx
 import Link from "next/link";
 import { Panel } from "@/components/ui";
@@ -3828,7 +3828,7 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
 }
 ```
 
-- [ ] **Step 5: Register the tab.** In `src/app/(dashboard)/data/page.tsx`:
+- [x] **Step 5: Register the tab.** In `src/app/(dashboard)/data/page.tsx`:
 
 Add the import:
 ```tsx
@@ -3850,12 +3850,12 @@ Add the render line after the `sync` one:
       {active.key === "notifications" && <NotificationsTab params={{ preview: sp.preview, cadence: sp.cadence, at: sp.at }} />}
 ```
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 Run: `npm run test && npm run lint && CI=true npm run build`
 Expected: PASS. Then `npm run dev`, sign in as an admin (or `AUTH_DISABLED=true` locally), open `/data?tab=notifications`. Expected: three status cards, an empty recipients table, and "Click Preview…". A non-admin must not see the tab (the TABS `admin: true` filter).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 ```bash
 git add src/lib/notify/admin-store.ts "src/app/(dashboard)/data/notifications-actions.ts" "src/app/(dashboard)/data/notifications-tab.tsx" "src/app/(dashboard)/data/page.tsx" src/components/notifications
 git commit -m "feat: Data → Notifications tab — pilot recipients, live preview, send log
