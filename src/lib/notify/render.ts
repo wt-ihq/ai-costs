@@ -1,5 +1,5 @@
 import { formatUsd } from "@/lib/utils";
-import type { Digest, DigestSection, ReportsSection, TeamDigest, ToolAmount } from "./digest";
+import { round2, type Digest, type DigestSection, type ReportsSection, type TeamDigest, type ToolAmount } from "./digest";
 import { CADENCE_UNIT, CHART_SPAN } from "./schedule";
 
 export type SlackBlock = Record<string, unknown>;
@@ -69,11 +69,15 @@ function topLine(r: ReportsSection, unit: string): string {
   return names.join(" · ");
 }
 
-/** The team's top people. Department-level costs belong to no one, so they show as their own item rather than vanish into "others". */
+/**
+ * The team's top people. "Others" counts people only; spend that belongs to no member (department
+ * costs) is its own item, so neither is hidden inside the other. Rounding cents alone show nothing.
+ */
 function teamTopLine(r: ReportsSection, unit: string): string {
   const parts = r.top.map((p) => `<${p.href}|${escapeMrkdwn(p.name)}> ${formatUsd(p.usd)}`);
-  if (r.othersCount) parts.push(`+${r.othersCount} others ${formatUsd(r.othersUsd)}`);
-  else if (r.othersUsd > 0) parts.push(`${r.top.length ? "+" : ""}team-level costs ${formatUsd(r.othersUsd)}`);
+  const teamLevel = r.teamLevelUsd ?? 0;
+  if (r.othersCount) parts.push(`+${r.othersCount} others ${formatUsd(Math.max(0, round2(r.othersUsd - teamLevel)))}`);
+  if (teamLevel > 0) parts.push(`team-level costs ${formatUsd(teamLevel)}`);
   return parts.length ? parts.join(" · ") : `No usage from this team this ${unit}`;
 }
 
@@ -88,17 +92,17 @@ function sectionBlocks(label: string, s: DigestSection, fileId: string | undefin
   return out;
 }
 
-/** Banner and/or cron preview line above the digest; the text fallback gets the same context. */
+/** Banner and/or cron preview line above the digest; the text fallback gets the same context (escaped: Slack parses it as mrkdwn). */
 function withLead(r: RenderedDigest, opts: RenderOpts): RenderedDigest {
   const lead: SlackBlock[] = [];
   let prefix = "";
   if (opts.banner) {
     lead.push(context([escapeMrkdwn(opts.banner)]));
-    prefix += `[${opts.banner}] `;
+    prefix += `[${escapeMrkdwn(opts.banner)}] `;
   }
   if (opts.previewFor) {
     lead.push(context([`🔍 Preview · would send to ${escapeMrkdwn(opts.previewFor)}`]));
-    prefix += `[Preview for ${opts.previewFor}] `;
+    prefix += `[Preview for ${escapeMrkdwn(opts.previewFor)}] `;
   }
   return lead.length ? { blocks: [...lead, ...r.blocks], text: prefix + r.text } : r;
 }
@@ -138,6 +142,7 @@ export function renderTeamDigest(d: TeamDigest, files: TeamChartFileIds, opts: R
   if (d.caveats.length) blocks.push(context(d.caveats.map(escapeMrkdwn)));
   blocks.push(dashboardButton(d.dashboardUrl));
 
-  const text = `AI spend · ${d.department} · ${d.period.label}: team ${formatUsd(d.team.headlineUsd)} ${d.team.basis}`;
+  // Slack parses `text` as mrkdwn as well, so the department is escaped here (the header block is plain_text and is not).
+  const text = `AI spend · ${escapeMrkdwn(d.department)} · ${d.period.label}: team ${formatUsd(d.team.headlineUsd)} ${d.team.basis}`;
   return withLead({ blocks, text }, opts);
 }

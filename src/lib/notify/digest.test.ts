@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ShapeFact } from "@/lib/explore/shape";
 import type { CostType, Vendor } from "@/lib/types";
-import { buildDigest, buildTeamDigest, type DigestInput, type TeamDigestInput } from "./digest";
+import { buildDigest, buildTeamDigest, isTeamDigest, type DigestInput, type TeamDigestInput } from "./digest";
 import { periodFor } from "./schedule";
 import type { NotifyEmployee } from "./types";
 
@@ -155,7 +155,8 @@ const deptFact = (day: string, source: Vendor, costType: CostType, costUsd: numb
   ...fact(day, source, costType, costUsd, null, model), department,
 });
 const teamFacts: ShapeFact[] = [
-  ...facts, // Engineering person-less Figma AI subscription (999) is in here
+  // Engineering person-less Figma AI subscription (999) is in here. Sam is in Data Science, so his facts say so.
+  ...facts.map((f) => (f.employeeId === "s" ? { ...f, department: "Data Science" } : f)),
   deptFact("2026-09-23", "openrouter", "metered", 5, "Engineering", "ws"), // department-attributed usage
   deptFact("2026-09-23", "openrouter", "metered", 77, "Data Science", "ws"), // another team's: never ours
 ];
@@ -178,8 +179,8 @@ describe("buildTeamDigest — weekly (usage basis)", () => {
     expect(d).toMatchObject({ kind: "team", department: "Engineering", dashboardUrl: "https://x.test/explore/Engineering" });
     expect(d.team.top.map((p) => [p.name, p.usd])).toEqual([["Alex Kim", 140], ["Former Person", 42], ["Priya Nair", 38.2]]);
     expect(d.team.top[0].href).toBe("https://x.test/explore/Engineering/a");
-    // the department-level $5 has no person: it lands in the remainder so top + others is the headline
-    expect(d.team).toMatchObject({ othersCount: 0, othersUsd: 5 });
+    // the department-level $5 has no person: it is the remainder (so top + others is the headline) and team-level spend
+    expect(d.team).toMatchObject({ othersCount: 0, othersUsd: 5, teamLevelUsd: 5 });
   });
 
   it("headcount is active members only, even though a leaver's spend counts", () => {
@@ -209,7 +210,7 @@ describe("buildTeamDigest — monthly (total basis)", () => {
       fact("2026-08-10", "cursor", "overage", 20.05, "m"),
       fact("2026-08-12", "openrouter", "metered", 7.77, "l"), // leaver
       deptFact("2026-08-05", "other", "subscription", 100.1, "Engineering", "Figma AI"),
-      fact("2026-08-03", "cursor", "overage", 55, "s"), // Data Science member
+      { ...fact("2026-08-03", "cursor", "overage", 55, "s"), department: "Data Science" }, // Data Science member
       deptFact("2026-08-04", "other", "subscription", 33, "Data Science", "Notion"),
       fact("2026-07-03", "cursor", "overage", 7, "m"),
     ];
@@ -218,7 +219,14 @@ describe("buildTeamDigest — monthly (total basis)", () => {
     expect(d.team.byTool.map((t) => [t.key, t.usd])).toEqual([["other:Figma AI", 100.1], ["cursor", 60.05], ["openrouter", 7.77]]);
     // top people exclude the person-less subscription; it is part of the remainder
     expect(d.team.top.map((p) => [p.name, p.usd])).toEqual([["Priya Nair", 60.05], ["Former Person", 7.77]]);
-    expect(d.team.othersUsd).toBe(100.1);
+    expect(d.team).toMatchObject({ othersCount: 0, othersUsd: 100.1, teamLevelUsd: 100.1 });
+  });
+
+  it("a $999 department subscription is team-level spend, kept out of the people", () => {
+    const aug: ShapeFact[] = [fact("2026-08-10", "cursor", "overage", 20, "m"), deptFact("2026-08-05", "other", "subscription", 999, "Engineering", "Figma AI")];
+    const t = buildTeamDigest(teamInput({ facts: aug, period: periodFor("monthly", "2026-08", now) }))!.team;
+    expect(t).toMatchObject({ headlineUsd: 1019, teamLevelUsd: 999, othersCount: 0 });
+    expect(t.top.map((p) => [p.name, p.usd])).toEqual([["Priya Nair", 20]]);
   });
 });
 
@@ -229,6 +237,13 @@ describe("buildTeamDigest — daily", () => {
     expect(buildTeamDigest(teamInput({ period: periodFor("daily", "2026-09-24", now) }))!.team.headlineUsd).toBe(140);
     // the department-level usage alone is still usage
     expect(buildTeamDigest(teamInput({ period: periodFor("daily", "2026-09-23", now) }))!.team.headlineUsd).toBe(13.1);
+  });
+});
+
+describe("isTeamDigest", () => {
+  it("tells the two digest kinds apart", () => {
+    expect(isTeamDigest(buildTeamDigest(teamInput())!)).toBe(true);
+    expect(isTeamDigest(buildDigest(input())!)).toBe(false);
   });
 });
 
@@ -247,6 +262,45 @@ describe("buildTeamDigest — edge cases", () => {
     expect(t.headcount).toBe(8);
     const cents = (n: number) => Math.round(n * 100);
     expect(cents(t.top.reduce((s, p) => s + p.usd, 0) + t.othersUsd)).toBe(cents(t.headlineUsd));
+  });
+
+  it("counts a fact tagged with this department even when its person sits in another one (Explore's rule): total and team-level, never named", () => {
+    const f = [...teamFacts, { ...fact("2026-09-23", "cursor", "overage", 25, "s"), department: "Engineering" }];
+    const t = buildTeamDigest(teamInput({ facts: f }))!.team;
+    expect(t.headlineUsd).toBe(250.2); // 225.2 + 25
+    expect(t.teamLevelUsd).toBe(30); // the department's own $5 + Sam's $25 tagged to Engineering
+    expect(t.top.map((p) => p.name)).toEqual(["Alex Kim", "Former Person", "Priya Nair"]); // Sam is not a member
+    expect(t.headcount).toBe(3);
+  });
+
+  it("other departments' people are neither counted nor named; a member's fact tagged elsewhere still belongs to the member", () => {
+    const f = [{ ...fact("2026-09-23", "cursor", "overage", 7, "m"), department: "Data Science" }];
+    const t = buildTeamDigest(teamInput({ facts: f }))!.team;
+    expect(t).toMatchObject({ headlineUsd: 7, teamLevelUsd: 0 });
+    expect(t.top.map((p) => [p.name, p.usd])).toEqual([["Priya Nair", 7]]);
+    expect(buildTeamDigest(teamInput({ department: "Data Science", facts: f }))!.team.headlineUsd).toBe(7); // and it is Data Science's by tag too
+  });
+
+  it("splits the remainder: 7 people + a $50 department cost leave others = the 2 people, team-level = $50", () => {
+    const amounts = [100, 90, 80, 70, 60, 11, 10];
+    const many = amounts.map((_, i) => emp(`p${i}`, `Ops Person ${i}`, { department: "Ops" }));
+    const f = [
+      ...many.map((p, i) => ({ ...fact("2026-09-22", "cursor", "overage", amounts[i], p.id), department: "Ops" })),
+      deptFact("2026-09-23", "openrouter", "metered", 50, "Ops", "ws"),
+    ];
+    const map = new Map([...byId, ...many.map((p) => [p.id, p] as const)]);
+    const t = buildTeamDigest(teamInput({ department: "Ops", facts: f, employeesById: map }))!.team;
+    expect(t).toMatchObject({ headlineUsd: 471, othersCount: 2, othersUsd: 71, teamLevelUsd: 50 });
+  });
+
+  it("rounding cents alone leave no team-level spend (3 members at $1.004)", () => {
+    const many = [0, 1, 2].map((i) => emp(`c${i}`, `Cent Person ${i}`, { department: "Ops" }));
+    const f = many.map((p) => ({ ...fact("2026-09-22", "cursor", "overage", 1.004, p.id), department: "Ops" }));
+    const map = new Map([...byId, ...many.map((p) => [p.id, p] as const)]);
+    const t = buildTeamDigest(teamInput({ department: "Ops", facts: f, employeesById: map }))!.team;
+    expect(t.teamLevelUsd).toBe(0);
+    expect(t.othersCount).toBe(0);
+    expect(t.othersUsd).toBe(0.01); // 3.01 headline − 3 × $1.00: a rounding leftover the renderer must not show
   });
 
   it("caveats mention only sources the team used on the headline basis", () => {

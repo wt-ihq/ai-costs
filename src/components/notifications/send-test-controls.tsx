@@ -12,9 +12,10 @@ type Choice = "me" | "subject" | "other";
  * (people only), or to anyone chosen. Never a scheduled send. The parent keys this by
  * subject + cadence + period so the choice and result reset when the preview changes.
  */
-export function SendTestControls({ subject, subjectName, cadence, periodKey, people }: {
+export function SendTestControls({ subject, subjectName, subjectActive, cadence, periodKey, people }: {
   subject: TestSubject;
   subjectName: string; // the person's name, or the department
+  subjectActive: boolean; // a leaver can't receive a DM, so "This person" is only offered for an active person
   cadence: string;
   periodKey: string;
   people: PersonOption[];
@@ -59,7 +60,7 @@ export function SendTestControls({ subject, subjectName, cadence, periodKey, peo
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <span className="text-muted">Send to:</span>
         {radio("me", "Me")}
-        {subject.kind === "person" && radio("subject", "This person")}
+        {subject.kind === "person" && subjectActive && radio("subject", "This person")}
         {radio("other", "Someone else…")}
         {choice === "other" && (
           <>

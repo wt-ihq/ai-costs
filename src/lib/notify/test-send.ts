@@ -1,4 +1,5 @@
 import { digestFor, loadNotifyContext, teamDigestFor } from "./context";
+import { isTeamDigest } from "./digest";
 import { deliverDigest, deliverTeamDigest, resolveSlackUser, type RenderChart } from "./deliver";
 import { periodFor } from "./schedule";
 import type { SlackClient } from "./slack-client";
@@ -100,7 +101,7 @@ export async function sendTest(deps: TestSendDeps, input: { subject: unknown; ca
 
     const banner = testBanner({ adminName, subjectName, cadence, toSubject: subjectId !== null && target.id === subjectId });
     const send = { slack: deps.slack, renderChart: deps.renderChart, slackUserId, banner, log: deps.log, sleep: deps.sleep };
-    if ("kind" in digest) await deliverTeamDigest({ ...send, digest });
+    if (isTeamDigest(digest)) await deliverTeamDigest({ ...send, digest });
     else await deliverDigest({ ...send, digest });
 
     log(`[notify] test send subject=${subject.kind === "person" ? `person:${subject.employeeId}` : `team:${subject.department}`} target=${target.id} cadence=${cadence}`);

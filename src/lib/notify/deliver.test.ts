@@ -65,7 +65,7 @@ describe("deliverTeamDigest", () => {
     expect(s.posts[0].channel).toBe("D-U1");
     expect(s.posts[0].blocks[0]).toMatchObject({ type: "context" });
     expect(s.posts[0].blocks.find((b) => (b as { type: string }).type === "image")).toMatchObject({ slack_file: { id: "F1" } });
-    expect(s.posts[0].text.startsWith("[🧪 Test: R&D's weekly digest, sent to you by Admin] AI spend · R&D")).toBe(true);
+    expect(s.posts[0].text.startsWith("[🧪 Test: R&amp;D's weekly digest, sent to you by Admin] AI spend · R&amp;D")).toBe(true);
   });
 
   it("sends text-only when the chart cannot be rendered", async () => {
@@ -86,9 +86,13 @@ describe("deliverTeamDigest", () => {
       },
     });
     const waits: number[] = [];
-    await deliverTeamDigest({ ...args(slack.client, { sleep: async (ms: number) => { waits.push(ms); } }), digest: teamDigest });
+    const banner = "🧪 Test: R&D's weekly digest, sent to you by Admin";
+    await deliverTeamDigest({ ...args(slack.client, { sleep: async (ms: number) => { waits.push(ms); } }), digest: teamDigest, banner });
     expect(posts.map(hasImage)).toEqual([true, true, false]);
     expect(waits).toEqual([1500]);
+    // the text-only fallback is still marked as a test: the banner leads every attempt
+    const lead = { type: "context", elements: [{ type: "mrkdwn", text: "🧪 Test: R&amp;D's weekly digest, sent to you by Admin" }] };
+    expect(posts.map((b) => b[0])).toEqual([lead, lead, lead]);
   });
 
   it("does not retry a definitive rejection", async () => {
@@ -110,6 +114,20 @@ describe("deliverDigest", () => {
     await deliverDigest({ ...args(s.client), digest: personDigest });
     expect(s.uploads.map((u) => u.name)).toEqual(Object.keys(chartLayoutsFor(personDigest)).map((k) => `ai-spend-${k}.png`));
     expect(s.uploads.map((u) => u.name)).toEqual(["ai-spend-you.png", "ai-spend-reports.png"]);
+  });
+
+  it("keeps the banner on the text-only fallback after Slack rejects the image blocks", async () => {
+    const posts: unknown[][] = [];
+    const slack = fakeSlack({
+      postMessage: async (_c, blocks) => {
+        posts.push(blocks);
+        if (hasImage(blocks)) throw new SlackApiError("chat.postMessage", "invalid_blocks");
+        return "ts";
+      },
+    });
+    await deliverDigest({ ...args(slack.client), digest: personDigest, banner: "🧪 Test message from Admin — not a scheduled digest" });
+    expect(posts.map(hasImage)).toEqual([true, true, false]);
+    expect(posts[2][0]).toEqual({ type: "context", elements: [{ type: "mrkdwn", text: "🧪 Test message from Admin — not a scheduled digest" }] });
   });
 
   it("passes a banner through to the message", async () => {

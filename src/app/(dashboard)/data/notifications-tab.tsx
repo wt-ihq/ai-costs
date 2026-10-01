@@ -10,11 +10,12 @@ import { renderChartPng } from "@/lib/notify/chart-image";
 import type { ChartLayout } from "@/lib/notify/chart";
 import { digestFor, loadNotifyContext, teamDigestFor } from "@/lib/notify/context";
 import { chartLayoutsFor, chartLayoutsForTeam } from "@/lib/notify/deliver";
+import { isTeamDigest } from "@/lib/notify/digest";
 import { renderDigest, renderTeamDigest, type SlackBlock } from "@/lib/notify/render";
 import { latestCompleteKey, periodFor, stepKey } from "@/lib/notify/schedule";
 import { supabaseNotifyStore } from "@/lib/notify/store";
 import { previewHref, type TestSubject } from "@/lib/notify/subject";
-import { activeDepartments, CADENCES, isCadence, isUuid, notifyMode, type Cadence } from "@/lib/notify/types";
+import { activeDepartments, CADENCES, isActiveEmployee, isCadence, isUuid, notifyMode, type Cadence } from "@/lib/notify/types";
 import { appBaseUrl } from "@/lib/notify/wiring";
 
 export interface NotificationsParams { preview?: string; team?: string; cadence?: string; at?: string }
@@ -22,6 +23,7 @@ export interface NotificationsParams { preview?: string; team?: string; cadence?
 interface PreviewState {
   subject: TestSubject;
   name: string; // the person's name, or the department
+  subjectActive: boolean; // false for a leaver (or an unknown person): they can't be sent a test themself
   cadence: Cadence;
   key: string;
   label: string;
@@ -52,13 +54,15 @@ async function loadPreview(p: NotificationsParams): Promise<PreviewState | null>
   else return null;
 
   const digest = subject.kind === "person" ? digestFor(ctx, subject.employeeId, period) : teamDigestFor(ctx, subject.department, period);
+  const person = subject.kind === "person" ? ctx.employeesById.get(subject.employeeId) : undefined;
   const base = {
     subject, cadence, key, label: period.label,
-    name: subject.kind === "person" ? (ctx.employeesById.get(subject.employeeId)?.fullName ?? "Unknown") : subject.department,
+    name: subject.kind === "person" ? (person?.fullName ?? "Unknown") : subject.department,
+    subjectActive: subject.kind === "team" || (person !== undefined && isActiveEmployee(person)),
     prevKey: stepKey(cadence, key, -1, now), nextKey: stepKey(cadence, key, 1, now),
   };
   if (!digest) return { ...base, blocks: null, images: {} };
-  const layouts: Record<string, ChartLayout | undefined> = "kind" in digest ? chartLayoutsForTeam(digest) : chartLayoutsFor(digest);
+  const layouts: Record<string, ChartLayout | undefined> = isTeamDigest(digest) ? chartLayoutsForTeam(digest) : chartLayoutsFor(digest);
   const images: Record<string, string> = {};
   const files: Record<string, string> = {};
   for (const [section, layout] of Object.entries(layouts)) {
@@ -71,7 +75,7 @@ async function loadPreview(p: NotificationsParams): Promise<PreviewState | null>
       // Best-effort, like the cron: the section renders without its chart.
     }
   }
-  return { ...base, blocks: ("kind" in digest ? renderTeamDigest(digest, files) : renderDigest(digest, files)).blocks, images };
+  return { ...base, blocks: (isTeamDigest(digest) ? renderTeamDigest(digest, files) : renderDigest(digest, files)).blocks, images };
 }
 
 /** A failed preview must not take down the tab: recipients and sends still render. */
@@ -177,7 +181,7 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
                   <BlockKitPreview blocks={preview.blocks} images={preview.images} />
                   <SendTestControls
                     key={`${previewKey}-${preview.cadence}-${preview.key}`}
-                    subject={preview.subject} subjectName={preview.name} cadence={preview.cadence} periodKey={preview.key}
+                    subject={preview.subject} subjectName={preview.name} subjectActive={preview.subjectActive} cadence={preview.cadence} periodKey={preview.key}
                     people={data.activePeople}
                   />
                 </>

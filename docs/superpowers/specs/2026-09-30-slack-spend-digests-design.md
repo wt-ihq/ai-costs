@@ -208,6 +208,20 @@ Rules:
 - Person-less facts (department `subscription` rows, `unkeyed`) never appear
   in a "You" or "Reports" figure. They belong to no one.
 
+**Team digest (preview and test only, not schedulable).** `buildTeamDigest`
+produces a `TeamDigest` (`{ kind: "team"; department; period; team:
+ReportsSection; caveats; dashboardUrl }`) for one Okta department; the
+subscriptions stay per person, so nothing schedules it. The population follows
+Explore's team rule: facts of any employee **currently in the department**
+(active or leaver) **or** tagged with the department (department-attributed
+recurring costs), so a monthly total matches the Explore team page. The basis
+(usage for daily/weekly, total for monthly), the `null` skip for a daily with
+no usage, the caveat rule and the top-5 line are the same as for a "Reports"
+section, and both share one helper (`peopleSection`). Only current members are
+ranked and named; spend that belongs to no member is reported separately as
+`teamLevelUsd`, so "N others" counts people only. The headcount is active
+members. It links to the team's Explore page.
+
 **Caveats** — `src/lib/notify/freshness.ts` (pure). `sourceFreshness(runs)`
 turns the loaded `sync_runs` into one `SourceFreshness` per **synced**
 source (cursor, anthropic, openai, vercel, openrouter): whether its latest
@@ -235,7 +249,15 @@ stamped on the 1st doesn't count; monthly: every fact):
 - **Your reports (N people)**, if present: headline, the reports chart,
   the top-5 line with names linked to Explore person pages, context line.
 - Caveats as a context block, then an "Open in dashboard" button.
-- `text`: a plain-text fallback carrying every headline figure. Slack uses it
+- **Team digest** (`renderTeamDigest`): header "📊 AI spend · {Department} ·
+  {period.label}", one section labelled "{DEPARTMENT} · N PEOPLE" with the
+  same headline, chart, top-5 line ("+N others $X · team-level costs $Y"),
+  tools/month lines and caveats, and a button to the team's Explore page.
+- `banner` (both renderers): an optional context block above everything, used
+  by admin test sends; the text fallback gets it as a `[banner] ` prefix.
+- `text`: a plain-text fallback carrying every headline figure. Slack parses it
+  as mrkdwn too, so user data in it (department, banner, preview target) is
+  escaped like the blocks. Slack uses it
   for push notifications and screen readers, and search uses only text.
 
 **`src/lib/notify/chart.tsx`** is a `next/og` (`ImageResponse`, Satori)
@@ -339,17 +361,34 @@ as mocked:
   daily/weekly/monthly checkboxes (save on click), report count from the tree,
   Slack status (found / not found / not yet looked up), last sent, a "left"
   badge for leavers, remove, Preview.
-- **Preview panel:** pick a cadence and step through periods. It renders
-  exactly what the cron would send by calling the same `buildDigest` and
-  `render`, shown as a Slack-style card with both charts. **"Send this to
-  me in Slack"** DMs it to the signed-in admin. It's never logged as a send
-  and never goes to the recipient.
+- **Preview panel:** a **Preview** picker at the top selects any active
+  employee (not only enrolled recipients) or any Okta department. The choice
+  lives in the URL (`?preview=<employee id>` or `?team=<department>`, the
+  department checked server-side against the real list; unknown is ignored),
+  so cadence tabs and period stepping work for both. It renders exactly what
+  the cron would send by calling the same `buildDigest` / `buildTeamDigest`
+  and `render`, shown as a Slack-style card with its charts. A preview error
+  renders inline and never takes the tab down.
+- **Send test:** sends the previewed digest, and **Send to** chooses the
+  recipient: **Me** (the signed-in admin), **This person** (person previews of
+  an active person only) or **Someone else** (any active employee, picked per
+  send; a confirm appears when it is neither you nor the subject). Every test
+  DM leads with a banner — "🧪 Test message from {admin} — not a scheduled
+  digest" when it goes to the subject themself, otherwise "🧪 Test: {subject}'s
+  {cadence} digest, sent to you by {admin}" — and the text fallback carries it
+  too. A test works in **any** `SLACK_NOTIFY_MODE` (it is an explicit admin
+  action), and it is **never written to `notification_sends`**, so it can
+  neither block nor duplicate the scheduled send. Its server log line has ids
+  only.
 - **Recent sends:** the last 50 `notification_sends` rows with status and
   detail.
 
 Every Server Action (`addRecipients`, `setCadence`, `removeRecipient`,
-`sendPreviewToMe`) starts with `await requireAdmin()`. `sendPreviewToMe`
-targets the session's own email, never an argument.
+`sendTestDigest`) starts with `await requireAdmin()`. `sendTestDigest` takes a
+subject, cadence, period and recipient from the client, so it re-validates all
+of it server-side (`isUuid`, `isCadence`, a real department, a known recipient
+kind; "This person" is invalid for a team) and only ever sends to an **active**
+employee whose Slack account it resolves itself.
 
 ## 8. Security and PII
 

@@ -46,7 +46,7 @@ describe("loadNotifyContext / digestFor", () => {
 describe("teamDigestFor", () => {
   const store = memoryStore({
     employees: [emp("m"), emp("a", { managerRef: "00um" }), emp("s", { department: "Data" })],
-    facts: [fact("2026-09-22", 10, "m"), fact("2026-09-23", 25, "a"), fact("2026-09-23", 99, "s")],
+    facts: [fact("2026-09-22", 10, "m"), fact("2026-09-23", 25, "a"), { ...fact("2026-09-23", 99, "s"), department: "Data" }],
   });
 
   it("builds the department's digest from the shared context, with its Explore link", async () => {

@@ -50,7 +50,14 @@ export interface ReportsSection extends DigestSection {
   headcount: number; // ACTIVE descendants; leavers' spend still counts in the figures
   top: TopPerson[];
   othersCount: number;
+  /** The headline minus the top people, exact to the cent: the other people AND any team-level spend. */
   othersUsd: number;
+  /**
+   * Team digests only: spend on the headline basis that belongs to no current member (person-less
+   * department costs, or a department-tagged fact of someone in another department). Part of
+   * `othersUsd`; the renderer shows it separately so "others" is only people.
+   */
+  teamLevelUsd?: number;
 }
 
 export interface Digest {
@@ -73,6 +80,11 @@ export interface TeamDigest {
   team: ReportsSection;
   caveats: string[];
   dashboardUrl: string;
+}
+
+/** Person digests carry no `kind`; team digests are `kind: "team"`. */
+export function isTeamDigest(d: Digest | TeamDigest): d is TeamDigest {
+  return "kind" in d && d.kind === "team";
 }
 
 /** What every digest kind needs to turn a fact population into a section. */
@@ -100,7 +112,7 @@ export interface TeamDigestInput extends SectionInput {
 const TOP_N = 5;
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 /** Cents, with -0 normalised (formatUsd(-0) would print "-$0.00"). */
-const round2 = (n: number) => {
+export const round2 = (n: number) => {
   const v = Math.round(n * 100) / 100;
   return v === 0 ? 0 : v;
 };
@@ -184,14 +196,16 @@ function section(pop: ShapeFact[], input: SectionInput): DigestSection {
 /**
  * A section for a group of people: the group's figures plus its ranked people. `memberIds` are the
  * people the group is made of (leavers included — their spend counts, they just aren't headcount);
- * `pop` may also hold person-less facts (a team's department-attributed costs), which count in the
- * headline but belong to no one, so they end up in the remainder.
+ * `pop` may also hold facts of no member (a team's department-attributed costs), which count in the
+ * headline but belong to no one, so they end up in the remainder (and are never ranked or named).
  */
 function peopleSection(pop: ShapeFact[], memberIds: readonly string[], input: SectionInput): ReportsSection {
   const { period, employeesById, baseUrl } = input;
+  const members = new Set(memberIds);
   const base = section(pop, input);
+  // Only current members are ranked and named; anything else in `pop` is team-level spend.
   const perPerson = sumBy(
-    counted(pop, base.basis).filter((f) => f.employeeId !== null && inRange(f, period.from, period.toExclusive)),
+    counted(pop, base.basis).filter((f) => f.employeeId !== null && members.has(f.employeeId) && inRange(f, period.from, period.toExclusive)),
     (f) => f.employeeId as string,
   );
   const ranked = [...perPerson]
@@ -251,17 +265,22 @@ export function buildDigest(input: DigestInput): Digest | null {
 }
 
 /**
- * A whole team's digest, or null (daily with no usage). The team is every employee — active or
- * leaver — currently in the Okta department, plus the person-less facts attributed to that
- * department (recurring tool costs), so a monthly total matches the Explore team page.
+ * A whole team's digest, or null (daily with no usage). Population = Explore's team rule, so a
+ * monthly total matches the Explore team page: facts of any employee currently in the Okta
+ * department (active or leaver) OR facts tagged with the department (`ShapeFact.department`:
+ * the fact's own, else the person's) — person-less recurring costs, or a person from elsewhere
+ * whose fact carries this department. Only members are ranked; the rest is `teamLevelUsd`.
  */
 export function buildTeamDigest(input: TeamDigestInput): TeamDigest | null {
   const { department, employeesById, facts, period, baseUrl } = input;
   const memberIds = [...employeesById.values()].filter((e) => e.department === department).map((e) => e.id);
   const members = new Set(memberIds);
-  const pop = facts.filter((f) => (f.employeeId === null ? f.department === department : members.has(f.employeeId)));
+  const isMember = (f: ShapeFact) => f.employeeId !== null && members.has(f.employeeId);
+  const pop = facts.filter((f) => isMember(f) || f.department === department);
 
-  const team = peopleSection(pop, memberIds, input);
+  const ranked = peopleSection(pop, memberIds, input);
+  const teamLevelUsd = round2(total(counted(pop, ranked.basis).filter((f) => !isMember(f) && inRange(f, period.from, period.toExclusive))));
+  const team: ReportsSection = { ...ranked, teamLevelUsd };
   if (period.cadence === "daily" && team.headlineUsd === 0) return null;
 
   return {

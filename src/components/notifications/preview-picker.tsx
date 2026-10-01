@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import type { PersonOption } from "@/lib/notify/admin-store";
 import { previewHref, type TestSubject } from "@/lib/notify/subject";
 import type { Cadence } from "@/lib/notify/types";
@@ -9,7 +9,8 @@ import type { Cadence } from "@/lib/notify/types";
 /**
  * Preview any active person or any Okta team. Choosing one navigates (the tab is link-driven: the
  * subject lives in the URL), keeping the current cadence and dropping the period so it opens on the
- * latest complete one. The parent remounts this (key) per subject so the inputs show what's open.
+ * latest complete one. The parent remounts this (key) per subject, so the select can be uncontrolled
+ * (defaultValue): it keeps showing the choice while the new preview loads, then remounts with it.
  */
 export function PreviewPicker({ people, departments, cadence, current, currentPersonLabel }: {
   people: PersonOption[];
@@ -19,10 +20,11 @@ export function PreviewPicker({ people, departments, cadence, current, currentPe
   currentPersonLabel: string | null;
 }) {
   const router = useRouter();
+  const [loading, startNav] = useTransition();
   const [person, setPerson] = useState(current?.kind === "person" ? (currentPersonLabel ?? "") : "");
   const idByLabel = new Map(people.map((p) => [p.label, p.id]));
 
-  const go = (subject: TestSubject) => router.push(previewHref(subject, cadence));
+  const go = (subject: TestSubject) => startNav(() => router.push(previewHref(subject, cadence)));
 
   return (
     <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
@@ -39,13 +41,14 @@ export function PreviewPicker({ people, departments, cadence, current, currentPe
       />
       <span className="text-muted">or</span>
       <select
-        value={current?.kind === "team" ? current.department : ""} aria-label="Preview a team"
+        defaultValue={current?.kind === "team" ? current.department : ""} aria-label="Preview a team"
         onChange={(e) => { if (e.target.value) go({ kind: "team", department: e.target.value }); }}
         className="rounded-md border border-border bg-surface-2 px-2 py-1 text-foreground"
       >
         <option value="">Any team…</option>
         {departments.map((d) => <option key={d} value={d}>{d}</option>)}
       </select>
+      {loading && <span className="text-muted" role="status">Loading…</span>}
     </div>
   );
 }

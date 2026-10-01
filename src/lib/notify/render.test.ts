@@ -77,7 +77,8 @@ describe("renderDigest", () => {
     const r = renderDigest(digest(), { you: "F1" }, { banner: "🧪 Test: Tom & <Jerry>'s weekly digest, sent to you by Admin" });
     expect(r.blocks[0]).toEqual({ type: "context", elements: [{ type: "mrkdwn", text: "🧪 Test: Tom &amp; &lt;Jerry&gt;'s weekly digest, sent to you by Admin" }] });
     expect(r.blocks[1]).toMatchObject({ type: "header" });
-    expect(r.text.startsWith("[🧪 Test: Tom & <Jerry>'s weekly digest, sent to you by Admin] Your AI spend · ")).toBe(true);
+    // Slack parses `text` as mrkdwn too, so the fallback is escaped like the blocks
+    expect(r.text.startsWith("[🧪 Test: Tom &amp; &lt;Jerry&gt;'s weekly digest, sent to you by Admin] Your AI spend · ")).toBe(true);
   });
 
   it("is unchanged without a banner", () => {
@@ -90,6 +91,11 @@ describe("renderDigest", () => {
     expect(r.blocks[0]).toEqual({ type: "context", elements: [{ type: "mrkdwn", text: "🔍 Preview · would send to Priya Nair (weekly)" }] });
     expect(r.blocks.slice(1)).toEqual(renderDigest(digest(), {}).blocks);
     expect(r.text.startsWith("[Preview for Priya Nair (weekly)] Your AI spend")).toBe(true);
+  });
+
+  it("escapes the cron preview target in the text fallback too", () => {
+    const r = renderDigest(digest(), {}, { previewFor: "Tom & <Jerry> (weekly)" });
+    expect(r.text.startsWith("[Preview for Tom &amp; &lt;Jerry&gt; (weekly)] Your AI spend")).toBe(true);
   });
 
   it("people without reports get no reports section", () => {
@@ -150,28 +156,55 @@ describe("renderTeamDigest", () => {
   });
 
   it("has a plain-text fallback carrying the headline figure", () => {
-    expect(text).toBe("AI spend · R&D <Ops> · 21–27 Sep 2026: team $612 usage");
+    expect(text).toBe("AI spend · R&amp;D &lt;Ops&gt; · 21–27 Sep 2026: team $612 usage"); // `text` is parsed as mrkdwn by Slack
   });
 
   it("omits the image block when no chart was uploaded", () => {
     expect(renderTeamDigest(teamDigest(), {}).blocks.some((b) => b.type === "image")).toBe(false);
   });
 
-  it("does not leave the department-level remainder unexplained when everyone is listed", () => {
-    const t = teamDigest();
-    const line = mrk(renderTeamDigest(teamDigest({ team: { ...t.team, othersCount: 0, othersUsd: 5 } }), {}).blocks[2]);
-    expect(line.endsWith(" · +team-level costs $5.00")).toBe(true);
-    const none = renderTeamDigest(teamDigest({ team: { ...t.team, top: [], othersCount: 0, othersUsd: 0 } }), {}).blocks[2];
-    expect(mrk(none)).toBe("No usage from this team this week");
-    const only = renderTeamDigest(teamDigest({ team: { ...t.team, top: [], othersCount: 0, othersUsd: 5 } }), {}).blocks[2];
-    expect(mrk(only)).toBe("team-level costs $5.00");
+  describe("top-people line", () => {
+    const line = (over: Partial<TeamDigest["team"]>, period?: TeamDigest["period"]) =>
+      mrk(renderTeamDigest(teamDigest({ ...(period ? { period } : {}), team: { ...teamDigest().team, ...over } }), {}).blocks[2]);
+    const alex = "<https://x.test/explore/R%26D/a|Alex Kim> $140";
+    const tom = "<https://x.test/explore/R%26D/t|Tom &amp; &lt;Jerry&gt;> $96.00";
+
+    it("keeps 'others' to people and names team-level costs separately (7 people + a $50 department cost)", () => {
+      // othersUsd is the exact remainder (2 people = $21, plus $50 team-level)
+      expect(line({ othersCount: 2, othersUsd: 71, teamLevelUsd: 50 })).toBe(`${alex} · ${tom} · +2 others $21.00 · team-level costs $50.00`);
+    });
+
+    it("shows team-level costs on their own when every person is listed", () => {
+      expect(line({ othersCount: 0, othersUsd: 5, teamLevelUsd: 5 })).toBe(`${alex} · ${tom} · team-level costs $5.00`);
+      expect(line({ top: [], othersCount: 0, othersUsd: 5, teamLevelUsd: 5 })).toBe("team-level costs $5.00");
+    });
+
+    it("a monthly $999 department subscription is team-level, not 'others'", () => {
+      const monthly = periodFor("monthly", "2026-08", now);
+      expect(line({ othersCount: 0, othersUsd: 999, teamLevelUsd: 999 }, monthly)).toBe(`${alex} · ${tom} · team-level costs $999`);
+    });
+
+    it("never turns rounding cents into a line", () => {
+      expect(line({ othersCount: 0, othersUsd: 0.01, teamLevelUsd: 0 })).toBe(`${alex} · ${tom}`);
+      expect(line({ top: [], othersCount: 0, othersUsd: 0.01, teamLevelUsd: 0 })).toBe("No usage from this team this week");
+      // and a rounding hair in 'others' cannot go negative
+      expect(line({ othersCount: 1, othersUsd: 50, teamLevelUsd: 50.01 })).toContain("+1 others $0.00");
+    });
+
+    it("without a team-level figure (person-style data) it is the plain others line", () => {
+      expect(line({})).toBe(`${alex} · ${tom} · +9 others $175`);
+    });
+
+    it("says so when nobody spent anything", () => {
+      expect(line({ top: [], othersCount: 0, othersUsd: 0, teamLevelUsd: 0 })).toBe("No usage from this team this week");
+    });
   });
 
   it("puts a banner first and prefixes the text fallback", () => {
     const r = renderTeamDigest(teamDigest(), {}, { banner: "🧪 Test: R&D <Ops>'s weekly digest, sent to you by Admin" });
     expect(r.blocks[0]).toEqual({ type: "context", elements: [{ type: "mrkdwn", text: "🧪 Test: R&amp;D &lt;Ops&gt;'s weekly digest, sent to you by Admin" }] });
     expect(r.blocks[1]).toMatchObject({ type: "header" });
-    expect(r.text.startsWith("[🧪 Test: R&D <Ops>'s weekly digest, sent to you by Admin] AI spend · ")).toBe(true);
+    expect(r.text.startsWith("[🧪 Test: R&amp;D &lt;Ops&gt;'s weekly digest, sent to you by Admin] AI spend · R&amp;D &lt;Ops&gt; · ")).toBe(true);
   });
 });
 
