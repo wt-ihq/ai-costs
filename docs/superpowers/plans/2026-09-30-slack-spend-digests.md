@@ -2675,7 +2675,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
   - `interface RunNotifyResult { due: string[]; sent: number; skipped: number; failed: number; alreadyHandled: number; notReached: number; expired: number; note?: string }`
   - `STALE_PENDING_MS`, `DEFAULT_BUDGET_MS`, `runNotify(deps): Promise<RunNotifyResult>`
 
-- [ ] **Step 1: Write the failing test.** `src/lib/notify/run-notify.test.ts`:
+- [x] **Step 1: Write the failing test.** `src/lib/notify/run-notify.test.ts`:
 ```ts
 import { describe, expect, it } from "vitest";
 import type { ShapeFact } from "@/lib/explore/shape";
@@ -2858,12 +2858,12 @@ describe("runNotify", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test and check it fails**
+- [x] **Step 2: Run the test and check it fails**
 
 Run: `npx vitest run src/lib/notify/run-notify.test.ts`
 Expected: FAIL. Cannot find module `./run-notify`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `src/lib/notify/deliver.ts`:
 ```ts
@@ -3076,12 +3076,12 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
 }
 ```
 
-- [ ] **Step 4: Run the test and check it passes**
+- [x] **Step 4: Run the test and check it passes**
 
 Run: `npx vitest run src/lib/notify/run-notify.test.ts`
 Expected: PASS. If "retries a failed send" shows `sent: 1`, check that `memoryStore.claimSend` retakes the seeded failed row (attempts 1 → 2) and that `a`'s daily digest isn't null (the fact on 2026-09-27 gives it usage).
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run: `npm run test && npm run lint && CI=true npm run build`
 ```bash
