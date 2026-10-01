@@ -404,8 +404,10 @@ targets the session's own email, never an argument.
 **Status (2026-10-01):** Code shipped on branch `slack-digests` with inline
 `slack_file` chart images assumed. Checkpoint A (production migration 0015 +
 Okta manager audit) and Checkpoint B (Slack app + `scripts/slack-smoke.ts`)
-are pending Gareth; if B fails, the fallback touches only `slack-client.ts`
-`uploadImage` and `deliver.ts`.
+are pending Gareth; if B fails, the fallback touches `slack-client.ts`
+`uploadImage` and `deliver.ts`, and the admin preview
+(`block-kit-preview.tsx` / `notifications-tab.tsx`) must also stop showing
+inline charts so it keeps matching what is sent.
 
 ## 11. Rollout
 

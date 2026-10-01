@@ -3,7 +3,6 @@ import type { ShapeFact } from "@/lib/explore/shape";
 import { fetchEmployeesAll, fetchFactsInRange } from "@/lib/queries/common";
 import { getSourceHorizons, getToolColors } from "@/lib/queries/explore";
 import { buildImportCoverage, getImportCoverageScope, type CoverageMonthRow } from "@/lib/queries/import-coverage";
-import { VENDOR_LABEL, type Vendor } from "@/lib/types";
 import type { SyncRunRow } from "./freshness";
 import { NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence, type NotifyEmployee, type SendMode } from "./types";
 
@@ -26,7 +25,6 @@ export interface NotifyStore {
   employees(): Promise<NotifyEmployee[]>;
   facts(from: string, toExclusive: string): Promise<ShapeFact[]>;
   sourceHorizons(): Promise<Record<string, string>>;
-  usageHorizons(): Promise<Record<string, string>>;
   toolColors(): Promise<Record<string, string>>;
   recentSyncRuns(sinceIso: string): Promise<SyncRunRow[]>;
   importCoverage(nowMonth: string): Promise<CoverageMonthRow[]>;
@@ -83,23 +81,6 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
       return fetchFactsInRange(supabase, from, toExclusive);
     },
     sourceHorizons: () => getSourceHorizons(supabase),
-    async usageHorizons() {
-      const out: Record<string, string> = {};
-      await Promise.all(
-        (Object.keys(VENDOR_LABEL) as Vendor[]).map(async (v) => {
-          const { data, error } = await supabase
-            .from("spend_facts")
-            .select("day")
-            .eq("source", v)
-            .in("cost_type", ["overage", "metered"])
-            .order("day", { ascending: false })
-            .limit(1);
-          if (error) throw new Error(`usageHorizons(${v}): ${error.message}`);
-          if (data?.[0]?.day) out[v] = data[0].day as string;
-        }),
-      );
-      return out;
-    },
     toolColors: () => getToolColors(supabase),
     async recentSyncRuns(sinceIso) {
       const rows = await pageAll<{ source: string; status: string; started_at: string }>(

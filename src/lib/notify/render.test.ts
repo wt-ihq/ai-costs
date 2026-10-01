@@ -22,7 +22,7 @@ const digest = (over: Partial<Digest> = {}): Digest => ({
     ],
     othersCount: 9, othersUsd: 175,
   },
-  caveats: ["⚠ Cursor data may be incomplete (last updated 26 Sep)"],
+  caveats: ["⚠ Cursor data may be incomplete (last synced 26 Sep)"],
   dashboardUrl: "https://x.test/explore/Engineering/m",
   ...over,
 });
@@ -54,7 +54,7 @@ describe("renderDigest", () => {
   });
 
   it("ends with caveats and an Open in dashboard button", () => {
-    expect(blocks.at(-2)).toEqual({ type: "context", elements: [{ type: "mrkdwn", text: "⚠ Cursor data may be incomplete (last updated 26 Sep)" }] });
+    expect(blocks.at(-2)).toEqual({ type: "context", elements: [{ type: "mrkdwn", text: "⚠ Cursor data may be incomplete (last synced 26 Sep)" }] });
     expect(blocks.at(-1)).toMatchObject({ type: "actions", elements: [{ type: "button", url: "https://x.test/explore/Engineering/m" }] });
   });
 

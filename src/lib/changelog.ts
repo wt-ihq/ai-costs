@@ -12,10 +12,10 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-10-01",
-    title: "Slack spend digests (pilot)",
+    title: "Slack spend digests (setup)",
     items: [
-      "Admins can enrol people on the new Data → Notifications tab to get a Slack message with their AI spend — daily, weekly or monthly. Managers also see a section for everyone who reports to them.",
-      "Each section comes with a small chart of recent spend by tool. A preview shows exactly what someone would get, and can be sent to yourself first.",
+      "Admins have a new Data → Notifications tab to choose who gets a Slack summary of their AI spend — daily, weekly or monthly — with managers also seeing everyone who reports to them.",
+      "A preview shows exactly what each person would get, with a small chart per section, and can be sent to yourself first. Messages only go out once the pilot is switched on.",
     ],
   },
   {

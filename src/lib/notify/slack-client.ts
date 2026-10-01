@@ -20,6 +20,8 @@ export class SlackApiError extends Error {
 
 const API = "https://slack.com/api/";
 const MAX_RETRIES = 3;
+/** One Retry-After wait never exceeds this, so a long rate-limit can't eat the cron's whole time budget. */
+const MAX_RETRY_WAIT_S = 30;
 
 export function createSlackClient(
   token: string,
@@ -36,7 +38,7 @@ export function createSlackClient(
         body: new URLSearchParams(params).toString(),
       });
       if (res.status === 429 && attempt < MAX_RETRIES) {
-        await sleep((Number(res.headers.get("retry-after")) || 1) * 1000);
+        await sleep(Math.min(Number(res.headers.get("retry-after")) || 1, MAX_RETRY_WAIT_S) * 1000);
         continue;
       }
       if (!res.ok) throw new SlackApiError(method, `http_${res.status}`);

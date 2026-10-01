@@ -46,6 +46,14 @@ describe("createSlackClient", () => {
     await expect(s2.openDm("U1")).rejects.toMatchObject({ code: "http_429" });
   });
 
+  it("caps a single Retry-After wait at 30 s", async () => {
+    const slept: number[] = [];
+    const f = fakeFetch([new Response("", { status: 429, headers: { "retry-after": "120" } }), ok({ channel: { id: "D1" } })]);
+    const slack = createSlackClient("t", { fetch: f.fn, sleep: async (ms) => void slept.push(ms) });
+    expect(await slack.openDm("U1")).toBe("D1");
+    expect(slept).toEqual([30000]);
+  });
+
   it("uploads an image in three steps and returns the file id", async () => {
     const png = new Uint8Array([137, 80, 78, 71]);
     const f = fakeFetch([

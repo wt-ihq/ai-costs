@@ -1,4 +1,3 @@
-import { MONTHLY_SNAPSHOT_SOURCES } from "@/lib/explore/shape";
 import type { CoverageMonthRow } from "@/lib/queries/import-coverage";
 import { VENDOR_LABEL, type Vendor } from "@/lib/types";
 import type { DigestPeriod } from "./schedule";
@@ -15,31 +14,25 @@ export const SYNCED_SOURCES: readonly Vendor[] = ["cursor", "anthropic", "openai
 export interface SourceFreshness {
   source: Vendor;
   lastSyncFailed: boolean;
-  usageThrough: string | null; // latest daily-usage fact day
+  lastSuccessDay: string | null; // UTC day of the latest successful run in the loaded window
 }
 
 /**
- * Per-source freshness from the latest sync run and the latest daily USAGE
- * day. Monthly-snapshot sources (Claude Team) are skipped: their usage is one
- * fact stamped on the 1st, so its "horizon" would flag every month as stale.
+ * Per-SYNCED-source state from the loaded sync runs. Manual sources (ChatGPT
+ * Business, Claude Team imports) are never listed: their data is sparse by
+ * nature, and a missing monthly import is reported by monthlyReadiness.
  */
-export function sourceFreshness(runs: SyncRunRow[], usageHorizons: Record<string, string>): SourceFreshness[] {
-  const latestRun = new Map<string, SyncRunRow>();
-  for (const r of runs) {
-    const cur = latestRun.get(r.source);
-    if (!cur || r.startedAt > cur.startedAt) latestRun.set(r.source, r);
-  }
-  const sources = new Set<string>([...SYNCED_SOURCES, ...Object.keys(usageHorizons)]);
-  const out: SourceFreshness[] = [];
-  for (const source of sources) {
-    if (MONTHLY_SNAPSHOT_SOURCES.has(source)) continue;
-    out.push({
-      source: source as Vendor,
-      lastSyncFailed: (SYNCED_SOURCES as readonly string[]).includes(source) && latestRun.get(source)?.status === "failed",
-      usageThrough: usageHorizons[source] ?? null,
-    });
-  }
-  return out;
+export function sourceFreshness(runs: SyncRunRow[]): SourceFreshness[] {
+  return SYNCED_SOURCES.map((source) => {
+    let latest: SyncRunRow | undefined;
+    let latestSuccess: SyncRunRow | undefined;
+    for (const r of runs) {
+      if (r.source !== source) continue;
+      if (!latest || r.startedAt > latest.startedAt) latest = r;
+      if (r.status === "success" && (!latestSuccess || r.startedAt > latestSuccess.startedAt)) latestSuccess = r;
+    }
+    return { source, lastSyncFailed: latest?.status === "failed", lastSuccessDay: latestSuccess?.startedAt.slice(0, 10) ?? null };
+  });
 }
 
 /** False when not one spend source synced successfully today — daily/weekly sends are then skipped. */
@@ -87,7 +80,6 @@ export function monthlyReadiness(rows: CoverageMonthRow[], month: string): { rea
 const SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const dayLabel = (d: string) => `${Number(d.slice(8, 10))} ${SHORT[Number(d.slice(5, 7)) - 1]}`;
-const lastDayOf = (p: DigestPeriod) => new Date(Date.parse(`${p.toExclusive}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
 
 /** Caveats for ONE recipient: only sources in their (or their tree's) chart span. */
 export function caveatsFor(args: {
@@ -97,13 +89,13 @@ export function caveatsFor(args: {
   missingImports: MissingImport[];
 }): string[] {
   const { period, sourcesUsed, freshness, missingImports } = args;
-  const lastDay = lastDayOf(period);
   const out: string[] = [];
   for (const f of freshness) {
     if (!sourcesUsed.has(f.source)) continue;
-    const behind = f.usageThrough !== null && f.usageThrough < lastDay;
-    if (f.lastSyncFailed || behind) {
-      out.push(`⚠ ${VENDOR_LABEL[f.source]} data may be incomplete${f.usageThrough ? ` (last updated ${dayLabel(f.usageThrough)})` : ""}`);
+    // Stale = latest run failed, or no successful run since the period ended (so it may not cover the last day).
+    const stale = f.lastSyncFailed || f.lastSuccessDay === null || f.lastSuccessDay < period.toExclusive;
+    if (stale) {
+      out.push(`⚠ ${VENDOR_LABEL[f.source]} data may be incomplete${f.lastSuccessDay ? ` (last synced ${dayLabel(f.lastSuccessDay)})` : ""}`);
     }
   }
   if (period.cadence === "monthly") {

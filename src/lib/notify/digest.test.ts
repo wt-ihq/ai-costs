@@ -109,13 +109,43 @@ describe("buildDigest — edge cases", () => {
     expect(Math.round((r.top.reduce((s, p) => s + p.usd, 0) + r.othersUsd) * 100) / 100).toBe(r.headlineUsd);
   });
 
+  it("top 5 + others equal the reports headline to the cent with fractional amounts", () => {
+    const amounts = [10.333, 9.334, 8.334, 7.127, 6.334, 5.334, 4.334, 2.226];
+    const many = amounts.map((_, i) => emp(`f${i}`, `Fraction ${i}`));
+    const f = many.map((p, i) => fact("2026-09-22", "cursor", "overage", amounts[i], p.id));
+    const map = new Map([...byId, ...many.map((p) => [p.id, p] as const)]);
+    const r = buildDigest(input({ facts: f, reportIds: many.map((p) => p.id), employeesById: map }))!.reports!;
+    expect(r.top).toHaveLength(5);
+    expect(r.othersCount).toBe(3);
+    const cents = (n: number) => Math.round(n * 100);
+    expect(cents(r.top.reduce((s, p) => s + p.usd, 0) + r.othersUsd)).toBe(cents(r.headlineUsd));
+  });
+
   it("caveats mention only sources the recipient or their tree used", () => {
     const d = buildDigest(input({
       freshness: [
-        { source: "cursor", lastSyncFailed: true, usageThrough: "2026-09-29" },
-        { source: "openai", lastSyncFailed: true, usageThrough: "2026-09-29" },
+        { source: "cursor", lastSyncFailed: true, lastSuccessDay: "2026-09-29" },
+        { source: "openai", lastSyncFailed: true, lastSuccessDay: "2026-09-29" },
       ],
     }))!;
-    expect(d.caveats).toEqual(["⚠ Cursor data may be incomplete (last updated 29 Sep)"]);
+    expect(d.caveats).toEqual(["⚠ Cursor data may be incomplete (last synced 29 Sep)"]);
+  });
+
+  it("seat facts in the span don't count as using a source: an Anthropic-usage-only week gets no Cursor/ChatGPT caveat", () => {
+    const d = buildDigest(input({
+      reportIds: [],
+      facts: [
+        fact("2026-09-23", "anthropic", "metered", 12.5, "m"),
+        fact("2026-09-01", "cursor", "seat", 40, "m"),
+        fact("2026-09-01", "chatgpt_business", "seat", 25, "m"),
+      ],
+      freshness: [
+        { source: "anthropic", lastSyncFailed: false, lastSuccessDay: "2026-09-30" },
+        { source: "cursor", lastSyncFailed: true, lastSuccessDay: "2026-09-27" },
+        { source: "chatgpt_business", lastSyncFailed: true, lastSuccessDay: null },
+      ],
+    }))!;
+    expect(d.you.byTool.map((t) => t.key)).toEqual(["anthropic"]);
+    expect(d.caveats).toEqual([]);
   });
 });

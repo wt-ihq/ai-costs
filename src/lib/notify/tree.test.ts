@@ -31,12 +31,28 @@ describe("buildReportingTree", () => {
     expect(t.reportsOf("m").sort()).toEqual(["a", "b", "c"]);
   });
 
-  it("terminates on cycles and ignores self-management", () => {
+  it("never makes a manager a report in an A→B→A cycle, and flags both as unresolved", () => {
     const t = buildReportingTree([emp("a", { managerRef: "00ub" }), emp("b", { managerRef: "00ua" }), emp("s", { managerRef: "00us" })]);
-    expect(t.reportsOf("a")).toEqual(["b"]);
-    expect(t.reportsOf("b")).toEqual(["a"]);
+    expect(t.reportsOf("a")).toEqual([]);
+    expect(t.reportsOf("b")).toEqual([]);
     expect(t.reportsOf("s")).toEqual([]);
     expect(t.managerOf("s")).toBeNull();
+    expect(t.unresolved.sort()).toEqual(["a", "b", "s"]);
+  });
+
+  it("handles a longer A→B→C→A cycle: no member sees another, a report hanging off it still rolls up", () => {
+    const t = buildReportingTree([
+      emp("a", { managerRef: "00ub" }),
+      emp("b", { managerRef: "00uc" }),
+      emp("c", { managerRef: "00ua" }),
+      emp("d", { managerRef: "00ua" }), // reports to a cycle member, not in the cycle itself
+      emp("x", { managerRef: "00uc", leaveDate: "2026-01-31", employmentStatus: "deprovisioned" }),
+    ]);
+    expect(t.reportsOf("a")).toEqual(["d"]);
+    expect(t.reportsOf("b")).toEqual([]);
+    expect(t.reportsOf("c").sort()).toEqual(["x"]);
+    expect(t.reportsOf("d")).toEqual([]);
+    expect(t.unresolved.sort()).toEqual(["a", "b", "c"]);
   });
 
   it("keeps leavers as descendants but lists only ACTIVE people without a resolvable manager", () => {

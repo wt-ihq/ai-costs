@@ -11,15 +11,16 @@ const runs: SyncRunRow[] = [
 ];
 
 describe("sourceFreshness", () => {
-  it("flags a source whose LATEST run failed and carries each usage horizon", () => {
-    const f = sourceFreshness(runs, { cursor: "2026-09-28", anthropic: "2026-09-29", chatgpt_business: "2026-09-10", claude_team: "2026-09-01" });
-    expect(f.find((x) => x.source === "cursor")).toEqual({ source: "cursor", lastSyncFailed: true, usageThrough: "2026-09-28" });
-    expect(f.find((x) => x.source === "anthropic")).toEqual({ source: "anthropic", lastSyncFailed: false, usageThrough: "2026-09-29" });
-    expect(f.find((x) => x.source === "chatgpt_business")).toEqual({ source: "chatgpt_business", lastSyncFailed: false, usageThrough: "2026-09-10" });
+  it("reports every SYNCED source: latest run failed, and the latest successful run's day", () => {
+    const f = sourceFreshness(runs);
+    expect(f.map((x) => x.source).sort()).toEqual(["anthropic", "cursor", "openai", "openrouter", "vercel"]);
+    expect(f.find((x) => x.source === "cursor")).toEqual({ source: "cursor", lastSyncFailed: true, lastSuccessDay: "2026-09-29" });
+    expect(f.find((x) => x.source === "anthropic")).toEqual({ source: "anthropic", lastSyncFailed: false, lastSuccessDay: "2026-09-30" });
+    expect(f.find((x) => x.source === "openai")).toEqual({ source: "openai", lastSyncFailed: false, lastSuccessDay: null });
   });
-  it("skips monthly-snapshot sources: Claude Team's usage lump is stamped on the 1st, not a daily horizon", () => {
-    const f = sourceFreshness(runs, { claude_team: "2026-09-01" });
-    expect(f.some((x) => x.source === "claude_team")).toBe(false);
+  it("never includes manual or identity sources (no freshness for imports, okta)", () => {
+    const f = sourceFreshness([...runs, { source: "chatgpt_business", status: "failed", startedAt: "2026-09-30T06:00:00Z" }]);
+    expect(f.some((x) => (x.source as string) === "okta" || x.source === "chatgpt_business" || x.source === "claude_team")).toBe(false);
   });
 });
 
@@ -55,16 +56,29 @@ describe("monthlyReadiness", () => {
 });
 
 describe("caveatsFor", () => {
-  const weekly = periodFor("weekly", "2026-W39", new Date("2026-09-30T07:00:00Z")); // 21–27 Sep
+  const weekly = periodFor("weekly", "2026-W39", new Date("2026-09-30T07:00:00Z")); // 21–27 Sep, toExclusive 2026-09-28
+  const fresh = (source: "cursor" | "openai" | "anthropic", lastSyncFailed: boolean, lastSuccessDay: string | null) => ({ source, lastSyncFailed, lastSuccessDay });
+  const caveats = (freshness: ReturnType<typeof fresh>[], used: string[]) =>
+    caveatsFor({ period: weekly, sourcesUsed: new Set(used), freshness, missingImports: [] });
+
+  it("warns when a used synced source's latest run failed, citing its last successful sync", () => {
+    expect(caveats([fresh("cursor", true, "2026-09-29")], ["cursor"])).toEqual(["⚠ Cursor data may be incomplete (last synced 29 Sep)"]);
+  });
+  it("warns when no successful run is on/after the period's end", () => {
+    expect(caveats([fresh("cursor", false, "2026-09-27")], ["cursor"])).toEqual(["⚠ Cursor data may be incomplete (last synced 27 Sep)"]);
+  });
+  it("warns without a date when there is no successful run in the window", () => {
+    expect(caveats([fresh("cursor", false, null)], ["cursor"])).toEqual(["⚠ Cursor data may be incomplete"]);
+  });
+  it("is silent when the latest run succeeded on/after the period's end", () => {
+    expect(caveats([fresh("cursor", false, "2026-09-28"), fresh("anthropic", false, "2026-09-30")], ["cursor", "anthropic"])).toEqual([]);
+  });
   it("warns only about sources this recipient actually uses", () => {
-    const freshness = [
-      { source: "cursor" as const, lastSyncFailed: false, usageThrough: "2026-09-26" },
-      { source: "openai" as const, lastSyncFailed: true, usageThrough: "2026-09-29" },
-      { source: "anthropic" as const, lastSyncFailed: false, usageThrough: "2026-09-29" },
-    ];
-    expect(caveatsFor({ period: weekly, sourcesUsed: new Set(["cursor", "anthropic"]), freshness, missingImports: [] })).toEqual([
-      "⚠ Cursor data may be incomplete (last updated 26 Sep)",
-    ]);
+    expect(caveats([fresh("cursor", false, "2026-09-30"), fresh("openai", true, null), fresh("anthropic", false, "2026-09-30")], ["cursor", "anthropic"])).toEqual([]);
+  });
+  it("never gives a manual source a freshness caveat (sourceFreshness → caveatsFor, end to end)", () => {
+    const freshness = sourceFreshness([{ source: "anthropic", status: "success", startedAt: "2026-09-30T06:00:04Z" }]);
+    expect(caveatsFor({ period: weekly, sourcesUsed: new Set(["chatgpt_business", "claude_team"]), freshness, missingImports: [] })).toEqual([]);
   });
   it("adds missing manual imports on monthly digests only, for used sources", () => {
     const monthly = periodFor("monthly", "2026-09", new Date("2026-10-05T07:00:00Z"));

@@ -20,7 +20,6 @@ export interface MemorySeed {
   syncRuns?: SyncRunRow[];
   coverage?: CoverageMonthRow[];
   sourceHorizons?: Record<string, string>;
-  usageHorizons?: Record<string, string>;
   sends?: SendRow[];
 }
 
@@ -54,7 +53,6 @@ export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.no
       return (seed.facts ?? []).filter((f) => f.day >= from && f.day < toExclusive);
     },
     sourceHorizons: async () => seed.sourceHorizons ?? {},
-    usageHorizons: async () => seed.usageHorizons ?? {},
     toolColors: async () => ({}),
     recentSyncRuns: async (since) => (seed.syncRuns ?? []).filter((r) => r.startedAt >= since),
     importCoverage: async () => seed.coverage ?? [],

@@ -11,8 +11,13 @@ export function SendPreviewButton({ employeeId, cadence, periodKey }: { employee
       <button
         onClick={() => start(async () => {
           setMsg(null);
-          const r = await sendPreviewToMe(employeeId, cadence, periodKey);
-          setMsg(r.ok ? "Sent to you in Slack." : `Failed: ${r.error}`);
+          try {
+            const r = await sendPreviewToMe(employeeId, cadence, periodKey);
+            setMsg(r.ok ? "Sent to you in Slack." : `Failed: ${r.error}`);
+          } catch (err) {
+            // The action itself threw (e.g. requireAdmin, a network drop) rather than returning { ok: false }.
+            setMsg(`Failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
         })}
         disabled={pending}
         className="rounded-md border border-accent bg-accent/15 px-3 py-1 text-xs text-accent disabled:opacity-40"

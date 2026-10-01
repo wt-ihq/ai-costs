@@ -193,14 +193,16 @@ export function buildDigest(input: DigestInput): Digest | null {
         href: personHref(baseUrl, employeesById.get(p.id) ?? { id: p.id, department: null }),
       })),
       othersCount: rest.length,
-      othersUsd: round2(rest.reduce((s, p) => s + p.usd, 0)),
+      // The remainder of the headline, not a sum of rounded amounts, so top + others equals it to the cent.
+      othersUsd: round2(base.headlineUsd - ranked.slice(0, TOP_N).reduce((s, p) => s + p.usd, 0)),
     };
   }
 
   if (period.cadence === "daily" && you.headlineUsd === 0 && (reports?.headlineUsd ?? 0) === 0) return null;
 
+  // Same basis as the headline: a seat stamped on the 1st doesn't make a weekly recipient a "user" of that source.
   const sourcesUsed = new Set<string>(
-    [...youFacts, ...reportFacts].filter((f) => inRange(f, period.buckets[0].from, period.toExclusive)).map((f) => f.source),
+    counted([...youFacts, ...reportFacts], you.basis).filter((f) => inRange(f, period.buckets[0].from, period.toExclusive)).map((f) => f.source),
   );
   return {
     recipient: { employeeId: recipient.id, name: recipient.fullName, team: recipient.department },

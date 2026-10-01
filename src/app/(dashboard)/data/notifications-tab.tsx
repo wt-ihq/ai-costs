@@ -51,18 +51,31 @@ async function loadPreview(p: NotificationsParams): Promise<PreviewState | null>
   const files: ChartFileIds = {};
   for (const [section, layout] of Object.entries(chartLayoutsFor(digest)) as ["you" | "reports", Parameters<typeof renderChartPng>[0] | undefined][]) {
     if (!layout) continue;
-    const id = `preview-${section}`;
-    images[id] = `data:image/png;base64,${Buffer.from(await renderChartPng(layout)).toString("base64")}`;
-    files[section] = id;
+    try {
+      const id = `preview-${section}`;
+      images[id] = `data:image/png;base64,${Buffer.from(await renderChartPng(layout)).toString("base64")}`;
+      files[section] = id;
+    } catch {
+      // Best-effort, like the cron: the section renders without its chart.
+    }
   }
   return { ...base, blocks: renderDigest(digest, files).blocks, images };
+}
+
+/** A failed preview must not take down the tab: recipients and sends still render. */
+async function safePreview(p: NotificationsParams): Promise<PreviewState | { error: string } | null> {
+  try {
+    return await loadPreview(p);
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 const href = (p: { employeeId: string; cadence: string; key?: string | null }) =>
   `/data?tab=notifications&preview=${p.employeeId}&cadence=${p.cadence}${p.key ? `&at=${p.key}` : ""}`;
 
 export async function NotificationsTab({ params }: { params: NotificationsParams }) {
-  const [data, preview] = await Promise.all([loadNotificationsAdmin(getSupabaseAdminClient()), loadPreview(params)]);
+  const [data, preview] = await Promise.all([loadNotificationsAdmin(getSupabaseAdminClient()), safePreview(params)]);
   const mode = notifyMode();
 
   return (
@@ -72,7 +85,7 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
           <p className="text-[10.5px] uppercase tracking-wide text-muted">Mode</p>
           <p className="my-1 text-sm font-semibold">{mode.toUpperCase()}</p>
           <p className="text-xs text-muted">
-            {mode === "off" && "Nothing is sent. "}
+            {mode === "off" && "Scheduled sends are off. "}
             {mode === "preview" && `Every DM goes to ${process.env.SLACK_PREVIEW_EMAIL ?? "(SLACK_PREVIEW_EMAIL unset)"}, not the recipient. `}
             {mode === "live" && "DMs go to the recipients below. "}
             Change <code>SLACK_NOTIFY_MODE</code> in Vercel.
@@ -82,8 +95,11 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
           <p className="text-[10.5px] uppercase tracking-wide text-muted">Last run</p>
           {data.lastRun ? (
             <>
-              <p className="my-1 text-sm font-semibold">{data.lastRun.day}</p>
-              <p className="text-xs text-muted">{data.lastRun.sent} sent · {data.lastRun.skipped} skipped · {data.lastRun.failed} failed</p>
+              <p className="my-1 text-sm font-semibold">{data.lastRun.day} · {data.lastRun.mode.toUpperCase()} run</p>
+              <p className="text-xs text-muted">
+                {data.lastRun.cadences.join(", ")}: {data.lastRun.sent} sent · {data.lastRun.skipped} skipped · {data.lastRun.failed} failed
+                {data.lastRun.plusPreview > 0 && ` + ${data.lastRun.plusPreview} preview`}
+              </p>
             </>
           ) : <p className="my-1 text-sm text-muted">No sends yet</p>}
         </Panel>
@@ -92,7 +108,7 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
           <p className="my-1 text-sm font-semibold">{data.tree.resolved} / {data.tree.active} resolved</p>
           {data.tree.unresolved.length > 0 && (
             <details className="text-xs text-muted">
-              <summary className="cursor-pointer">{data.tree.unresolved.length} active people have no resolvable manager</summary>
+              <summary className="cursor-pointer">{data.tree.unresolved.length} active people have no resolvable manager or are in a manager loop</summary>
               <p className="mt-1">They still get their own digest but don&apos;t roll up to anyone: {data.tree.unresolved.join(", ")}</p>
             </details>
           )}
@@ -103,12 +119,14 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
         <Panel>
           <h2 className="mb-1 text-sm font-medium">Pilot recipients · {data.recipients.length}</h2>
           <p className="mb-4 text-xs text-muted">Only people listed here get anything. Checkboxes save as you click. Reports come from the Okta manager chain.</p>
-          <RecipientsTable rows={data.recipients} people={data.people} departments={data.departments} previewing={preview?.employeeId ?? null} />
+          <RecipientsTable rows={data.recipients} people={data.people} departments={data.departments} previewing={isUuid(params.preview) ? params.preview : null} />
         </Panel>
 
         <Panel>
           {!preview ? (
             <p className="text-sm text-muted">Click Preview on a recipient to see exactly what they&apos;d get.</p>
+          ) : "error" in preview ? (
+            <p className="text-sm text-pink-300">Preview failed: {preview.error}</p>
           ) : (
             <>
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -129,7 +147,7 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
               {preview.blocks ? (
                 <>
                   <BlockKitPreview blocks={preview.blocks} images={preview.images} />
-                  <SendPreviewButton employeeId={preview.employeeId} cadence={preview.cadence} periodKey={preview.key} />
+                  <SendPreviewButton key={`${preview.employeeId}-${preview.cadence}-${preview.key}`} employeeId={preview.employeeId} cadence={preview.cadence} periodKey={preview.key} />
                 </>
               ) : <p className="text-sm text-muted">Nothing to send for this period: no usage by them or their reports.</p>}
             </>

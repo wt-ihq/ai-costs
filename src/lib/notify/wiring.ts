@@ -8,10 +8,12 @@ export function slackClientFromEnv(): SlackClient {
   return createSlackClient(token);
 }
 
-/** Base for dashboard links in DMs. */
+/** Base for dashboard links in DMs. Production never falls back to localhost (links would be dead). */
 export function appBaseUrl(): string {
   const explicit = process.env.APP_BASE_URL?.trim().replace(/\/+$/, "");
   if (explicit) return explicit;
   const prod = process.env.VERCEL_PROJECT_PRODUCTION_URL;
-  return prod ? `https://${prod}` : "http://localhost:3000";
+  if (prod) return `https://${prod}`;
+  if (process.env.NODE_ENV === "production") throw new Error("Set APP_BASE_URL or VERCEL_PROJECT_PRODUCTION_URL");
+  return "http://localhost:3000";
 }
