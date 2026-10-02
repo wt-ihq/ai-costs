@@ -56,7 +56,7 @@ export function SendTestControls({ subject, subjectName, subjectActive, cadence,
   );
 
   return (
-    <div className="mt-3 space-y-2 text-xs">
+    <div className="mb-3 space-y-2 rounded-md border border-border p-3 text-xs">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <span className="text-muted">Send to:</span>
         {radio("me", "Me")}
