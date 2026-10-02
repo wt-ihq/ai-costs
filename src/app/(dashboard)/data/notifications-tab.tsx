@@ -2,23 +2,28 @@ import Link from "next/link";
 import { Panel } from "@/components/ui";
 import { BlockKitPreview } from "@/components/notifications/block-kit-preview";
 import { RecipientsTable } from "@/components/notifications/recipients-table";
-import { SendPreviewButton } from "@/components/notifications/send-preview-button";
+import { PreviewPicker } from "@/components/notifications/preview-picker";
+import { SendTestControls } from "@/components/notifications/send-test-controls";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { loadNotificationsAdmin } from "@/lib/notify/admin-store";
 import { renderChartPng } from "@/lib/notify/chart-image";
-import { digestFor, loadNotifyContext } from "@/lib/notify/context";
-import { chartLayoutsFor } from "@/lib/notify/deliver";
-import { renderDigest, type ChartFileIds, type SlackBlock } from "@/lib/notify/render";
+import type { ChartLayout } from "@/lib/notify/chart";
+import { digestFor, loadNotifyContext, teamDigestFor } from "@/lib/notify/context";
+import { chartLayoutsFor, chartLayoutsForTeam } from "@/lib/notify/deliver";
+import { isTeamDigest } from "@/lib/notify/digest";
+import { renderDigest, renderTeamDigest, type SlackBlock } from "@/lib/notify/render";
 import { latestCompleteKey, periodFor, stepKey } from "@/lib/notify/schedule";
 import { supabaseNotifyStore } from "@/lib/notify/store";
-import { CADENCES, isCadence, isUuid, notifyMode, type Cadence } from "@/lib/notify/types";
+import { previewHref, type TestSubject } from "@/lib/notify/subject";
+import { activeDepartments, CADENCES, isActiveEmployee, isCadence, isUuid, notifyMode, type Cadence } from "@/lib/notify/types";
 import { appBaseUrl } from "@/lib/notify/wiring";
 
-export interface NotificationsParams { preview?: string; cadence?: string; at?: string }
+export interface NotificationsParams { preview?: string; team?: string; cadence?: string; at?: string }
 
 interface PreviewState {
-  employeeId: string;
-  name: string;
+  subject: TestSubject;
+  name: string; // the person's name, or the department
+  subjectActive: boolean; // false for a leaver (or an unknown person): they can't be sent a test themself
   cadence: Cadence;
   key: string;
   label: string;
@@ -28,8 +33,10 @@ interface PreviewState {
   images: Record<string, string>;
 }
 
+/** A person (?preview=<uuid>) or a team (?team=<department>, ignored unless it is a real department). */
 async function loadPreview(p: NotificationsParams): Promise<PreviewState | null> {
-  if (!isUuid(p.preview)) return null;
+  const personId = isUuid(p.preview) ? p.preview : null;
+  if (!personId && !p.team) return null;
   const cadence: Cadence = isCadence(p.cadence) ? p.cadence : "weekly";
   const now = new Date();
   let key = p.at ?? latestCompleteKey(cadence, now);
@@ -41,15 +48,24 @@ async function loadPreview(p: NotificationsParams): Promise<PreviewState | null>
     period = periodFor(cadence, key, now);
   }
   const ctx = await loadNotifyContext(supabaseNotifyStore(getSupabaseAdminClient()), now, appBaseUrl(), { earliest: period.buckets[0].from });
-  const digest = digestFor(ctx, p.preview, period);
+  let subject: TestSubject;
+  if (personId) subject = { kind: "person", employeeId: personId };
+  else if (p.team && activeDepartments(ctx.employees).includes(p.team)) subject = { kind: "team", department: p.team };
+  else return null;
+
+  const digest = subject.kind === "person" ? digestFor(ctx, subject.employeeId, period) : teamDigestFor(ctx, subject.department, period);
+  const person = subject.kind === "person" ? ctx.employeesById.get(subject.employeeId) : undefined;
   const base = {
-    employeeId: p.preview, name: ctx.employeesById.get(p.preview)?.fullName ?? "Unknown", cadence, key, label: period.label,
+    subject, cadence, key, label: period.label,
+    name: subject.kind === "person" ? (person?.fullName ?? "Unknown") : subject.department,
+    subjectActive: subject.kind === "team" || (person !== undefined && isActiveEmployee(person)),
     prevKey: stepKey(cadence, key, -1, now), nextKey: stepKey(cadence, key, 1, now),
   };
   if (!digest) return { ...base, blocks: null, images: {} };
+  const layouts: Record<string, ChartLayout | undefined> = isTeamDigest(digest) ? chartLayoutsForTeam(digest) : chartLayoutsFor(digest);
   const images: Record<string, string> = {};
-  const files: ChartFileIds = {};
-  for (const [section, layout] of Object.entries(chartLayoutsFor(digest)) as ["you" | "reports", Parameters<typeof renderChartPng>[0] | undefined][]) {
+  const files: Record<string, string> = {};
+  for (const [section, layout] of Object.entries(layouts)) {
     if (!layout) continue;
     try {
       const id = `preview-${section}`;
@@ -59,7 +75,7 @@ async function loadPreview(p: NotificationsParams): Promise<PreviewState | null>
       // Best-effort, like the cron: the section renders without its chart.
     }
   }
-  return { ...base, blocks: renderDigest(digest, files).blocks, images };
+  return { ...base, blocks: (isTeamDigest(digest) ? renderTeamDigest(digest, files) : renderDigest(digest, files)).blocks, images };
 }
 
 /** A failed preview must not take down the tab: recipients and sends still render. */
@@ -71,12 +87,19 @@ async function safePreview(p: NotificationsParams): Promise<PreviewState | { err
   }
 }
 
-const href = (p: { employeeId: string; cadence: string; key?: string | null }) =>
-  `/data?tab=notifications&preview=${p.employeeId}&cadence=${p.cadence}${p.key ? `&at=${p.key}` : ""}`;
-
 export async function NotificationsTab({ params }: { params: NotificationsParams }) {
   const [data, preview] = await Promise.all([loadNotificationsAdmin(getSupabaseAdminClient()), safePreview(params)]);
   const mode = notifyMode();
+  // What the picker shows as open: the loaded subject, else whatever the URL asked for (a failed preview still has one).
+  const current: TestSubject | null =
+    preview && !("error" in preview) ? preview.subject
+    : isUuid(params.preview) ? { kind: "person", employeeId: params.preview }
+    : params.team && data.departments.includes(params.team) ? { kind: "team", department: params.team }
+    : null;
+  const cadence: Cadence = isCadence(params.cadence) ? params.cadence : "weekly";
+  const previewKey = current ? (current.kind === "person" ? current.employeeId : `team:${current.department}`) : "none";
+  const currentPersonLabel =
+    current?.kind === "person" ? (data.activePeople.find((p) => p.id === current.employeeId)?.label ?? (preview && !("error" in preview) ? preview.name : null)) : null;
 
   return (
     <div className="grid gap-4">
@@ -123,33 +146,50 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
         </Panel>
 
         <Panel>
+          <PreviewPicker
+            key={previewKey}
+            people={data.activePeople} departments={data.departments} cadence={cadence}
+            current={current} currentPersonLabel={currentPersonLabel}
+          />
           {!preview ? (
-            <p className="text-sm text-muted">Click Preview on a recipient to see exactly what they&apos;d get.</p>
+            <p className="text-sm text-muted">Pick a person or a team above, or click Preview on a recipient, to see exactly what they&apos;d get.</p>
           ) : "error" in preview ? (
             <p className="text-sm text-pink-300">Preview failed: {preview.error}</p>
           ) : (
             <>
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-sm font-medium">Preview · {preview.name}</h2>
+                <h2 className="text-sm font-medium">Preview · {preview.name}{preview.subject.kind === "team" && " (team)"}</h2>
                 <div className="inline-flex rounded-md border border-border bg-surface-2 p-0.5 text-xs">
                   {CADENCES.map((c) => (
-                    <Link key={c} href={href({ employeeId: preview.employeeId, cadence: c })}
+                    <Link key={c} href={previewHref(preview.subject, c)}
                       className={`rounded px-2.5 py-1 ${c === preview.cadence ? "bg-accent/20 text-accent" : "text-muted"}`}>{c}</Link>
                   ))}
                 </div>
               </div>
               <p className="mb-3 text-xs text-muted">
-                {preview.prevKey ? <Link href={href({ ...preview, key: preview.prevKey })} className="text-accent">◀</Link> : "◀"}
+                {preview.prevKey ? <Link href={previewHref(preview.subject, preview.cadence, preview.prevKey)} className="text-accent">◀</Link> : "◀"}
                 <span className="mx-2 text-foreground">{preview.label}</span>
-                {preview.nextKey ? <Link href={href({ ...preview, key: preview.nextKey })} className="text-accent">▶</Link> : "▶"}
-                <span className="ml-2">Built from live data, exactly as the cron would send it.</span>
+                {preview.nextKey ? <Link href={previewHref(preview.subject, preview.cadence, preview.nextKey)} className="text-accent">▶</Link> : "▶"}
+                <span className="ml-2">
+                  {preview.subject.kind === "team"
+                    ? "Built from live data. Team digests are for previews and tests only; they are never scheduled."
+                    : "Built from live data, exactly as the cron would send it."}
+                </span>
               </p>
               {preview.blocks ? (
                 <>
                   <BlockKitPreview blocks={preview.blocks} images={preview.images} />
-                  <SendPreviewButton key={`${preview.employeeId}-${preview.cadence}-${preview.key}`} employeeId={preview.employeeId} cadence={preview.cadence} periodKey={preview.key} />
+                  <SendTestControls
+                    key={`${previewKey}-${preview.cadence}-${preview.key}`}
+                    subject={preview.subject} subjectName={preview.name} subjectActive={preview.subjectActive} cadence={preview.cadence} periodKey={preview.key}
+                    people={data.activePeople}
+                  />
                 </>
-              ) : <p className="text-sm text-muted">Nothing to send for this period: no usage by them or their reports.</p>}
+              ) : (
+                <p className="text-sm text-muted">
+                  Nothing to send for this period: no usage by {preview.subject.kind === "team" ? "this team" : "them or their reports"}.
+                </p>
+              )}
             </>
           )}
         </Panel>

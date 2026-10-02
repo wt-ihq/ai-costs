@@ -1,14 +1,21 @@
 import { formatUsd } from "@/lib/utils";
-import type { Digest, DigestSection, ReportsSection, ToolAmount } from "./digest";
+import { round2, type Digest, type DigestSection, type ReportsSection, type TeamDigest, type ToolAmount } from "./digest";
 import { CADENCE_UNIT, CHART_SPAN } from "./schedule";
 
 export type SlackBlock = Record<string, unknown>;
 /** Slack file ids of the uploaded charts (absent = send without that image). */
 export interface ChartFileIds { you?: string; reports?: string }
+export interface TeamChartFileIds { team?: string }
 export interface RenderedDigest { blocks: SlackBlock[]; text: string }
+/**
+ * previewFor: the cron's preview mode ("would send to X"). banner: a context line above everything
+ * (admin test sends) — the plain-text fallback carries it too, as "[banner] ".
+ */
+export interface RenderOpts { previewFor?: string; banner?: string }
 
 const TOOLS_MAX = 4;
 const CONTEXT_MAX = 10; // Slack's element cap per context block
+const HEADER_MAX = 150; // Slack's plain_text cap for a header block
 
 /** Slack mrkdwn treats &, < and > as control characters — escape every user-supplied string. */
 export function escapeMrkdwn(s: string): string {
@@ -28,6 +35,11 @@ export function chartTitle(section: "you" | "reports", d: Digest): string {
   const who = section === "you" ? "YOU" : `YOUR REPORTS (${people(d.reports!.headcount)})`;
   const c = d.period.cadence;
   return `${who} · ${s.basis.toUpperCase()}, LAST ${CHART_SPAN[c]} ${CADENCE_UNIT[c].toUpperCase()}S`;
+}
+
+export function teamChartTitle(d: TeamDigest): string {
+  const c = d.period.cadence;
+  return `${d.department.toUpperCase()} (${people(d.team.headcount)}) · ${d.team.basis.toUpperCase()}, LAST ${CHART_SPAN[c]} ${CADENCE_UNIT[c].toUpperCase()}S`;
 }
 
 function toolsLine(tools: ToolAmount[]): string | null {
@@ -57,6 +69,18 @@ function topLine(r: ReportsSection, unit: string): string {
   return names.join(" · ");
 }
 
+/**
+ * The team's top people. "Others" counts people only; spend that belongs to no member (department
+ * costs) is its own item, so neither is hidden inside the other. Rounding cents alone show nothing.
+ */
+function teamTopLine(r: ReportsSection, unit: string): string {
+  const parts = r.top.map((p) => `<${p.href}|${escapeMrkdwn(p.name)}> ${formatUsd(p.usd)}`);
+  const teamLevel = r.teamLevelUsd ?? 0;
+  if (r.othersCount) parts.push(`+${r.othersCount} others ${formatUsd(Math.max(0, round2(r.othersUsd - teamLevel)))}`);
+  if (teamLevel > 0) parts.push(`team-level costs ${formatUsd(teamLevel)}`);
+  return parts.length ? parts.join(" · ") : `No usage from this team this ${unit}`;
+}
+
 function sectionBlocks(label: string, s: DigestSection, fileId: string | undefined, title: string, unit: string, extra?: string): SlackBlock[] {
   const out: SlackBlock[] = [
     { type: "section", text: { type: "mrkdwn", text: `*${label}*\n*${formatUsd(s.headlineUsd)}* ${s.basis} · ${deltaText(s, unit)}` } },
@@ -68,11 +92,30 @@ function sectionBlocks(label: string, s: DigestSection, fileId: string | undefin
   return out;
 }
 
+/** Banner and/or cron preview line above the digest; the text fallback gets the same context (escaped: Slack parses it as mrkdwn). */
+function withLead(r: RenderedDigest, opts: RenderOpts): RenderedDigest {
+  const lead: SlackBlock[] = [];
+  let prefix = "";
+  if (opts.banner) {
+    lead.push(context([escapeMrkdwn(opts.banner)]));
+    prefix += `[${escapeMrkdwn(opts.banner)}] `;
+  }
+  if (opts.previewFor) {
+    lead.push(context([`🔍 Preview · would send to ${escapeMrkdwn(opts.previewFor)}`]));
+    prefix += `[Preview for ${escapeMrkdwn(opts.previewFor)}] `;
+  }
+  return lead.length ? { blocks: [...lead, ...r.blocks], text: prefix + r.text } : r;
+}
+
+const dashboardButton = (url: string): SlackBlock => ({
+  type: "actions",
+  elements: [{ type: "button", text: { type: "plain_text", text: "Open in dashboard" }, url, action_id: "open_dashboard" }],
+});
+
 /** Digest → Block Kit. The admin preview renders these same blocks (block-kit-preview.tsx). */
-export function renderDigest(d: Digest, files: ChartFileIds, opts: { previewFor?: string } = {}): RenderedDigest {
+export function renderDigest(d: Digest, files: ChartFileIds, opts: RenderOpts = {}): RenderedDigest {
   const unit = CADENCE_UNIT[d.period.cadence];
   const blocks: SlackBlock[] = [];
-  if (opts.previewFor) blocks.push(context([`🔍 Preview · would send to ${escapeMrkdwn(opts.previewFor)}`]));
   blocks.push({ type: "header", text: { type: "plain_text", text: `📊 Your AI spend · ${d.period.label}`, emoji: true } });
   blocks.push(...sectionBlocks("YOU", d.you, files.you, chartTitle("you", d), unit));
   if (d.reports) {
@@ -80,13 +123,26 @@ export function renderDigest(d: Digest, files: ChartFileIds, opts: { previewFor?
     blocks.push(...sectionBlocks(`YOUR REPORTS · ${people(d.reports.headcount)}`, d.reports, files.reports, chartTitle("reports", d), unit, topLine(d.reports, unit)));
   }
   if (d.caveats.length) blocks.push(context(d.caveats.map(escapeMrkdwn)));
-  blocks.push({
-    type: "actions",
-    elements: [{ type: "button", text: { type: "plain_text", text: "Open in dashboard" }, url: d.dashboardUrl, action_id: "open_dashboard" }],
-  });
+  blocks.push(dashboardButton(d.dashboardUrl));
 
   const text =
     `Your AI spend · ${d.period.label}: you ${formatUsd(d.you.headlineUsd)} ${d.you.basis}` +
     (d.reports ? ` · your reports ${formatUsd(d.reports.headlineUsd)} ${d.reports.basis}` : "");
-  return { blocks, text: opts.previewFor ? `[Preview for ${opts.previewFor}] ${text}` : text };
+  return withLead({ blocks, text }, opts);
+}
+
+/** A whole team's digest → Block Kit (admin preview and test sends; never scheduled). */
+export function renderTeamDigest(d: TeamDigest, files: TeamChartFileIds, opts: RenderOpts = {}): RenderedDigest {
+  const unit = CADENCE_UNIT[d.period.cadence];
+  const blocks: SlackBlock[] = [
+    { type: "header", text: { type: "plain_text", text: `📊 AI spend · ${d.department} · ${d.period.label}`.slice(0, HEADER_MAX), emoji: true } },
+    // Uppercase BEFORE escaping: "&amp;" must not become "&AMP;".
+    ...sectionBlocks(`${escapeMrkdwn(d.department.toUpperCase())} · ${people(d.team.headcount)}`, d.team, files.team, teamChartTitle(d), unit, teamTopLine(d.team, unit)),
+  ];
+  if (d.caveats.length) blocks.push(context(d.caveats.map(escapeMrkdwn)));
+  blocks.push(dashboardButton(d.dashboardUrl));
+
+  // Slack parses `text` as mrkdwn as well, so the department is escaped here (the header block is plain_text and is not).
+  const text = `AI spend · ${escapeMrkdwn(d.department)} · ${d.period.label}: team ${formatUsd(d.team.headlineUsd)} ${d.team.basis}`;
+  return withLead({ blocks, text }, opts);
 }

@@ -1,6 +1,6 @@
 import { chartLayout, type ChartLayout } from "./chart";
-import type { Digest } from "./digest";
-import { chartTitle, renderDigest, type ChartFileIds, type RenderedDigest } from "./render";
+import type { Digest, TeamDigest } from "./digest";
+import { chartTitle, renderDigest, renderTeamDigest, teamChartTitle, type RenderedDigest } from "./render";
 import { SlackApiError, type SlackClient } from "./slack-client";
 import type { NotifyStore } from "./store";
 import type { NotifyEmployee } from "./types";
@@ -15,14 +15,23 @@ export function chartLayoutsFor(d: Digest): { you: ChartLayout; reports?: ChartL
   };
 }
 
+/** A team digest has one chart, for the whole team. */
+export function chartLayoutsForTeam(d: TeamDigest): { team: ChartLayout } {
+  return { team: chartLayout(teamChartTitle(d), d.team.chart, d.team.chartTools, d.team.byTool) };
+}
+
 const failureCode = (err: unknown): string =>
   (err instanceof SlackApiError ? err.code : err instanceof Error ? err.message : String(err)).slice(0, 200);
 
 /** Best effort: a chart that fails to render or upload is simply left out. */
-async function uploadCharts(slack: SlackClient, renderChart: RenderChart, d: Digest, log: (m: string) => void): Promise<ChartFileIds> {
-  const files: ChartFileIds = {};
-  for (const [section, layout] of Object.entries(chartLayoutsFor(d)) as ["you" | "reports", ChartLayout | undefined][]) {
-    if (!layout) continue;
+async function uploadCharts(
+  slack: SlackClient,
+  renderChart: RenderChart,
+  layouts: Record<string, ChartLayout>,
+  log: (m: string) => void,
+): Promise<Record<string, string>> {
+  const files: Record<string, string> = {};
+  for (const [section, layout] of Object.entries(layouts)) {
     try {
       files[section] = await slack.uploadImage(await renderChart(layout), `ai-spend-${section}.png`, layout.title);
     } catch (err) {
@@ -77,27 +86,28 @@ const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 export const IMAGE_RETRY_DELAY_MS = 1500;
 
 /**
- * Upload charts, DM the digest. If Slack rejects the image blocks, retry the
+ * Upload charts, DM the rendered digest. If Slack rejects the image blocks, retry the
  * same blocks once after a short wait (the upload may still be propagating),
  * then fall back to text only. Returns the message ts.
  *
- * Every postMessage failure is either a definitive Slack rejection (rethrown
- * as is → nothing was posted) or a PostOutcomeUnknownError (Slack may have
- * accepted it).
+ * `render` turns the uploaded chart file ids (by `layouts` key; absent = that chart was
+ * left out) into the message. Every postMessage failure is either a definitive Slack
+ * rejection (rethrown as is → nothing was posted) or a PostOutcomeUnknownError (Slack
+ * may have accepted it).
  */
-export async function deliverDigest(args: {
+export async function deliverRendered(args: {
   slack: SlackClient;
   renderChart: RenderChart;
   slackUserId: string;
-  digest: Digest;
-  previewFor?: string;
+  layouts: Record<string, ChartLayout>;
+  render: (fileIds: Record<string, string>) => RenderedDigest;
   log?: (m: string) => void;
   sleep?: (ms: number) => Promise<void>;
 }): Promise<string> {
-  const { slack, digest, previewFor } = args;
+  const { slack, render } = args;
   const log = args.log ?? console.log;
   const sleep = args.sleep ?? defaultSleep;
-  const files = await uploadCharts(slack, args.renderChart, digest, log);
+  const files = await uploadCharts(slack, args.renderChart, args.layouts, log);
   const channel = await slack.openDm(args.slackUserId);
 
   async function post(r: RenderedDigest): Promise<string> {
@@ -109,8 +119,8 @@ export async function deliverDigest(args: {
     }
   }
 
-  const rendered = renderDigest(digest, files, { previewFor });
-  const hasCharts = Boolean(files.you || files.reports);
+  const rendered = render(files);
+  const hasCharts = Object.keys(files).length > 0;
   try {
     return await post(rendered);
   } catch (err) {
@@ -126,6 +136,26 @@ export async function deliverDigest(args: {
   }
 
   log("[notify] image blocks rejected again; resending without charts");
-  const plain = renderDigest(digest, {}, { previewFor });
-  return post(plain);
+  return post(render({}));
+}
+
+interface DeliverArgs {
+  slack: SlackClient;
+  renderChart: RenderChart;
+  slackUserId: string;
+  banner?: string; // admin test sends: a context line above the digest
+  log?: (m: string) => void;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/** A person's digest (the cron's send, the preview redirect, and admin test sends). */
+export function deliverDigest(args: DeliverArgs & { digest: Digest; previewFor?: string }): Promise<string> {
+  const { digest, previewFor, banner } = args;
+  return deliverRendered({ ...args, layouts: chartLayoutsFor(digest), render: (files) => renderDigest(digest, files, { previewFor, banner }) });
+}
+
+/** A whole team's digest (admin test sends only). */
+export function deliverTeamDigest(args: DeliverArgs & { digest: TeamDigest }): Promise<string> {
+  const { digest, banner } = args;
+  return deliverRendered({ ...args, layouts: chartLayoutsForTeam(digest), render: (files) => renderTeamDigest(digest, files, { banner }) });
 }
