@@ -446,13 +446,21 @@ employee whose Slack account it resolves itself.
    DM as files (still private, but they sit together below the text instead
    of under each section).
 
-**Status (2026-10-01):** Code shipped on branch `slack-digests` with inline
-`slack_file` chart images assumed. Checkpoint A (production migration 0015 +
-Okta manager audit) and Checkpoint B (Slack app + `scripts/slack-smoke.ts`)
-are pending Gareth; if B fails, the fallback touches `slack-client.ts`
-`uploadImage` and `deliver.ts`, and the admin preview
-(`block-kit-preview.tsx` / `notifications-tab.tsx`) must also stop showing
-inline charts so it keeps matching what is sent.
+**Status (2026-10-02): both checks passed.**
+- **Checkpoint A — go.** Migration 0015 applied to production 2026-10-01.
+  The first Okta sync to populate `manager_ref` was blocked by an unrelated
+  bug (every Okta sync had failed since 2026-07-29 because a staged account's
+  email changed — fixed by matching employees on `okta_id` first, see
+  CLAUDE.md); after the fix, the 2026-10-01 18:00 sync succeeded (219
+  employees). Audit: `managerId` holds employee numbers (118 numeric, 1
+  email); **119/119 refs resolve**. 119 of 178 active accounts have a
+  manager, but 46 of the 59 without one have no department and no employee
+  number (non-HR Okta accounts). Among the 131 active people with a
+  department, **90% resolve** — above the ~80% bar. The 13 departmental gaps
+  get personal digests but don't roll up.
+- **Checkpoint B — pass.** `scripts/slack-smoke.ts` (2026-10-02): a PNG
+  uploaded with `files.completeUploadExternal` (no channel) and referenced
+  by `slack_file` id renders inline in the bot DM. No fallback needed.
 
 ## 11. Rollout
 
