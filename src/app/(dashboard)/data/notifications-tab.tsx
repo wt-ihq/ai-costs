@@ -178,12 +178,13 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
               </p>
               {preview.blocks ? (
                 <>
-                  <BlockKitPreview blocks={preview.blocks} images={preview.images} />
+                  {/* Above the preview: a two-chart digest is long, and below it the controls were off-screen. */}
                   <SendTestControls
                     key={`${previewKey}-${preview.cadence}-${preview.key}`}
                     subject={preview.subject} subjectName={preview.name} subjectActive={preview.subjectActive} cadence={preview.cadence} periodKey={preview.key}
                     people={data.activePeople}
                   />
+                  <BlockKitPreview blocks={preview.blocks} images={preview.images} />
                 </>
               ) : (
                 <p className="text-sm text-muted">
