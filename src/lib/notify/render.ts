@@ -1,6 +1,8 @@
 import { formatUsd } from "@/lib/utils";
+import type { ChartHeadline } from "./chart";
 import { round2, type Digest, type DigestSection, type ReportsSection, type TeamDigest, type ToolAmount } from "./digest";
 import { CADENCE_UNIT, CHART_SPAN } from "./schedule";
+import type { Cadence } from "./types";
 
 export type SlackBlock = Record<string, unknown>;
 /** Slack file ids of the uploaded charts (absent = send without that image). */
@@ -22,24 +24,35 @@ export function escapeMrkdwn(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+/** The headline drawn into a section's chart: total, direction, and the change after the arrow. */
+export function chartHeadline(s: DigestSection, unit: string): ChartHeadline {
+  const total = formatUsd(s.headlineUsd);
+  if (s.deltaPct === null) return { total, trend: null, change: s.headlineUsd > 0 ? `up from $0 the previous ${unit}` : "no spend" };
+  if (Math.abs(s.deltaPct) < 0.5) return { total, trend: null, change: `no change vs previous ${unit}` };
+  return { total, trend: s.deltaPct > 0 ? "up" : "down", change: `${Math.round(Math.abs(s.deltaPct)).toLocaleString("en-US")}% vs previous ${unit}` };
+}
+
 export function deltaText(s: DigestSection, unit: string): string {
-  if (s.deltaPct === null) return s.headlineUsd > 0 ? `up from $0 the previous ${unit}` : "no spend";
-  if (Math.abs(s.deltaPct) < 0.5) return `no change vs previous ${unit}`;
-  return `${s.deltaPct > 0 ? "▲" : "▼"} ${Math.round(Math.abs(s.deltaPct)).toLocaleString("en-US")}% vs previous ${unit}`;
+  const { trend, change } = chartHeadline(s, unit);
+  return trend ? `${trend === "up" ? "▲" : "▼"} ${change}` : change;
 }
 
 const people = (n: number) => `${n} ${n === 1 ? "PERSON" : "PEOPLE"}`;
 
+/** The chart's title sits directly above the headline total, so it names THAT number's period, not the bars' span. */
 export function chartTitle(section: "you" | "reports", d: Digest): string {
   const s = section === "you" ? d.you : d.reports!;
   const who = section === "you" ? "YOU" : `YOUR REPORTS (${people(d.reports!.headcount)})`;
-  const c = d.period.cadence;
-  return `${who} · ${s.basis.toUpperCase()}, LAST ${CHART_SPAN[c]} ${CADENCE_UNIT[c].toUpperCase()}S`;
+  return `${who} · ${s.basis.toUpperCase()}, ${d.period.label.toUpperCase()}`;
 }
 
 export function teamChartTitle(d: TeamDigest): string {
-  const c = d.period.cadence;
-  return `${d.department.toUpperCase()} (${people(d.team.headcount)}) · ${d.team.basis.toUpperCase()}, LAST ${CHART_SPAN[c]} ${CADENCE_UNIT[c].toUpperCase()}S`;
+  return `${d.department.toUpperCase()} (${people(d.team.headcount)}) · ${d.team.basis.toUpperCase()}, ${d.period.label.toUpperCase()}`;
+}
+
+/** The bars' span, captioned just above them. */
+export function chartSpan(c: Cadence): string {
+  return `LAST ${CHART_SPAN[c]} ${CADENCE_UNIT[c].toUpperCase()}S`;
 }
 
 function toolsLine(tools: ToolAmount[]): string | null {
@@ -81,11 +94,12 @@ function teamTopLine(r: ReportsSection, unit: string): string {
   return parts.length ? parts.join(" · ") : `No usage from this team this ${unit}`;
 }
 
+/** With a chart, the headline is drawn big into the image, so the text is just the label; without one it stays as text. */
 function sectionBlocks(label: string, s: DigestSection, fileId: string | undefined, title: string, unit: string, extra?: string): SlackBlock[] {
   const out: SlackBlock[] = [
-    { type: "section", text: { type: "mrkdwn", text: `*${label}*\n*${formatUsd(s.headlineUsd)}* ${s.basis} · ${deltaText(s, unit)}` } },
+    { type: "section", text: { type: "mrkdwn", text: fileId ? `*${label}*` : `*${label}*\n*${formatUsd(s.headlineUsd)}* ${s.basis} · ${deltaText(s, unit)}` } },
   ];
-  if (fileId) out.push({ type: "image", slack_file: { id: fileId }, alt_text: `${title}: ${formatUsd(s.headlineUsd)}` });
+  if (fileId) out.push({ type: "image", slack_file: { id: fileId }, alt_text: `${title}: ${formatUsd(s.headlineUsd)} · ${deltaText(s, unit)}` });
   if (extra) out.push({ type: "section", text: { type: "mrkdwn", text: extra } });
   const lines = [toolsLine(s.byTool), monthLine(s)].filter((l): l is string => l !== null);
   if (lines.length) out.push(context(lines));

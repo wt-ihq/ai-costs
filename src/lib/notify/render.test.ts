@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Digest, DigestSection, TeamDigest } from "./digest";
-import { chartTitle, deltaText, escapeMrkdwn, renderDigest, renderTeamDigest, teamChartTitle } from "./render";
+import { chartHeadline, chartSpan, chartTitle, deltaText, escapeMrkdwn, renderDigest, renderTeamDigest, teamChartTitle } from "./render";
 import { periodFor } from "./schedule";
 
 const now = new Date("2026-09-30T07:00:00Z");
@@ -35,9 +35,9 @@ describe("renderDigest", () => {
     expect(blocks[0]).toEqual({ type: "header", text: { type: "plain_text", text: "📊 Your AI spend · 21–27 Sep 2026", emoji: true } });
   });
 
-  it("renders the You section: headline, its own chart, tools + month line", () => {
-    expect(mrk(blocks[1])).toBe("*YOU*\n*$38.20* usage · ▲ 12% vs previous week");
-    expect(blocks[2]).toEqual({ type: "image", slack_file: { id: "F1" }, alt_text: "YOU · USAGE, LAST 8 WEEKS: $38.20" });
+  it("renders the You section: label, its own chart (headline drawn in), tools + month line", () => {
+    expect(mrk(blocks[1])).toBe("*YOU*");
+    expect(blocks[2]).toEqual({ type: "image", slack_file: { id: "F1" }, alt_text: "YOU · USAGE, 21–27 SEP 2026: $38.20 · ▲ 12% vs previous week" });
     expect(blocks[3]).toEqual({ type: "context", elements: [
       { type: "mrkdwn", text: "Cursor $30.10 · Anthropic API $8.10" },
       { type: "mrkdwn", text: "September so far $142 · on track for ~$190" },
@@ -46,7 +46,7 @@ describe("renderDigest", () => {
 
   it("renders the reports section with escaped, linked names and others", () => {
     const i = blocks.findIndex((b) => b.type === "section" && mrk(b).startsWith("*YOUR REPORTS"));
-    expect(mrk(blocks[i])).toBe("*YOUR REPORTS · 14 PEOPLE*\n*$612* usage · ▼ 4% vs previous week");
+    expect(mrk(blocks[i])).toBe("*YOUR REPORTS · 14 PEOPLE*");
     expect(blocks[i + 1]).toMatchObject({ type: "image", slack_file: { id: "F2" } });
     expect(mrk(blocks[i + 2])).toBe(
       "<https://x.test/explore/Engineering/a|Alex Kim> $140 · <https://x.test/explore/Engineering/t|Tom &amp; &lt;Jerry&gt;> $96.00 · +9 others $175",
@@ -66,6 +66,12 @@ describe("renderDigest", () => {
 
   it("omits image blocks when no chart was uploaded", () => {
     expect(renderDigest(digest(), {}).blocks.some((b) => b.type === "image")).toBe(false);
+  });
+
+  it("keeps the headline as text for any section whose chart didn't upload", () => {
+    const b = renderDigest(digest(), { reports: "F2" }).blocks;
+    expect(mrk(b[1])).toBe("*YOU*\n*$38.20* usage · ▲ 12% vs previous week");
+    expect(b.some((x) => x.type === "section" && mrk(x) === "*YOUR REPORTS · 14 PEOPLE*")).toBe(true);
   });
 
   it("prefixes preview messages with who it would have gone to", () => {
@@ -130,14 +136,15 @@ describe("renderTeamDigest", () => {
   });
 
   it("labels the section with the escaped, uppercased department and the headcount", () => {
-    expect(mrk(blocks[1])).toBe("*R&amp;D &lt;OPS&gt; · 14 PEOPLE*\n*$612* usage · ▼ 4% vs previous week");
+    expect(mrk(blocks[1])).toBe("*R&amp;D &lt;OPS&gt; · 14 PEOPLE*");
+    expect(mrk(renderTeamDigest(teamDigest(), {}).blocks[1])).toBe("*R&amp;D &lt;OPS&gt; · 14 PEOPLE*\n*$612* usage · ▼ 4% vs previous week");
     expect(renderTeamDigest(teamDigest({ team: { ...teamDigest().team, headcount: 1 } }), {}).blocks[1]).toMatchObject({
       text: { text: expect.stringContaining("· 1 PERSON*") },
     });
   });
 
   it("shows the chart, the linked escaped top people with the remainder, then tools and month lines", () => {
-    expect(blocks[2]).toEqual({ type: "image", slack_file: { id: "F1" }, alt_text: "R&D <OPS> (14 PEOPLE) · USAGE, LAST 8 WEEKS: $612" });
+    expect(blocks[2]).toEqual({ type: "image", slack_file: { id: "F1" }, alt_text: "R&D <OPS> (14 PEOPLE) · USAGE, 21–27 SEP 2026: $612 · ▼ 4% vs previous week" });
     expect(mrk(blocks[3])).toBe(
       "<https://x.test/explore/R%26D/a|Alex Kim> $140 · <https://x.test/explore/R%26D/t|Tom &amp; &lt;Jerry&gt;> $96.00 · +9 others $175",
     );
@@ -209,12 +216,12 @@ describe("renderTeamDigest", () => {
 });
 
 describe("teamChartTitle", () => {
-  it("names the department, headcount, basis and span in capitals", () => {
-    expect(teamChartTitle(teamDigest())).toBe("R&D <OPS> (14 PEOPLE) · USAGE, LAST 8 WEEKS");
+  it("names the department, headcount, basis and the headline's period in capitals", () => {
+    expect(teamChartTitle(teamDigest())).toBe("R&D <OPS> (14 PEOPLE) · USAGE, 21–27 SEP 2026");
     const monthly = teamDigest({ period: periodFor("monthly", "2026-08", now), team: { ...teamDigest().team, basis: "total", month: null, headcount: 1 } });
-    expect(teamChartTitle(monthly)).toBe("R&D <OPS> (1 PERSON) · TOTAL, LAST 6 MONTHS");
+    expect(teamChartTitle(monthly)).toBe("R&D <OPS> (1 PERSON) · TOTAL, AUGUST 2026");
     const daily = teamDigest({ period: periodFor("daily", "2026-09-24", now) });
-    expect(teamChartTitle(daily)).toBe("R&D <OPS> (14 PEOPLE) · USAGE, LAST 14 DAYS");
+    expect(teamChartTitle(daily)).toBe("R&D <OPS> (14 PEOPLE) · USAGE, 24 SEP 2026");
   });
 });
 
@@ -229,16 +236,33 @@ describe("deltaText", () => {
 });
 
 describe("chartTitle", () => {
-  it("names the section, basis and span", () => {
-    expect(chartTitle("you", digest())).toBe("YOU · USAGE, LAST 8 WEEKS");
-    expect(chartTitle("reports", digest())).toBe("YOUR REPORTS (14 PEOPLE) · USAGE, LAST 8 WEEKS");
+  it("names the section, basis and the headline's period — the number it sits above", () => {
+    expect(chartTitle("you", digest())).toBe("YOU · USAGE, 21–27 SEP 2026");
+    expect(chartTitle("reports", digest())).toBe("YOUR REPORTS (14 PEOPLE) · USAGE, 21–27 SEP 2026");
     const monthly = digest({ period: periodFor("monthly", "2026-08", now), you: sec({ basis: "total", month: null }) });
-    expect(chartTitle("you", monthly)).toBe("YOU · TOTAL, LAST 6 MONTHS");
+    expect(chartTitle("you", monthly)).toBe("YOU · TOTAL, AUGUST 2026");
+  });
+});
+
+describe("chartSpan", () => {
+  it("captions the bars with how far back they go", () => {
+    expect([chartSpan("daily"), chartSpan("weekly"), chartSpan("monthly")]).toEqual(["LAST 14 DAYS", "LAST 8 WEEKS", "LAST 6 MONTHS"]);
   });
 });
 
 describe("escapeMrkdwn", () => {
   it("escapes the three characters Slack treats as control", () => {
     expect(escapeMrkdwn("Tom & <Jerry>")).toBe("Tom &amp; &lt;Jerry&gt;");
+  });
+});
+
+describe("chartHeadline", () => {
+  it("splits the total, the direction and the change for the image", () => {
+    expect(chartHeadline(sec(), "week")).toEqual({ total: "$38.20", trend: "up", change: "12% vs previous week" });
+    expect(chartHeadline(sec({ headlineUsd: 612, deltaPct: -4.4 }), "month")).toEqual({ total: "$612", trend: "down", change: "4% vs previous month" });
+  });
+  it("has no direction when there's nothing to compare or no change", () => {
+    expect(chartHeadline(sec({ deltaPct: null, headlineUsd: 5 }), "month")).toMatchObject({ trend: null, change: "up from $0 the previous month" });
+    expect(chartHeadline(sec({ deltaPct: 0.2 }), "week")).toMatchObject({ trend: null, change: "no change vs previous week" });
   });
 });

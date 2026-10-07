@@ -1,6 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Digest charts read their bundled fonts from disk (chart-image.tsx) — ship them with every route that renders one.
+  outputFileTracingIncludes: {
+    "/api/cron/notify": ["./src/lib/notify/fonts/*.ttf"],
+    "/data": ["./src/lib/notify/fonts/*.ttf"],
+  },
   // Old dashboard routes were replaced by the Explore drill-down.
   async redirects() {
     return [

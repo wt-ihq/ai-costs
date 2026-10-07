@@ -3,16 +3,24 @@ import type { ChartBucket, ToolAmount } from "./digest";
 
 /** Rendered at 2× (Slack displays ~460px wide) so bars stay crisp on retina screens. */
 export const CHART_W = 920;
-export const CHART_H = 420;
-export const CHART_PLOT = { left: 88, right: 900, top: 76, bottom: 296 } as const;
+export const CHART_H = 534;
+/** The section's total, drawn big under the title (Slack text can't be sized or coloured). */
+export const CHART_HEADLINE = { top: 50, size: 72 } as const;
+/** "LAST 6 MONTHS" — captions the bars, kept apart from the headline so it can't read as the total's period. */
+export const CHART_CAPTION = { top: 150, size: 19 } as const;
+export const CHART_PLOT = { left: 88, right: 900, top: 190, bottom: 410 } as const;
 const LEGEND_MAX = 4;
 
 export interface ChartSegment { y: number; h: number; color: string }
 export interface ChartBar { x: number; w: number; label: string; current: boolean; segments: ChartSegment[]; totalLabel: string | null }
+/** `change` reads after the arrow `trend` draws ("27% vs previous week"); no trend = no arrow. */
+export interface ChartHeadline { total: string; trend: "up" | "down" | null; change: string }
 export interface ChartLayout {
   width: number;
   height: number;
   title: string;
+  headline: ChartHeadline | null;
+  caption: string | null;
   gridlines: { y: number; label: string }[];
   bars: ChartBar[];
   legend: { color: string; text: string }[];
@@ -36,7 +44,13 @@ export function axisUsd(v: number): string {
  * `chartTools` order (largest tool at the bottom), each section on its OWN
  * scale — which is why the title is drawn into the image.
  */
-export function chartLayout(title: string, buckets: ChartBucket[], chartTools: ToolAmount[], legendTools: ToolAmount[]): ChartLayout {
+export function chartLayout(
+  title: string,
+  buckets: ChartBucket[],
+  chartTools: ToolAmount[],
+  legendTools: ToolAmount[],
+  { headline = null, caption = null }: { headline?: ChartHeadline | null; caption?: string | null } = {},
+): ChartLayout {
   const max = niceMax(Math.max(0, ...buckets.map((b) => b.totalUsd)));
   const plotH = CHART_PLOT.bottom - CHART_PLOT.top;
   const yOf = (usd: number) => CHART_PLOT.bottom - (usd / max) * plotH;
@@ -70,6 +84,8 @@ export function chartLayout(title: string, buckets: ChartBucket[], chartTools: T
     width: CHART_W,
     height: CHART_H,
     title,
+    headline,
+    caption,
     gridlines: [0, max / 2, max].map((v) => ({ y: r1(yOf(v)), label: axisUsd(v) })),
     bars,
     legend,

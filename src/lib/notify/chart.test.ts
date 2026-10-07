@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { axisUsd, CHART_PLOT, chartLayout, niceMax } from "./chart";
+import { axisUsd, CHART_CAPTION, CHART_HEADLINE, CHART_PLOT, chartLayout, niceMax } from "./chart";
 import type { ChartBucket, ToolAmount } from "./digest";
 
 const tools: ToolAmount[] = [
@@ -53,5 +53,22 @@ describe("chartLayout", () => {
     expect(legend).toHaveLength(5);
     expect(legend[4].text).toBe("+2 more");
     expect(legend[0].text).toBe("Tool 0 $10.00");
+  });
+});
+
+describe("chartLayout headline", () => {
+  const headline = { total: "$570", trend: "up" as const, change: "27% vs previous week" };
+
+  it("carries the section's headline and the bars' span caption into the image", () => {
+    const l = chartLayout("YOU", buckets, tools, tools, { headline, caption: "LAST 8 WEEKS" });
+    expect([l.headline, l.caption]).toEqual([headline, "LAST 8 WEEKS"]);
+    expect([chartLayout("YOU", buckets, tools, tools).headline, chartLayout("YOU", buckets, tools, tools).caption]).toEqual([null, null]);
+  });
+
+  it("stacks headline, then caption, then plot — the tallest bar's total label clear of the headline", () => {
+    const headlineBottom = CHART_HEADLINE.top + CHART_HEADLINE.size * 1.2;
+    expect(CHART_CAPTION.top).toBeGreaterThanOrEqual(headlineBottom);
+    expect(CHART_PLOT.top - 12).toBeGreaterThanOrEqual(CHART_CAPTION.top + CHART_CAPTION.size * 1.2); // top gridline label is 24px tall, centred on the line
+    expect(CHART_PLOT.top - 30).toBeGreaterThanOrEqual(headlineBottom); // the current bar's label sits 30px above its top
   });
 });
