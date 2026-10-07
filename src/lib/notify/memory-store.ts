@@ -28,19 +28,22 @@ const same = (a: SendKey, b: SendKey) =>
 
 export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.now) {
   const sends: SendRow[] = [...(seed.sends ?? [])];
-  const slackUserCache = new Map<string, { slackUserId: string | null; lookedUpAt: string }>();
+  const slackUserCache = new Map<string, { slackUserId: string | null; tz: string | null; lookedUpAt: string }>();
   const factCalls: [string, string][] = [];
+  const coverageCalls: string[] = [];
   const nowIso = () => new Date(clock()).toISOString();
 
   const store: NotifyStore & {
     sends: SendRow[];
     slackUserCache: typeof slackUserCache;
     factCalls: typeof factCalls;
+    coverageCalls: typeof coverageCalls;
     failNextFinish: boolean;
   } = {
     sends,
     slackUserCache,
     factCalls,
+    coverageCalls,
     failNextFinish: false,
     async subscriptions(cadences) {
       return (seed.subscriptions ?? []).filter((s) => cadences.includes(s.cadence));
@@ -55,7 +58,13 @@ export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.no
     sourceHorizons: async () => seed.sourceHorizons ?? {},
     toolColors: async () => ({}),
     recentSyncRuns: async (since) => (seed.syncRuns ?? []).filter((r) => r.startedAt >= since),
-    importCoverage: async () => seed.coverage ?? [],
+    async importCoverage(nowMonth) {
+      coverageCalls.push(nowMonth);
+      return seed.coverage ?? [];
+    },
+    async sendStates(periodKeys, mode) {
+      return sends.filter((s) => periodKeys.includes(s.periodKey) && s.mode === mode).map((s) => ({ ...s }));
+    },
     async claimSend(key) {
       const existing = sends.find((s) => same(s, key));
       if (!existing) {
@@ -87,8 +96,8 @@ export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.no
     async slackUser(id) {
       return slackUserCache.get(id) ?? null;
     },
-    async saveSlackUser(id, slackUserId) {
-      slackUserCache.set(id, { slackUserId, lookedUpAt: nowIso() });
+    async saveSlackUser(id, user) {
+      slackUserCache.set(id, { slackUserId: user?.id ?? null, tz: user?.tz ?? null, lookedUpAt: nowIso() });
     },
   };
   return store;

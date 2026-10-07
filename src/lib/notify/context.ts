@@ -40,11 +40,11 @@ export async function loadNotifyContext(
   store: NotifyStore,
   now: Date,
   baseUrl: string,
-  opts: { earliest?: string; coverage?: CoverageMonthRow[]; syncRuns?: SyncRunRow[] } = {},
+  opts: { earliest?: string; coverage?: CoverageMonthRow[]; syncRuns?: SyncRunRow[]; employees?: NotifyEmployee[] } = {},
 ): Promise<NotifyContext> {
   const w = factsWindow(now, opts.earliest);
   const [employees, facts, sourceHorizons, toolColors, coverage, syncRuns] = await Promise.all([
-    store.employees(),
+    opts.employees ?? store.employees(),
     store.facts(w.from, w.toExclusive),
     store.sourceHorizons(),
     store.toolColors(),

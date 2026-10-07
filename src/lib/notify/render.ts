@@ -24,16 +24,22 @@ export function escapeMrkdwn(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-/** The headline drawn into a section's chart: total, direction, and the change after the arrow. */
-export function chartHeadline(s: DigestSection, unit: string): ChartHeadline {
+/**
+ * The headline drawn into a section's chart: total, direction, and the change after the arrow.
+ * `compareTo` is the period's DigestPeriod.compareTo ("previous week", or "Friday" for a Monday's daily).
+ */
+export function chartHeadline(s: DigestSection, compareTo: string): ChartHeadline {
   const total = formatUsd(s.headlineUsd);
-  if (s.deltaPct === null) return { total, trend: null, change: s.headlineUsd > 0 ? `up from $0 the previous ${unit}` : "no spend" };
-  if (Math.abs(s.deltaPct) < 0.5) return { total, trend: null, change: `no change vs previous ${unit}` };
-  return { total, trend: s.deltaPct > 0 ? "up" : "down", change: `${Math.round(Math.abs(s.deltaPct)).toLocaleString("en-US")}% vs previous ${unit}` };
+  if (s.deltaPct === null) {
+    const when = compareTo.startsWith("previous ") ? `the ${compareTo}` : `on ${compareTo}`;
+    return { total, trend: null, change: s.headlineUsd > 0 ? `up from $0 ${when}` : "no spend" };
+  }
+  if (Math.abs(s.deltaPct) < 0.5) return { total, trend: null, change: `no change vs ${compareTo}` };
+  return { total, trend: s.deltaPct > 0 ? "up" : "down", change: `${Math.round(Math.abs(s.deltaPct)).toLocaleString("en-US")}% vs ${compareTo}` };
 }
 
-export function deltaText(s: DigestSection, unit: string): string {
-  const { trend, change } = chartHeadline(s, unit);
+export function deltaText(s: DigestSection, compareTo: string): string {
+  const { trend, change } = chartHeadline(s, compareTo);
   return trend ? `${trend === "up" ? "▲" : "▼"} ${change}` : change;
 }
 
@@ -95,11 +101,12 @@ function teamTopLine(r: ReportsSection, unit: string): string {
 }
 
 /** With a chart, the headline is drawn big into the image, so the text is just the label; without one it stays as text. */
-function sectionBlocks(label: string, s: DigestSection, fileId: string | undefined, title: string, unit: string, extra?: string): SlackBlock[] {
+function sectionBlocks(label: string, s: DigestSection, fileId: string | undefined, title: string, compareTo: string, extra?: string): SlackBlock[] {
+  const change = deltaText(s, compareTo);
   const out: SlackBlock[] = [
-    { type: "section", text: { type: "mrkdwn", text: fileId ? `*${label}*` : `*${label}*\n*${formatUsd(s.headlineUsd)}* ${s.basis} · ${deltaText(s, unit)}` } },
+    { type: "section", text: { type: "mrkdwn", text: fileId ? `*${label}*` : `*${label}*\n*${formatUsd(s.headlineUsd)}* ${s.basis} · ${change}` } },
   ];
-  if (fileId) out.push({ type: "image", slack_file: { id: fileId }, alt_text: `${title}: ${formatUsd(s.headlineUsd)} · ${deltaText(s, unit)}` });
+  if (fileId) out.push({ type: "image", slack_file: { id: fileId }, alt_text: `${title}: ${formatUsd(s.headlineUsd)} · ${change}` });
   if (extra) out.push({ type: "section", text: { type: "mrkdwn", text: extra } });
   const lines = [toolsLine(s.byTool), monthLine(s)].filter((l): l is string => l !== null);
   if (lines.length) out.push(context(lines));
@@ -131,10 +138,10 @@ export function renderDigest(d: Digest, files: ChartFileIds, opts: RenderOpts = 
   const unit = CADENCE_UNIT[d.period.cadence];
   const blocks: SlackBlock[] = [];
   blocks.push({ type: "header", text: { type: "plain_text", text: `📊 Your AI spend · ${d.period.label}`, emoji: true } });
-  blocks.push(...sectionBlocks("YOU", d.you, files.you, chartTitle("you", d), unit));
+  blocks.push(...sectionBlocks("YOU", d.you, files.you, chartTitle("you", d), d.period.compareTo));
   if (d.reports) {
     blocks.push({ type: "divider" });
-    blocks.push(...sectionBlocks(`YOUR REPORTS · ${people(d.reports.headcount)}`, d.reports, files.reports, chartTitle("reports", d), unit, topLine(d.reports, unit)));
+    blocks.push(...sectionBlocks(`YOUR REPORTS · ${people(d.reports.headcount)}`, d.reports, files.reports, chartTitle("reports", d), d.period.compareTo, topLine(d.reports, unit)));
   }
   if (d.caveats.length) blocks.push(context(d.caveats.map(escapeMrkdwn)));
   blocks.push(dashboardButton(d.dashboardUrl));
@@ -151,7 +158,7 @@ export function renderTeamDigest(d: TeamDigest, files: TeamChartFileIds, opts: R
   const blocks: SlackBlock[] = [
     { type: "header", text: { type: "plain_text", text: `📊 AI spend · ${d.department} · ${d.period.label}`.slice(0, HEADER_MAX), emoji: true } },
     // Uppercase BEFORE escaping: "&amp;" must not become "&AMP;".
-    ...sectionBlocks(`${escapeMrkdwn(d.department.toUpperCase())} · ${people(d.team.headcount)}`, d.team, files.team, teamChartTitle(d), unit, teamTopLine(d.team, unit)),
+    ...sectionBlocks(`${escapeMrkdwn(d.department.toUpperCase())} · ${people(d.team.headcount)}`, d.team, files.team, teamChartTitle(d), d.period.compareTo, teamTopLine(d.team, unit)),
   ];
   if (d.caveats.length) blocks.push(context(d.caveats.map(escapeMrkdwn)));
   blocks.push(dashboardButton(d.dashboardUrl));

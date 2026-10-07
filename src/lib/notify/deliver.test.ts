@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ShapeFact } from "@/lib/explore/shape";
-import { chartLayoutsFor, chartLayoutsForTeam, deliverDigest, deliverTeamDigest, PostOutcomeUnknownError } from "./deliver";
+import { chartLayoutsFor, chartLayoutsForTeam, deliverDigest, deliverTeamDigest, PostOutcomeUnknownError, resolveSlackUser, SLACK_USER_TTL_MS } from "./deliver";
+import { memoryStore } from "./memory-store";
 import { buildDigest, buildTeamDigest } from "./digest";
 import { chartHeadline } from "./render";
 import { periodFor } from "./schedule";
@@ -60,10 +61,10 @@ describe("chartLayoutsForTeam", () => {
 describe("chart headlines", () => {
   it("draw each section's own total and change into its chart", () => {
     const l = chartLayoutsFor(personDigest);
-    expect(l.you.headline).toEqual(chartHeadline(personDigest.you, "week"));
-    expect(l.reports?.headline).toEqual(chartHeadline(personDigest.reports!, "week"));
+    expect(l.you.headline).toEqual(chartHeadline(personDigest.you, "previous week"));
+    expect(l.reports?.headline).toEqual(chartHeadline(personDigest.reports!, "previous week"));
     expect([l.you.caption, l.reports?.caption]).toEqual(["LAST 8 WEEKS", "LAST 8 WEEKS"]);
-    expect(chartLayoutsForTeam(teamDigest).team.headline).toEqual(chartHeadline(teamDigest.team, "week"));
+    expect(chartLayoutsForTeam(teamDigest).team.headline).toEqual(chartHeadline(teamDigest.team, "previous week"));
   });
 });
 
@@ -147,5 +148,60 @@ describe("deliverDigest", () => {
     await deliverDigest({ ...args(s.client), digest: personDigest, banner: "🧪 Test message from Admin — not a scheduled digest" });
     expect(s.posts[0].blocks[0]).toEqual({ type: "context", elements: [{ type: "mrkdwn", text: "🧪 Test message from Admin — not a scheduled digest" }] });
     expect(s.posts[0].text.startsWith("[🧪 Test message from Admin — not a scheduled digest] Your AI spend")).toBe(true);
+  });
+});
+
+describe("resolveSlackUser", () => {
+  const t0 = Date.parse("2026-10-07T09:30:00Z");
+  const counting = (answer: () => Promise<{ id: string; tz: string | null } | null>) => {
+    const calls: string[] = [];
+    return { calls, slack: fakeSlack({ lookupUserByEmail: async (email) => { calls.push(email); return answer(); } }).client };
+  };
+
+  it("looks a person up once, then serves their id and zone from the cache", async () => {
+    const store = memoryStore({}, () => t0);
+    const { calls, slack } = counting(async () => ({ id: "U1", tz: "Europe/London" }));
+    expect(await resolveSlackUser(store, slack, people[0], new Date(t0))).toEqual({ slackUserId: "U1", tz: "Europe/London" });
+    expect(await resolveSlackUser(store, slack, people[0], new Date(t0 + 3_600_000))).toEqual({ slackUserId: "U1", tz: "Europe/London" });
+    expect(calls).toEqual(["a@x.com"]);
+  });
+
+  it("refreshes after a week so a changed zone is picked up, keeping the cached answer if Slack errors", async () => {
+    let t = t0;
+    const store = memoryStore({}, () => t);
+    let answer: () => Promise<{ id: string; tz: string | null } | null> = async () => ({ id: "U1", tz: "Europe/London" });
+    const { calls, slack } = counting(() => answer());
+    await resolveSlackUser(store, slack, people[0], new Date(t));
+    t += SLACK_USER_TTL_MS + 1;
+    answer = async () => ({ id: "U1", tz: "America/Sao_Paulo" });
+    expect(await resolveSlackUser(store, slack, people[0], new Date(t))).toEqual({ slackUserId: "U1", tz: "America/Sao_Paulo" });
+    t += SLACK_USER_TTL_MS + 1;
+    answer = async () => { throw new SlackApiError("users.lookupByEmail", "ratelimited"); };
+    expect(await resolveSlackUser(store, slack, people[0], new Date(t))).toEqual({ slackUserId: "U1", tz: "America/Sao_Paulo" });
+    expect(calls).toHaveLength(3);
+  });
+
+  it("re-looks-up a cached user with no zone straight away (rows saved before zones were stored)", async () => {
+    const store = memoryStore({}, () => t0);
+    store.slackUserCache.set("a", { slackUserId: "U1", tz: null, lookedUpAt: new Date(t0).toISOString() });
+    const { calls, slack } = counting(async () => ({ id: "U1", tz: "Europe/London" }));
+    expect(await resolveSlackUser(store, slack, people[0], new Date(t0))).toEqual({ slackUserId: "U1", tz: "Europe/London" });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("caches a found user Slack gives no zone for as London, so they aren't looked up every hour", async () => {
+    const store = memoryStore({}, () => t0);
+    const { calls, slack } = counting(async () => ({ id: "U1", tz: null }));
+    expect(await resolveSlackUser(store, slack, people[0], new Date(t0))).toEqual({ slackUserId: "U1", tz: "Europe/London" });
+    expect(await resolveSlackUser(store, slack, people[0], new Date(t0 + 3_600_000))).toEqual({ slackUserId: "U1", tz: "Europe/London" });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("trusts a cached not-found for a week", async () => {
+    const store = memoryStore({}, () => t0);
+    const { calls, slack } = counting(async () => null);
+    expect(await resolveSlackUser(store, slack, people[0], new Date(t0))).toBeNull();
+    expect(await resolveSlackUser(store, slack, people[0], new Date(t0 + 86_400_000))).toBeNull();
+    expect(calls).toHaveLength(1);
   });
 });

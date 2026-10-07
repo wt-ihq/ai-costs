@@ -96,8 +96,9 @@ export async function sendTest(deps: TestSendDeps, input: { subject: unknown; ca
     const digest = subject.kind === "person" ? digestFor(ctx, subject.employeeId, period) : teamDigestFor(ctx, subject.department, period);
     if (!digest) return fail("Nothing to send for that period (no usage)");
 
-    const slackUserId = await resolveSlackUser(deps.store, deps.slack, target, deps.now);
-    if (!slackUserId) return fail(`No Slack account found for ${target.fullName}`);
+    const slackUser = await resolveSlackUser(deps.store, deps.slack, target, deps.now);
+    if (!slackUser) return fail(`No Slack account found for ${target.fullName}`);
+    const { slackUserId } = slackUser;
 
     const banner = testBanner({ adminName, subjectName, cadence, toSubject: subjectId !== null && target.id === subjectId });
     const send = { slack: deps.slack, renderChart: deps.renderChart, slackUserId, banner, log: deps.log, sleep: deps.sleep };

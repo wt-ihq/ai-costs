@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CoverageMonthRow } from "@/lib/queries/import-coverage";
-import { anySyncSucceededToday, caveatsFor, monthlyReadiness, sourceFreshness, type SyncRunRow } from "./freshness";
+import { caveatsFor, syncSucceededSince, monthlyReadiness, sourceFreshness, type SyncRunRow } from "./freshness";
 import { periodFor } from "./schedule";
 
 const runs: SyncRunRow[] = [
@@ -24,12 +24,12 @@ describe("sourceFreshness", () => {
   });
 });
 
-describe("anySyncSucceededToday", () => {
-  it("counts only spend sources (not okta) and only today's runs", () => {
-    const now = new Date("2026-09-30T07:00:00Z");
-    expect(anySyncSucceededToday(runs, now)).toBe(true); // anthropic
-    expect(anySyncSucceededToday(runs.filter((r) => r.source !== "anthropic"), now)).toBe(false);
-    expect(anySyncSucceededToday(runs, new Date("2026-10-01T07:00:00Z"))).toBe(false);
+describe("syncSucceededSince", () => {
+  it("counts only spend sources (not okta), and only runs on or after the given UTC day", () => {
+    expect(syncSucceededSince(runs, "2026-09-30")).toBe(true); // anthropic
+    expect(syncSucceededSince(runs.filter((r) => r.source !== "anthropic"), "2026-09-30")).toBe(false);
+    expect(syncSucceededSince(runs, "2026-09-29")).toBe(true);
+    expect(syncSucceededSince(runs, "2026-10-01")).toBe(false);
   });
 });
 

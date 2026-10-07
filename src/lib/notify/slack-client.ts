@@ -5,7 +5,8 @@
  * Slack accepts for all Web API calls (complex args as JSON strings).
  */
 export interface SlackClient {
-  lookupUserByEmail(email: string): Promise<string | null>;
+  /** The Slack user and their IANA time zone (null if Slack has none); null when no such user. */
+  lookupUserByEmail(email: string): Promise<{ id: string; tz: string | null } | null>;
   openDm(userId: string): Promise<string>;
   uploadImage(png: Uint8Array<ArrayBuffer>, filename: string, title: string): Promise<string>;
   postMessage(channel: string, blocks: unknown[], text: string): Promise<string>;
@@ -51,7 +52,8 @@ export function createSlackClient(
   return {
     async lookupUserByEmail(email) {
       try {
-        return (await call<{ user: { id: string } }>("users.lookupByEmail", { email })).user.id;
+        const { user } = await call<{ user: { id: string; tz?: string } }>("users.lookupByEmail", { email });
+        return { id: user.id, tz: user.tz ?? null };
       } catch (err) {
         if (err instanceof SlackApiError && err.code === "users_not_found") return null;
         throw err;

@@ -26,13 +26,14 @@ release is a hand-picked pilot.
    "+N others $X".
 5. **Cadence is per recipient:** `daily`, `weekly`, `monthly`, any
    combination. Admins set it during the pilot; people will choose their own
-   later (same table, new UI).
+   later (same table, new UI). *(Amended 2026-10-07: working days only, at
+   10:30 in each recipient's own time zone — see §3 "Send time".)*
 6. **Delivery:** DMs from a Slack bot. Built in-app with the Slack Web API
    (not Workflow Builder, not n8n), so the logic sits next to the data it
    needs.
 7. **One message per recipient per cadence period**, with a "You" section
    and, for managers, a "Your reports" section. Someone on daily + weekly gets
-   two DMs on a Monday (Sunday's daily and the week's recap), never two
+   two DMs on a Monday (Friday's daily and the week's recap), never two
    separate personal/manager DMs for the same period.
 8. **A chart per section** (mockup option A): each section gets its own
    titled PNG chart directly under its headline. People without reports get
@@ -133,9 +134,30 @@ codebase.
 
 | Cadence | Period covered | Due on | `period_key` | Chart span |
 |---|---|---|---|---|
-| daily | yesterday | every run | `2026-09-29` | last 14 days |
+| daily | the previous working day (Monday → Friday) | Mon–Fri | `2026-09-29` | last 14 days |
 | weekly | previous Mon–Sun | Mondays | `2026-W39` (ISO week) | last 8 weeks |
-| monthly | previous calendar month | 3rd–5th, see below | `2026-09` | last 6 months |
+| monthly | previous calendar month | 3rd–5th working days, see below | `2026-09` | last 6 months |
+
+**Send time (amended 2026-10-07).** Nothing goes out on a Saturday or
+Sunday. The cron runs hourly at :30; each run DMs whoever it is now 10:30 or
+later for, on a working day, in **their own Slack time zone**
+(`sendDay`; `users.lookupByEmail` returns the zone, cached in
+`slack_users.tz` — migration 0016 — and refreshed weekly; unknown → London).
+The "day" in the table above is the recipient's local day. Anyone a run
+misses (budget, a lookup error, a late sync) is picked up by the next hourly
+run; `notification_sends` still guarantees at most one DM per period. A run
+checks who is due and what is already handled (`sendStates`) before loading
+any spend data, so most hourly runs stop early. A daily compares with the
+previous **working** day, so a Monday reads "vs Friday", not vs a
+near-empty Sunday (`DigestPeriod.compareTo`). Data is still whole UTC days,
+so a daily/weekly is held until a spend source has synced on or after the
+recipient's local day (`syncSucceededSince`): anyone east of UTC+10:30 reaches
+10:30 before their period's last UTC day is over, and gets their digest at
+the first run after the next 06:00 UTC sync. Import coverage (which pages
+every manual-source fact) is read only when a recipient's day is inside the
+monthly window, and a missing Slack account is logged once without loading
+any spend data and not retried that day (Slack's answer is cached a week). Why: a 07:00 UTC send landed
+inside many people's paused-notification hours, so DMs arrived silently.
 
 ```ts
 export type Cadence = "daily" | "weekly" | "monthly";
@@ -157,7 +179,8 @@ month through the 3rd, so the automatic sources aren't final before the
   using can't block the recap).
 
 On the 3rd or 4th, if not ready, wait. On the 5th, send regardless
-(`force`); missing sources become caveats. The send log makes this safe: each
+(`force`); missing sources become caveats. A weekend 3rd/4th is skipped, and
+a weekend 5th moves the forced send to the Monday after (`monthlyLastDay`). The send log makes this safe: each
 run tries the due period, and anyone already `sent` for `2026-09` is skipped.
 
 ## 4. Digest — `src/lib/notify/digest.ts` (pure)
@@ -301,7 +324,7 @@ All calls check `ok`. `429` waits for `Retry-After`, up to 3 retries.
 
 1. `mode === "off"` → return.
 2. `dueCadences(today, monthlyReady)`. Nothing due → return.
-3. If **no source has a successful `sync_runs` row today**, drop daily and
+3. If **no source has a successful `sync_runs` row today** (since 2026-10-07: on or after the recipient's local day — §3 "Send time"), drop daily and
    weekly from the due list (no all-caveat messages). Monthly just tries again
    the next day.
 4. Load subscriptions for the due cadences, keeping only active employees.
@@ -340,8 +363,9 @@ matters more than always sending once.
 
 **Route:** `src/app/api/cron/notify/route.ts`: `isCronAuthorized` (fails
 closed), `dynamic = "force-dynamic"`, `maxDuration = 300`, optional `?date=`
-override (acts as "today", for replaying a day in preview). Added to
-`vercel.json` at `0 7 * * *` (08:00 UK summer time, one hour after the sync).
+override (acts as "today", for replaying a day in preview — sent straight
+away, without the 10:30 wait). `vercel.json`: originally `0 7 * * *`; since
+2026-10-07 `30 * * * *` (hourly, see §3 "Send time").
 
 **Env:** `SLACK_BOT_TOKEN` (secret), `SLACK_NOTIFY_MODE` (defaults to `off`
 when unset), `SLACK_PREVIEW_EMAIL`. Base URL for links:
@@ -473,6 +497,7 @@ employee whose Slack account it resolves itself.
 
 ## Out of scope
 
-Self-serve preferences UI, anomaly alerts, channel posts, batching or queueing
-for a full rollout (~250 people won't fit the 300 s budget), per-person
-timezones, and Slack interactivity beyond the link button.
+Self-serve preferences UI, anomaly alerts, channel posts, and Slack
+interactivity beyond the link button. (Per-person time zones came in on
+2026-10-07; the hourly runs also pick up anyone a run's 300 s budget missed,
+which eases — but doesn't remove — the full-rollout batching question.)
