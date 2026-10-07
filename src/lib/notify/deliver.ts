@@ -1,6 +1,7 @@
 import { chartLayout, type ChartLayout } from "./chart";
 import type { Digest, TeamDigest } from "./digest";
-import { chartTitle, renderDigest, renderTeamDigest, teamChartTitle, type RenderedDigest } from "./render";
+import { chartHeadline, chartSpan, chartTitle, renderDigest, renderTeamDigest, teamChartTitle, type RenderedDigest } from "./render";
+import { CADENCE_UNIT } from "./schedule";
 import { SlackApiError, type SlackClient } from "./slack-client";
 import type { NotifyStore } from "./store";
 import type { NotifyEmployee } from "./types";
@@ -9,15 +10,20 @@ export type RenderChart = (layout: ChartLayout) => Promise<Uint8Array<ArrayBuffe
 
 /** One chart per section, each titled with whose numbers it shows. */
 export function chartLayoutsFor(d: Digest): { you: ChartLayout; reports?: ChartLayout } {
+  const unit = CADENCE_UNIT[d.period.cadence];
+  const caption = chartSpan(d.period.cadence);
   return {
-    you: chartLayout(chartTitle("you", d), d.you.chart, d.you.chartTools, d.you.byTool),
-    ...(d.reports ? { reports: chartLayout(chartTitle("reports", d), d.reports.chart, d.reports.chartTools, d.reports.byTool) } : {}),
+    you: chartLayout(chartTitle("you", d), d.you.chart, d.you.chartTools, d.you.byTool, { headline: chartHeadline(d.you, unit), caption }),
+    ...(d.reports
+      ? { reports: chartLayout(chartTitle("reports", d), d.reports.chart, d.reports.chartTools, d.reports.byTool, { headline: chartHeadline(d.reports, unit), caption }) }
+      : {}),
   };
 }
 
 /** A team digest has one chart, for the whole team. */
 export function chartLayoutsForTeam(d: TeamDigest): { team: ChartLayout } {
-  return { team: chartLayout(teamChartTitle(d), d.team.chart, d.team.chartTools, d.team.byTool) };
+  const headline = chartHeadline(d.team, CADENCE_UNIT[d.period.cadence]);
+  return { team: chartLayout(teamChartTitle(d), d.team.chart, d.team.chartTools, d.team.byTool, { headline, caption: chartSpan(d.period.cadence) }) };
 }
 
 const failureCode = (err: unknown): string =>

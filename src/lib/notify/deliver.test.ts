@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ShapeFact } from "@/lib/explore/shape";
 import { chartLayoutsFor, chartLayoutsForTeam, deliverDigest, deliverTeamDigest, PostOutcomeUnknownError } from "./deliver";
 import { buildDigest, buildTeamDigest } from "./digest";
+import { chartHeadline } from "./render";
 import { periodFor } from "./schedule";
 import { SlackApiError, type SlackClient } from "./slack-client";
 import type { NotifyEmployee } from "./types";
@@ -50,8 +51,19 @@ describe("chartLayoutsForTeam", () => {
   it("is one chart titled with the team, its headcount and basis", () => {
     const l = chartLayoutsForTeam(teamDigest);
     expect(Object.keys(l)).toEqual(["team"]);
-    expect(l.team.title).toBe("R&D (2 PEOPLE) · USAGE, LAST 8 WEEKS");
+    expect(l.team.title).toBe("R&D (2 PEOPLE) · USAGE, 21–27 SEP 2026");
+    expect(l.team.caption).toBe("LAST 8 WEEKS");
     expect(l.team.bars).toHaveLength(8);
+  });
+});
+
+describe("chart headlines", () => {
+  it("draw each section's own total and change into its chart", () => {
+    const l = chartLayoutsFor(personDigest);
+    expect(l.you.headline).toEqual(chartHeadline(personDigest.you, "week"));
+    expect(l.reports?.headline).toEqual(chartHeadline(personDigest.reports!, "week"));
+    expect([l.you.caption, l.reports?.caption]).toEqual(["LAST 8 WEEKS", "LAST 8 WEEKS"]);
+    expect(chartLayoutsForTeam(teamDigest).team.headline).toEqual(chartHeadline(teamDigest.team, "week"));
   });
 });
 
@@ -60,7 +72,7 @@ describe("deliverTeamDigest", () => {
     const s = fakeSlack();
     const ts = await deliverTeamDigest({ ...args(s.client), digest: teamDigest, banner: "🧪 Test: R&D's weekly digest, sent to you by Admin" });
     expect(ts).toBe("ts1");
-    expect(s.uploads).toEqual([{ name: "ai-spend-team.png", title: "R&D (2 PEOPLE) · USAGE, LAST 8 WEEKS" }]);
+    expect(s.uploads).toEqual([{ name: "ai-spend-team.png", title: "R&D (2 PEOPLE) · USAGE, 21–27 SEP 2026" }]);
     expect(s.posts).toHaveLength(1);
     expect(s.posts[0].channel).toBe("D-U1");
     expect(s.posts[0].blocks[0]).toMatchObject({ type: "context" });
