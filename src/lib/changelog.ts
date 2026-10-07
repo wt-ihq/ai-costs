@@ -12,6 +12,14 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-10-07",
+    title: "Choose whether Slack digests include seats and subscriptions",
+    items: [
+      "Admins can now choose whether Slack spend summaries count seats and subscriptions, under Data → Notifications. By default they don't, so every summary shows spend people actually drive.",
+      "Turn them on for everyone, or just for particular teams or people. When they're included, daily and weekly summaries get each day's share of the month's cost and monthly summaries the full amount, matching the dashboard.",
+    ],
+  },
+  {
+    date: "2026-10-07",
     title: "Totals on every bar in Slack digest charts",
     items: [
       "Every bar in the Slack spend charts now shows its total, so you can compare periods at a glance. The highlighted bar is the period the big number is about and shows its exact total; earlier bars stay faded with a short total such as $6.2k.",

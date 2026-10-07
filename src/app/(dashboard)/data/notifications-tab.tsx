@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Panel } from "@/components/ui";
 import { BlockKitPreview } from "@/components/notifications/block-kit-preview";
+import { FixedCostsPanel } from "@/components/notifications/fixed-costs-panel";
 import { RecipientsTable } from "@/components/notifications/recipients-table";
 import { PreviewPicker } from "@/components/notifications/preview-picker";
 import { SendTestControls } from "@/components/notifications/send-test-controls";
@@ -9,6 +10,7 @@ import { loadNotificationsAdmin } from "@/lib/notify/admin-store";
 import { renderChartPng } from "@/lib/notify/chart-image";
 import type { ChartLayout } from "@/lib/notify/chart";
 import { digestFor, loadNotifyContext, teamDigestFor } from "@/lib/notify/context";
+import { fixedCostsFor, fixedCostsForTeam, type FixedCostChoice } from "@/lib/notify/fixed-costs";
 import { chartLayoutsFor, chartLayoutsForTeam } from "@/lib/notify/deliver";
 import { isTeamDigest } from "@/lib/notify/digest";
 import { renderDigest, renderTeamDigest, type SlackBlock } from "@/lib/notify/render";
@@ -27,6 +29,7 @@ interface PreviewState {
   cadence: Cadence;
   key: string;
   label: string;
+  fixedCosts: FixedCostChoice; // which setting the digest was built with, and why
   prevKey: string | null;
   nextKey: string | null;
   blocks: SlackBlock[] | null; // null = nothing to send (daily with no usage)
@@ -59,6 +62,10 @@ async function loadPreview(p: NotificationsParams): Promise<PreviewState | null>
     subject, cadence, key, label: period.label,
     name: subject.kind === "person" ? (person?.fullName ?? "Unknown") : subject.department,
     subjectActive: subject.kind === "team" || (person !== undefined && isActiveEmployee(person)),
+    fixedCosts:
+      subject.kind === "person"
+        ? fixedCostsFor(ctx.fixedCosts, { id: subject.employeeId, department: person?.department ?? null })
+        : fixedCostsForTeam(ctx.fixedCosts, subject.department),
     prevKey: stepKey(cadence, key, -1, now), nextKey: stepKey(cadence, key, 1, now),
   };
   if (!digest) return { ...base, blocks: null, images: {} };
@@ -86,6 +93,8 @@ async function safePreview(p: NotificationsParams): Promise<PreviewState | { err
     return { error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+const FIXED_SOURCE: Record<FixedCostChoice["source"], string> = { person: "their own setting", team: "team setting", default: "the default" };
 
 export async function NotificationsTab({ params }: { params: NotificationsParams }) {
   const [data, preview] = await Promise.all([loadNotificationsAdmin(getSupabaseAdminClient()), safePreview(params)]);
@@ -143,6 +152,14 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
           <h2 className="mb-1 text-sm font-medium">Pilot recipients · {data.recipients.length}</h2>
           <p className="mb-4 text-xs text-muted">Only people listed here get anything. Checkboxes save as you click. Reports come from the Okta manager chain.</p>
           <RecipientsTable rows={data.recipients} people={data.people} departments={data.departments} previewing={isUuid(params.preview) ? params.preview : null} />
+          <div className="mt-6 border-t border-border pt-4">
+            <h2 className="mb-1 text-sm font-medium">Fixed costs</h2>
+            <p className="mb-3 text-xs text-muted">
+              Whether digests count seats &amp; subscriptions. Daily and weekly digests get each day&apos;s share; monthly recaps the full amount.
+              A person&apos;s setting (in the table above) beats their team&apos;s, which beats the default.
+            </p>
+            <FixedCostsPanel settings={data.fixedCosts} departments={data.departments} />
+          </div>
         </Panel>
 
         <Panel>
@@ -175,6 +192,10 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
                     ? "Built from live data. Team digests are for previews and tests only; they are never scheduled."
                     : "Built from live data, exactly as the cron would send it."}
                 </span>
+              </p>
+              <p className="mb-3 text-xs text-muted">
+                Seats &amp; subscriptions: <span className="text-foreground">{preview.fixedCosts.include ? "included" : "excluded"}</span>{" "}
+                ({FIXED_SOURCE[preview.fixedCosts.source]})
               </p>
               {preview.blocks ? (
                 <>

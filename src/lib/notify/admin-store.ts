@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchEmployeesAll } from "@/lib/queries/common";
-import { pageAll } from "./store";
+import { fixedCostsForTeam, type FixedCostChoice, type FixedCostSettings } from "./fixed-costs";
+import { pageAll, supabaseNotifyStore } from "./store";
 import { buildReportingTree } from "./tree";
 import { activeDepartments, CADENCES, isActiveEmployee, NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence, type SendMode } from "./types";
 
@@ -13,6 +14,8 @@ export interface RecipientRow {
   slack: "found" | "not_found" | "unknown";
   lastSent: string | null; // newest LIVE send "weekly · 2026-09-28"; "preview · weekly · 2026-09-28" if only previews went
   left: boolean;
+  /** Fixed costs: the person's own override (null = none) and what applies without it (team, else default). */
+  fixedCosts: { override: boolean | null; inherited: FixedCostChoice };
 }
 export interface SendLogRow { at: string; name: string; cadence: string; periodKey: string; mode: string; status: string; detail: string | null }
 export interface LastRun {
@@ -34,6 +37,7 @@ export interface NotificationsAdminData {
   people: PersonOption[]; // active, not yet enrolled — the recipients table's add-a-person picker
   activePeople: PersonOption[]; // every active employee — the preview and test-send pickers
   departments: string[];
+  fixedCosts: FixedCostSettings;
 }
 
 type SendRowLite = { employee_id: string; cadence: string; mode: string; status: string; updated_at: string };
@@ -96,7 +100,7 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
     (a, b) => supabase.from("notification_subscriptions").select("employee_id, cadence").order("employee_id").order("cadence").range(a, b),
     "notification_subscriptions",
   );
-  const [subs, lastSent, empRows, slackRows, sendRes] = await Promise.all([
+  const [subs, lastSent, empRows, slackRows, sendRes, fixedCosts] = await Promise.all([
     subsP,
     subsP.then((rows) => loadLastSent(supabase, [...new Set(rows.map((r) => r.employee_id))])),
     fetchEmployeesAll(supabase, NOTIFY_EMPLOYEE_COLUMNS),
@@ -106,6 +110,7 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
     ),
     // Bounded newest-first read of a growing log — never a full scan.
     supabase.from("notification_sends").select("employee_id, cadence, period_key, mode, status, detail, updated_at").order("updated_at", { ascending: false }).order("id").limit(200),
+    supabaseNotifyStore(supabase).fixedCostSettings(),
   ]);
   if (sendRes.error) throw new Error(`notification_sends: ${sendRes.error.message}`);
 
@@ -129,6 +134,7 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
       slack: !slack.has(id) ? "unknown" : slack.get(id) ? "found" : "not_found",
       lastSent: lastSent.get(id) ?? null,
       left: e ? !isActiveEmployee(e) : true,
+      fixedCosts: { override: id in fixedCosts.employees ? fixedCosts.employees[id] : null, inherited: fixedCostsForTeam(fixedCosts, e?.department ?? null) },
     };
   }).sort((a, b) => a.name.localeCompare(b.name));
 
@@ -149,7 +155,28 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
     people: activePeople.filter((p) => !cadencesBy.has(p.id)),
     activePeople,
     departments: activeDepartments(employees),
+    fixedCosts,
   };
+}
+
+export type FixedCostScope = "org" | "department" | "employee";
+
+/** Set one fixed-costs setting; `include` null removes it (a team/person falls back; the org reverts to exclude). */
+export async function setFixedCostSetting(
+  supabase: SupabaseClient,
+  scope: FixedCostScope,
+  scopeKey: string,
+  include: boolean | null,
+  updatedBy: string,
+): Promise<void> {
+  const key = scope === "org" ? "" : scopeKey;
+  const { error } =
+    include === null
+      ? await supabase.from("notification_settings").delete().eq("scope", scope).eq("scope_key", key)
+      : await supabase
+          .from("notification_settings")
+          .upsert({ scope, scope_key: key, include_fixed: include, updated_by: updatedBy, updated_at: new Date().toISOString() }, { onConflict: "scope,scope_key" });
+  if (error) throw new Error(`setFixedCostSetting: ${error.message}`);
 }
 
 export async function addSubscriptions(supabase: SupabaseClient, employeeIds: string[], cadences: Cadence[], createdBy: string): Promise<number> {

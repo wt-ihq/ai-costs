@@ -19,7 +19,7 @@ const fact = (usd: number, employeeId: string): ShapeFact => ({
 });
 const base = {
   employeesById: new Map(people.map((p) => [p.id, p])), facts: [fact(30, "a"), fact(12, "b")], period: periodFor("weekly", "2026-W39", now), now,
-  sourceHorizons: {}, toolColors: {}, freshness: [], missingImports: [], baseUrl: "https://x.test",
+  sourceHorizons: {}, toolColors: {}, freshness: [], missingImports: [], baseUrl: "https://x.test", includeFixed: false,
 };
 const teamDigest = buildTeamDigest({ ...base, department: "R&D" })!;
 const personDigest = buildDigest({ ...base, recipient: people[0], reportIds: ["b"] })!;

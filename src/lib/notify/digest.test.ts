@@ -38,7 +38,7 @@ const facts: ShapeFact[] = [
 const input = (over: Partial<DigestInput> = {}): DigestInput => ({
   recipient: byId.get("m")!, reportIds: ["a", "s", "l"], employeesById: byId, facts,
   period: periodFor("weekly", "2026-W39", now), now, sourceHorizons: {}, toolColors: {},
-  freshness: [], missingImports: [], baseUrl: "https://x.test", ...over,
+  freshness: [], missingImports: [], baseUrl: "https://x.test", includeFixed: false, ...over,
 });
 
 describe("buildDigest — weekly (usage basis)", () => {
@@ -55,8 +55,8 @@ describe("buildDigest — weekly (usage basis)", () => {
     expect(d.reports!.top[1].href).toBe("https://x.test/explore/Data%20Science/s");
   });
 
-  it("carries a month-so-far line (all cost types) and a projection for the current month", () => {
-    expect(d.you.month).toMatchObject({ monthLabel: "September", soFarUsd: 112.3, complete: false });
+  it("carries a month-so-far line on the same basis (no seat) and a projection for the current month", () => {
+    expect(d.you.month).toMatchObject({ monthLabel: "September", soFarUsd: 72.3, complete: false });
     expect(typeof d.you.month!.projectedUsd).toBe("number");
   });
 
@@ -74,9 +74,51 @@ describe("buildDigest — weekly (usage basis)", () => {
 describe("buildDigest — monthly (total basis)", () => {
   it("monthly total equals the person's summed facts to the cent, with no month line", () => {
     const aug = [fact("2026-08-01", "cursor", "seat", 40, "m"), fact("2026-08-10", "cursor", "overage", 20.05, "m"), fact("2026-07-03", "cursor", "overage", 7, "m")];
-    const d = buildDigest(input({ facts: aug, reportIds: [], period: periodFor("monthly", "2026-08", now) }))!;
+    const d = buildDigest(input({ facts: aug, reportIds: [], period: periodFor("monthly", "2026-08", now), includeFixed: true }))!;
     expect(d.you).toMatchObject({ basis: "total", headlineUsd: 60.05, prevUsd: 7, month: null });
     expect(d.reports).toBeNull();
+  });
+});
+
+describe("fixed costs (seats & subscriptions)", () => {
+  const weekly = (includeFixed: boolean, over: Partial<DigestInput> = {}) => buildDigest(input({ includeFixed, ...over }))!;
+
+  it("excluded: monthly becomes usage only — seats and subscriptions dropped, Claude Team's usage kept", () => {
+    const aug = [
+      fact("2026-08-01", "cursor", "seat", 40, "m"),
+      fact("2026-08-10", "cursor", "overage", 20.05, "m"),
+      fact("2026-08-01", "claude_team", "overage", 100, "m"),
+      fact("2026-07-03", "cursor", "overage", 7, "m"),
+    ];
+    const d = buildDigest(input({ facts: aug, reportIds: [], period: periodFor("monthly", "2026-08", now), includeFixed: false }))!;
+    expect(d.you).toMatchObject({ basis: "usage", headlineUsd: 120.05, prevUsd: 7 });
+  });
+
+  it("included: a weekly adds each day's share of the month's seat (40 / 30 days × 7), on both weeks it compares", () => {
+    const d = weekly(true);
+    expect(d.you).toMatchObject({ basis: "total", headlineUsd: 47.53, prevUsd: 43.43 });
+    expect(d.you.byTool.find((t) => t.key === "cursor")?.usd).toBe(39.43);
+    expect(d.you.month).toMatchObject({ soFarUsd: 112.3 }); // the month line counts the seat in full
+  });
+
+  it("included: still leaves Claude Team's monthly usage lump out of daily/weekly", () => {
+    expect(weekly(true).reports).toMatchObject({ headlineUsd: 278 });
+  });
+
+  it("included: a daily carries one day's share", () => {
+    const d = buildDigest(input({ period: periodFor("daily", "2026-09-22", now), reportIds: [], includeFixed: true }))!;
+    expect(d.you).toMatchObject({ basis: "total", headlineUsd: 31.43 });
+  });
+
+  it("included: a week spanning two months takes each month's share", () => {
+    const facts2 = [fact("2026-09-01", "cursor", "seat", 30, "m"), fact("2026-10-01", "cursor", "seat", 62, "m")];
+    const d = buildDigest(input({ facts: facts2, reportIds: [], period: periodFor("weekly", "2026-W40", new Date("2026-10-07T09:30:00Z")), includeFixed: true }))!;
+    expect(d.you.headlineUsd).toBe(11); // Sep 28–30: 3 × $1 + Oct 1–4: 4 × $2
+  });
+
+  it("the chart follows the same rule", () => {
+    expect(weekly(true).you.chart[7].totalUsd).toBe(47.53);
+    expect(weekly(false).you.chart[7].totalUsd).toBe(38.2);
   });
 });
 
@@ -162,7 +204,7 @@ const teamFacts: ShapeFact[] = [
 ];
 const teamInput = (over: Partial<TeamDigestInput> = {}): TeamDigestInput => ({
   department: "Engineering", employeesById: byId, facts: teamFacts, period: periodFor("weekly", "2026-W39", now), now,
-  sourceHorizons: {}, toolColors: {}, freshness: [], missingImports: [], baseUrl: "https://x.test", ...over,
+  sourceHorizons: {}, toolColors: {}, freshness: [], missingImports: [], baseUrl: "https://x.test", includeFixed: false, ...over,
 });
 
 describe("buildTeamDigest — weekly (usage basis)", () => {
@@ -187,9 +229,11 @@ describe("buildTeamDigest — weekly (usage basis)", () => {
     expect(d.team.headcount).toBe(3); // m, a, n — not the leaver, not Sam
   });
 
-  it("month context covers all cost types for the team, including the department subscription", () => {
-    // m 112.3 + a (140 + 500 lump) + leaver 42 + Figma AI 999 + dept usage 5
-    expect(d.team.month).toMatchObject({ monthLabel: "September", soFarUsd: 1798.3, complete: false });
+  it("month context is on the same basis: usage incl. Claude Team's lump, no seat or department subscription", () => {
+    // m 72.3 + a (140 + 500 lump) + leaver 42 + dept usage 5
+    expect(d.team.month).toMatchObject({ monthLabel: "September", soFarUsd: 759.3, complete: false });
+    // with fixed costs: + m's seat 40 + Figma AI 999
+    expect(buildTeamDigest(teamInput({ includeFixed: true }))!.team.month).toMatchObject({ soFarUsd: 1798.3 });
   });
 
   it("charts 8 weekly buckets on the same basis", () => {
@@ -214,7 +258,7 @@ describe("buildTeamDigest — monthly (total basis)", () => {
       deptFact("2026-08-04", "other", "subscription", 33, "Data Science", "Notion"),
       fact("2026-07-03", "cursor", "overage", 7, "m"),
     ];
-    const d = buildTeamDigest(teamInput({ facts: aug, period: periodFor("monthly", "2026-08", now) }))!;
+    const d = buildTeamDigest(teamInput({ facts: aug, period: periodFor("monthly", "2026-08", now), includeFixed: true }))!;
     expect(d.team).toMatchObject({ basis: "total", headlineUsd: 167.92, prevUsd: 7, month: null });
     expect(d.team.byTool.map((t) => [t.key, t.usd])).toEqual([["other:Figma AI", 100.1], ["cursor", 60.05], ["openrouter", 7.77]]);
     // top people exclude the person-less subscription; it is part of the remainder
@@ -224,9 +268,15 @@ describe("buildTeamDigest — monthly (total basis)", () => {
 
   it("a $999 department subscription is team-level spend, kept out of the people", () => {
     const aug: ShapeFact[] = [fact("2026-08-10", "cursor", "overage", 20, "m"), deptFact("2026-08-05", "other", "subscription", 999, "Engineering", "Figma AI")];
-    const t = buildTeamDigest(teamInput({ facts: aug, period: periodFor("monthly", "2026-08", now) }))!.team;
+    const t = buildTeamDigest(teamInput({ facts: aug, period: periodFor("monthly", "2026-08", now), includeFixed: true }))!.team;
     expect(t).toMatchObject({ headlineUsd: 1019, teamLevelUsd: 999, othersCount: 0 });
     expect(t.top.map((p) => [p.name, p.usd])).toEqual([["Priya Nair", 20]]);
+  });
+
+  it("with fixed costs excluded, the department subscription drops out entirely", () => {
+    const aug: ShapeFact[] = [fact("2026-08-10", "cursor", "overage", 20, "m"), deptFact("2026-08-05", "other", "subscription", 999, "Engineering", "Figma AI")];
+    const t = buildTeamDigest(teamInput({ facts: aug, period: periodFor("monthly", "2026-08", now), includeFixed: false }))!.team;
+    expect(t).toMatchObject({ basis: "usage", headlineUsd: 20, teamLevelUsd: 0 });
   });
 });
 

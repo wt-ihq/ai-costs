@@ -61,3 +61,28 @@ describe("teamDigestFor", () => {
     expect(teamDigestFor(ctx, "Eng", periodFor("daily", "2026-09-26", now))).toBeNull();
   });
 });
+
+describe("fixed costs setting", () => {
+  const seat = (employeeId: string): ShapeFact => ({ ...fact("2026-08-01", 40, employeeId), costType: "seat" });
+  const store = memoryStore({
+    employees: [emp("m"), emp("a", { managerRef: "00um" }), emp("d", { department: "Design" })],
+    facts: [seat("m"), seat("a"), { ...seat("d"), department: "Design" }, fact("2026-08-10", 10, "m"), fact("2026-08-10", 10, "a"), { ...fact("2026-08-10", 10, "d"), department: "Design" }],
+    fixedCosts: { orgInclude: false, departments: { Design: true }, employees: { a: true } },
+  });
+  const aug = periodFor("monthly", "2026-08", now);
+
+  it("loads the settings with everything else and applies the recipient's to every section of their digest", async () => {
+    const ctx = await loadNotifyContext(store, now, "https://x.test");
+    const m = digestFor(ctx, "m", aug)!;
+    expect(m.you).toMatchObject({ basis: "usage", headlineUsd: 10 });
+    expect(m.reports).toMatchObject({ basis: "usage", headlineUsd: 10 }); // a's own override doesn't change m's digest
+    expect(digestFor(ctx, "a", aug)!.you).toMatchObject({ basis: "total", headlineUsd: 50 }); // person override
+    expect(digestFor(ctx, "d", aug)!.you).toMatchObject({ basis: "total", headlineUsd: 50 }); // team override
+  });
+
+  it("a team digest uses the team's setting", async () => {
+    const ctx = await loadNotifyContext(store, now, "https://x.test");
+    expect(teamDigestFor(ctx, "Design", aug)!.team).toMatchObject({ basis: "total", headlineUsd: 50 });
+    expect(teamDigestFor(ctx, "Eng", aug)!.team).toMatchObject({ basis: "usage", headlineUsd: 20 });
+  });
+});

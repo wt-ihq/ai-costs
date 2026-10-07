@@ -3,6 +3,7 @@ import type { ShapeFact } from "@/lib/explore/shape";
 import { fetchEmployeesAll, fetchFactsInRange } from "@/lib/queries/common";
 import { getSourceHorizons, getToolColors } from "@/lib/queries/explore";
 import { buildImportCoverage, getImportCoverageScope, type CoverageMonthRow } from "@/lib/queries/import-coverage";
+import { NO_FIXED_COST_SETTINGS, type FixedCostSettings } from "./fixed-costs";
 import type { SyncRunRow } from "./freshness";
 import { NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence, type NotifyEmployee, type SendMode } from "./types";
 
@@ -28,6 +29,8 @@ export interface NotifyStore {
   toolColors(): Promise<Record<string, string>>;
   recentSyncRuns(sinceIso: string): Promise<SyncRunRow[]>;
   importCoverage(nowMonth: string): Promise<CoverageMonthRow[]>;
+  /** notification_settings: the organisation default and per-team / per-person overrides. */
+  fixedCostSettings(): Promise<FixedCostSettings>;
   /** Existing send rows for these period keys in one mode — lets a run skip the heavy data load when nothing is left to send. */
   sendStates(periodKeys: string[], mode: SendMode): Promise<(SendKey & { status: string; attempts: number })[]>;
   /** Insert a pending row; true = this run owns the send. */
@@ -64,6 +67,17 @@ export async function pageAll<T>(query: (from: number, to: number) => PageResult
     out.push(...(data ?? []));
     if (!data || data.length < PAGE) return out;
   }
+}
+
+/** notification_settings rows → settings. No org row = the default (exclude). */
+export function toFixedCostSettings(rows: { scope: string; scope_key: string; include_fixed: boolean }[]): FixedCostSettings {
+  const out: FixedCostSettings = { orgInclude: NO_FIXED_COST_SETTINGS.orgInclude, departments: {}, employees: {} };
+  for (const r of rows) {
+    if (r.scope === "org") out.orgInclude = r.include_fixed;
+    else if (r.scope === "department") out.departments[r.scope_key] = r.include_fixed;
+    else if (r.scope === "employee") out.employees[r.scope_key] = r.include_fixed;
+  }
+  return out;
 }
 
 const keyMatch = (k: SendKey) => ({ employee_id: k.employeeId, cadence: k.cadence, period_key: k.periodKey, mode: k.mode });
@@ -110,6 +124,13 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
         "sendStates",
       );
       return rows.map((r) => ({ employeeId: r.employee_id, cadence: r.cadence, periodKey: r.period_key, mode, status: r.status, attempts: r.attempts }));
+    },
+    async fixedCostSettings() {
+      const rows = await pageAll<{ scope: string; scope_key: string; include_fixed: boolean }>(
+        (a, b) => supabase.from("notification_settings").select("scope, scope_key, include_fixed").order("scope").order("scope_key").range(a, b),
+        "fixedCostSettings",
+      );
+      return toFixedCostSettings(rows);
     },
     async claimSend(key) {
       const { error } = await supabase.from("notification_sends").insert({ ...keyMatch(key), status: "pending" });
