@@ -3,12 +3,12 @@ import type { ChartBucket, ToolAmount } from "./digest";
 
 /** Rendered at 2× (Slack displays ~460px wide) so bars stay crisp on retina screens. */
 export const CHART_W = 920;
-export const CHART_H = 534;
+export const CHART_H = 554;
 /** The section's total, drawn big under the title (Slack text can't be sized or coloured). */
 export const CHART_HEADLINE = { top: 50, size: 72 } as const;
 /** "LAST 6 MONTHS" — captions the bars, kept apart from the headline so it can't read as the total's period. */
 export const CHART_CAPTION = { top: 150, size: 19 } as const;
-export const CHART_PLOT = { left: 88, right: 900, top: 190, bottom: 410 } as const;
+export const CHART_PLOT = { left: 88, right: 900, top: 210, bottom: 430 } as const;
 const LEGEND_MAX = 4;
 
 export interface ChartSegment { y: number; h: number; color: string }
@@ -33,6 +33,14 @@ export function niceMax(v: number): number {
   const p = 10 ** Math.floor(Math.log10(v));
   for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p;
   return 10 * p;
+}
+
+/** A bar's total, short enough to sit over a 14-day chart's bars: "$4.20", "$950", "$6.2k", "$123k". */
+export function barUsd(v: number): string {
+  if (v < 10) return `$${v.toFixed(2)}`;
+  if (v < 999.5) return `$${Math.round(v)}`;
+  if (v < 99_950) return `$${(Math.round(v / 100) / 10).toLocaleString("en-US")}k`;
+  return `$${Math.round(v / 1000)}k`;
 }
 
 export function axisUsd(v: number): string {
@@ -73,7 +81,8 @@ export function chartLayout(
       label: b.label,
       current: b.current,
       segments,
-      totalLabel: b.current ? formatUsd(b.totalUsd) : null,
+      // Every bar's total; the current one exact, to match the headline above it.
+      totalLabel: b.totalUsd <= 0 ? null : b.current ? formatUsd(b.totalUsd) : barUsd(b.totalUsd),
     };
   });
 
