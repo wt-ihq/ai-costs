@@ -5,7 +5,7 @@ import { runNotify, STALE_PENDING_MS, type RunNotifyDeps } from "./run-notify";
 import { SlackApiError, type SlackClient } from "./slack-client";
 import type { NotifyEmployee } from "./types";
 
-const MONDAY = new Date("2026-09-28T07:00:00Z"); // daily 2026-09-27 + weekly 2026-W39 due
+const MONDAY = new Date("2026-09-28T09:30:00Z"); // 10:30 BST: daily for Friday 2026-09-25 + weekly 2026-W39 due
 const emp = (id: string, over: Partial<NotifyEmployee> = {}): NotifyEmployee => ({
   id, email: `${id}@x.com`, fullName: `Person ${id}`, department: "Eng", oktaId: `00u${id}`, employeeNumber: null,
   managerRef: null, employmentStatus: "active", leaveDate: null, ...over,
@@ -15,7 +15,7 @@ const fact = (day: string, usd: number, employeeId: string): ShapeFact => ({
 });
 const seed = (over: MemorySeed = {}): MemorySeed => ({
   employees: [emp("m"), emp("a", { managerRef: "00um" }), emp("gareth"), emp("gone", { leaveDate: "2026-09-01", employmentStatus: "deprovisioned" })],
-  facts: [fact("2026-09-27", 12, "a"), fact("2026-09-22", 30, "m"), fact("2026-09-23", 50, "a")],
+  facts: [fact("2026-09-25", 12, "a"), fact("2026-09-22", 30, "m"), fact("2026-09-23", 50, "a")],
   subscriptions: [{ employeeId: "a", cadence: "daily" }, { employeeId: "m", cadence: "weekly" }, { employeeId: "gone", cadence: "weekly" }],
   syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-09-28T06:00:03Z" }],
   ...over,
@@ -25,7 +25,7 @@ function fakeSlack(over: Partial<SlackClient> = {}) {
   const posts: { channel: string; blocks: unknown[]; text: string }[] = [];
   const uploads: string[] = [];
   const client: SlackClient = {
-    lookupUserByEmail: async (email) => (email.endsWith("@x.com") ? `U-${email.split("@")[0]}` : null),
+    lookupUserByEmail: async (email) => (email.endsWith("@x.com") ? { id: `U-${email.split("@")[0]}`, tz: "Europe/London" } : null),
     openDm: async (u) => `D-${u}`,
     uploadImage: async (_png, name) => {
       uploads.push(name);
@@ -51,7 +51,7 @@ describe("runNotify", () => {
     const store = memoryStore(seed(), () => MONDAY.getTime());
     const slack = fakeSlack();
     const first = await runNotify(deps(store, slack.client));
-    expect(first).toMatchObject({ due: ["daily:2026-09-27", "weekly:2026-W39"], sent: 2, failed: 0 });
+    expect(first).toMatchObject({ due: ["daily:2026-09-25", "weekly:2026-W39"], sent: 2, failed: 0 });
     expect(slack.posts.map((p) => p.channel).sort()).toEqual(["D-U-a", "D-U-m"]);
     expect(store.sends.every((s) => s.status === "sent" && s.slackTs)).toBe(true);
 
@@ -92,7 +92,7 @@ describe("runNotify", () => {
   });
 
   it("retries a failed send while attempts remain, then stops", async () => {
-    const base = { cadence: "daily" as const, periodKey: "2026-09-27", mode: "live" as const, slackTs: null, detail: "x", updatedAt: "2026-09-28T06:59:00Z", employeeId: "a" };
+    const base = { cadence: "daily" as const, periodKey: "2026-09-25", mode: "live" as const, slackTs: null, detail: "x", updatedAt: "2026-09-28T06:59:00Z", employeeId: "a" };
     const retry = memoryStore(seed({ sends: [{ ...base, status: "failed", attempts: 1 }] }), () => MONDAY.getTime());
     expect((await runNotify(deps(retry, fakeSlack().client))).sent).toBe(2);
     const spent = memoryStore(seed({ sends: [{ ...base, status: "failed", attempts: 3 }] }), () => MONDAY.getTime());
@@ -102,7 +102,7 @@ describe("runNotify", () => {
   it("expires stale pending rows as interrupted and never resends them", async () => {
     const stale = new Date(MONDAY.getTime() - STALE_PENDING_MS - 1000).toISOString();
     const store = memoryStore(
-      seed({ sends: [{ employeeId: "a", cadence: "daily", periodKey: "2026-09-27", mode: "live", status: "pending", attempts: 1, slackTs: null, detail: null, updatedAt: stale }] }),
+      seed({ sends: [{ employeeId: "a", cadence: "daily", periodKey: "2026-09-25", mode: "live", status: "pending", attempts: 1, slackTs: null, detail: null, updatedAt: stale }] }),
       () => MONDAY.getTime(),
     );
     const slack = fakeSlack();
@@ -239,13 +239,13 @@ describe("runNotify", () => {
     const slack = fakeSlack();
     const r = await runNotify(deps(store, slack.client));
     expect(r.due).toEqual([]);
-    expect(r.note).toMatch(/no source synced/);
+    expect(r.note).toMatch(/no source has synced since 2026-09-28/);
     expect(slack.posts).toHaveLength(0);
   });
 
   it("logs a daily with no usage as skipped and a missing Slack account as failed", async () => {
     const store = memoryStore(
-      seed({ facts: [fact("2026-09-22", 30, "m")], employees: [emp("m"), emp("a", { managerRef: "00um", email: "a@elsewhere.com" }), emp("gareth")] }),
+      seed({ facts: [fact("2026-09-22", 30, "m")], employees: [emp("m"), emp("a", { managerRef: "00um" }), emp("gareth")] }),
       () => MONDAY.getTime(),
     );
     const r = await runNotify(deps(store, fakeSlack().client));
@@ -256,5 +256,116 @@ describe("runNotify", () => {
     await runNotify(deps(noSlack, fakeSlack().client));
     expect(noSlack.sends.find((s) => s.employeeId === "m")).toMatchObject({ status: "failed", detail: "no Slack account" });
     expect(noSlack.slackUserCache.get("m")).toMatchObject({ slackUserId: null });
+  });
+
+  describe("10:30 local, working days only", () => {
+    const at = (iso: string) => ({ now: new Date(iso), clock: () => Date.parse(iso) });
+
+    it("waits until 10:30 in the recipient's zone, then sends — without loading spend data before", async () => {
+      const store = memoryStore(seed(), () => MONDAY.getTime());
+      const slack = fakeSlack();
+      const early = await runNotify(deps(store, slack.client, at("2026-09-28T09:29:00Z"))); // 10:29 BST
+      expect(early).toMatchObject({ sent: 0, waiting: 2 });
+      expect(store.factCalls).toHaveLength(0);
+      expect(store.sends).toHaveLength(0);
+      expect(await runNotify(deps(store, slack.client, at("2026-09-28T09:30:00Z")))).toMatchObject({ sent: 2, waiting: 0 });
+    });
+
+    it("sends to someone in another zone at their own 10:30", async () => {
+      const store = memoryStore(seed(), () => MONDAY.getTime());
+      const slack = fakeSlack({
+        lookupUserByEmail: async (email) => ({ id: `U-${email.split("@")[0]}`, tz: email.startsWith("m@") ? "America/Sao_Paulo" : "Europe/London" }),
+      });
+      expect(await runNotify(deps(store, slack.client, at("2026-09-28T09:30:00Z")))).toMatchObject({ sent: 1, waiting: 1 });
+      expect(await runNotify(deps(store, slack.client, at("2026-09-28T13:30:00Z")))).toMatchObject({ sent: 1, alreadyHandled: 1 }); // 10:30 in São Paulo
+      expect(slack.posts.map((p) => p.channel)).toEqual(["D-U-a", "D-U-m"]);
+    });
+
+    it("sends nothing at the weekend", async () => {
+      const store = memoryStore(seed({ syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-10-03T06:00:03Z" }] }), () => MONDAY.getTime());
+      const slack = fakeSlack();
+      expect(await runNotify(deps(store, slack.client, at("2026-10-03T12:00:00Z")))).toMatchObject({ sent: 0, waiting: 2 });
+      expect(slack.posts).toHaveLength(0);
+      expect(store.factCalls).toHaveLength(0);
+    });
+
+    it("skips the spend-data load once everyone due has been handled", async () => {
+      const store = memoryStore(seed(), () => MONDAY.getTime());
+      const slack = fakeSlack();
+      await runNotify(deps(store, slack.client));
+      const loads = store.factCalls.length;
+      expect(await runNotify(deps(store, slack.client, at("2026-09-28T10:30:00Z")))).toMatchObject({ sent: 0, alreadyHandled: 2 });
+      expect(store.factCalls).toHaveLength(loads);
+    });
+
+    it("a ?date= replay sends straight away, without the 10:30 wait", async () => {
+      const store = memoryStore(seed(), () => MONDAY.getTime());
+      const r = await runNotify(deps(store, fakeSlack().client, { mode: "preview", replay: true, ...at("2026-09-28T07:00:00Z") }));
+      expect(r).toMatchObject({ sent: 2, waiting: 0 });
+    });
+
+    const zoned = (tz: string) => fakeSlack({ lookupUserByEmail: async (email) => ({ id: `U-${email.split("@")[0]}`, tz }) });
+
+    it("holds someone whose 10:30 comes before that day's sync (UTC+11) until the first run after it", async () => {
+      const runs = [{ source: "cursor", status: "success", startedAt: "2026-10-06T06:00:03Z" }];
+      const store = memoryStore(seed({ subscriptions: [{ employeeId: "a", cadence: "daily" }], facts: [fact("2026-10-06", 12, "a")], syncRuns: runs }), () => MONDAY.getTime());
+      const slack = zoned("Australia/Sydney");
+      const early = await runNotify(deps(store, slack.client, at("2026-10-06T23:30:00Z"))); // Wed 10:30 AEDT — Tue isn't over in UTC
+      expect(early).toMatchObject({ sent: 0, due: [] });
+      expect(store.sends).toHaveLength(0);
+      runs.push({ source: "cursor", status: "success", startedAt: "2026-10-07T06:00:03Z" });
+      expect(await runNotify(deps(store, slack.client, at("2026-10-07T06:30:00Z")))).toMatchObject({ sent: 1, due: ["daily:2026-10-06"] });
+    });
+
+    it("a late western catch-up just after UTC midnight still counts its own day's sync", async () => {
+      const store = memoryStore(
+        seed({ subscriptions: [{ employeeId: "a", cadence: "daily" }], facts: [fact("2026-10-06", 12, "a")], syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-10-07T06:00:03Z" }] }),
+        () => MONDAY.getTime(),
+      );
+      const r = await runNotify(deps(store, zoned("America/Sao_Paulo").client, at("2026-10-08T02:30:00Z"))); // 23:30 Wed local
+      expect(r).toMatchObject({ sent: 1, due: ["daily:2026-10-06"] });
+    });
+
+    it("reads import coverage only on days a monthly could be due", async () => {
+      const store = memoryStore(seed(), () => MONDAY.getTime());
+      await runNotify(deps(store, fakeSlack().client));
+      expect(store.coverageCalls).toHaveLength(0);
+      const oct = memoryStore(seed({ syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-10-05T06:00:03Z" }] }), () => MONDAY.getTime());
+      await runNotify(deps(oct, fakeSlack().client, at("2026-10-05T09:30:00Z")));
+      expect(oct.coverageCalls).toHaveLength(1);
+    });
+
+    it("stops resolving Slack users past the time budget, leaving the rest for the next run", async () => {
+      const store = memoryStore(seed(), () => MONDAY.getTime());
+      let t = MONDAY.getTime();
+      const lookups: string[] = [];
+      const slack = fakeSlack({ lookupUserByEmail: async (email) => { lookups.push(email); t += 300_000; return { id: `U-${email.split("@")[0]}`, tz: "Europe/London" }; } });
+      const r = await runNotify(deps(store, slack.client, { clock: () => t, budgetMs: 240_000 }));
+      expect(r).toMatchObject({ sent: 0, notReached: 2 });
+      expect(lookups).toHaveLength(1);
+      expect(store.sends).toHaveLength(0);
+    });
+
+    it("records a missing Slack account once, without loading spend data, and doesn't retry it that day", async () => {
+      const store = memoryStore(seed({ employees: [emp("m", { email: "m@elsewhere.com" }), emp("gareth")], subscriptions: [{ employeeId: "m", cadence: "weekly" }] }), () => MONDAY.getTime());
+      expect(await runNotify(deps(store, fakeSlack().client))).toMatchObject({ failed: 1, sent: 0 });
+      expect(store.sends[0]).toMatchObject({ status: "failed", detail: "no Slack account" });
+      expect(await runNotify(deps(store, fakeSlack().client, at("2026-09-28T10:30:00Z")))).toMatchObject({ failed: 0, alreadyHandled: 1 });
+      expect(store.factCalls).toHaveLength(0);
+    });
+
+    it("a Slack lookup error leaves that person for the next run, untouched", async () => {
+      const store = memoryStore(seed(), () => MONDAY.getTime());
+      const logs: string[] = [];
+      const slack = fakeSlack({
+        lookupUserByEmail: async (email) => {
+          if (email.startsWith("a@")) throw new SlackApiError("users.lookupByEmail", "ratelimited");
+          return { id: `U-${email.split("@")[0]}`, tz: "Europe/London" };
+        },
+      });
+      expect(await runNotify(deps(store, slack.client, { log: (m) => logs.push(m) }))).toMatchObject({ sent: 1, failed: 1 });
+      expect(store.sends.some((s) => s.employeeId === "a")).toBe(false); // nothing claimed: the next run tries again
+      expect(logs).toContain("[notify] Slack lookup failed employee=a: ratelimited");
+    });
   });
 });

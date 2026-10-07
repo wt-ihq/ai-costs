@@ -12,7 +12,7 @@ import { digestFor, loadNotifyContext, teamDigestFor } from "@/lib/notify/contex
 import { chartLayoutsFor, chartLayoutsForTeam } from "@/lib/notify/deliver";
 import { isTeamDigest } from "@/lib/notify/digest";
 import { renderDigest, renderTeamDigest, type SlackBlock } from "@/lib/notify/render";
-import { latestCompleteKey, periodFor, stepKey } from "@/lib/notify/schedule";
+import { defaultPreviewKey, periodFor, stepKey } from "@/lib/notify/schedule";
 import { supabaseNotifyStore } from "@/lib/notify/store";
 import { previewHref, type TestSubject } from "@/lib/notify/subject";
 import { activeDepartments, CADENCES, isActiveEmployee, isCadence, isUuid, notifyMode, type Cadence } from "@/lib/notify/types";
@@ -39,12 +39,12 @@ async function loadPreview(p: NotificationsParams): Promise<PreviewState | null>
   if (!personId && !p.team) return null;
   const cadence: Cadence = isCadence(p.cadence) ? p.cadence : "weekly";
   const now = new Date();
-  let key = p.at ?? latestCompleteKey(cadence, now);
+  let key = p.at ?? defaultPreviewKey(cadence, now);
   let period;
   try {
     period = periodFor(cadence, key, now);
   } catch {
-    key = latestCompleteKey(cadence, now);
+    key = defaultPreviewKey(cadence, now);
     period = periodFor(cadence, key, now);
   }
   const ctx = await loadNotifyContext(supabaseNotifyStore(getSupabaseAdminClient()), now, appBaseUrl(), { earliest: period.buckets[0].from });

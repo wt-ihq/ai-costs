@@ -41,7 +41,7 @@ function setup(over: { employees?: NotifyEmployee[]; slack?: Partial<SlackClient
   };
   const posts: { channel: string; blocks: unknown[]; text: string }[] = [];
   const slack: SlackClient = {
-    lookupUserByEmail: async (email) => (email.endsWith("@x.com") ? `U-${email.split("@")[0]}` : null),
+    lookupUserByEmail: async (email) => (email.endsWith("@x.com") ? { id: `U-${email.split("@")[0]}`, tz: "Europe/London" } : null),
     openDm: async (u) => `D-${u}`,
     uploadImage: async () => "F1",
     postMessage: async (channel, blocks, text) => {

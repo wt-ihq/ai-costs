@@ -68,6 +68,11 @@ describe("renderDigest", () => {
     expect(renderDigest(digest(), {}).blocks.some((b) => b.type === "image")).toBe(false);
   });
 
+  it("a Monday daily's change reads against Friday", () => {
+    const b = renderDigest(digest({ period: periodFor("daily", "2026-09-28", now) }), {}).blocks;
+    expect(mrk(b[1])).toBe("*YOU*\n*$38.20* usage · ▲ 12% vs Friday");
+  });
+
   it("keeps the headline as text for any section whose chart didn't upload", () => {
     const b = renderDigest(digest(), { reports: "F2" }).blocks;
     expect(mrk(b[1])).toBe("*YOU*\n*$38.20* usage · ▲ 12% vs previous week");
@@ -227,11 +232,15 @@ describe("teamChartTitle", () => {
 
 describe("deltaText", () => {
   it("covers up, down, flat, from-zero and nothing-at-all", () => {
-    expect(deltaText(sec({ deltaPct: 12 }), "week")).toBe("▲ 12% vs previous week");
-    expect(deltaText(sec({ deltaPct: -4.4 }), "week")).toBe("▼ 4% vs previous week");
-    expect(deltaText(sec({ deltaPct: 0.3 }), "day")).toBe("no change vs previous day");
-    expect(deltaText(sec({ deltaPct: null, prevUsd: 0, headlineUsd: 5 }), "month")).toBe("up from $0 the previous month");
-    expect(deltaText(sec({ deltaPct: null, prevUsd: 0, headlineUsd: 0 }), "week")).toBe("no spend");
+    expect(deltaText(sec({ deltaPct: 12 }), "previous week")).toBe("▲ 12% vs previous week");
+    expect(deltaText(sec({ deltaPct: -4.4 }), "previous week")).toBe("▼ 4% vs previous week");
+    expect(deltaText(sec({ deltaPct: 0.3 }), "previous day")).toBe("no change vs previous day");
+    expect(deltaText(sec({ deltaPct: null, prevUsd: 0, headlineUsd: 5 }), "previous month")).toBe("up from $0 the previous month");
+    expect(deltaText(sec({ deltaPct: null, prevUsd: 0, headlineUsd: 0 }), "previous week")).toBe("no spend");
+  });
+  it("names the day when a daily compares across a weekend", () => {
+    expect(deltaText(sec({ deltaPct: 12 }), "Friday")).toBe("▲ 12% vs Friday");
+    expect(deltaText(sec({ deltaPct: null, prevUsd: 0, headlineUsd: 5 }), "Friday")).toBe("up from $0 on Friday");
   });
 });
 
@@ -258,11 +267,11 @@ describe("escapeMrkdwn", () => {
 
 describe("chartHeadline", () => {
   it("splits the total, the direction and the change for the image", () => {
-    expect(chartHeadline(sec(), "week")).toEqual({ total: "$38.20", trend: "up", change: "12% vs previous week" });
-    expect(chartHeadline(sec({ headlineUsd: 612, deltaPct: -4.4 }), "month")).toEqual({ total: "$612", trend: "down", change: "4% vs previous month" });
+    expect(chartHeadline(sec(), "previous week")).toEqual({ total: "$38.20", trend: "up", change: "12% vs previous week" });
+    expect(chartHeadline(sec({ headlineUsd: 612, deltaPct: -4.4 }), "previous month")).toEqual({ total: "$612", trend: "down", change: "4% vs previous month" });
   });
   it("has no direction when there's nothing to compare or no change", () => {
-    expect(chartHeadline(sec({ deltaPct: null, headlineUsd: 5 }), "month")).toMatchObject({ trend: null, change: "up from $0 the previous month" });
-    expect(chartHeadline(sec({ deltaPct: 0.2 }), "week")).toMatchObject({ trend: null, change: "no change vs previous week" });
+    expect(chartHeadline(sec({ deltaPct: null, headlineUsd: 5 }), "previous month")).toMatchObject({ trend: null, change: "up from $0 the previous month" });
+    expect(chartHeadline(sec({ deltaPct: 0.2 }), "previous week")).toMatchObject({ trend: null, change: "no change vs previous week" });
   });
 });

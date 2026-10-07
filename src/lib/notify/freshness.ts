@@ -35,11 +35,15 @@ export function sourceFreshness(runs: SyncRunRow[]): SourceFreshness[] {
   });
 }
 
-/** False when not one spend source synced successfully today — daily/weekly sends are then skipped. */
-export function anySyncSucceededToday(runs: SyncRunRow[], now: Date): boolean {
-  const today = now.toISOString().slice(0, 10);
+/**
+ * True once a spend source has synced successfully on or after `day` (UTC) —
+ * the recipient's local send day. Until then their daily/weekly is held: for
+ * anyone east of UTC+10:30 that's the morning before the day's sync, when the
+ * period's last day isn't over in UTC yet.
+ */
+export function syncSucceededSince(runs: SyncRunRow[], day: string): boolean {
   return runs.some(
-    (r) => (SYNCED_SOURCES as readonly string[]).includes(r.source) && r.status === "success" && r.startedAt.slice(0, 10) === today,
+    (r) => (SYNCED_SOURCES as readonly string[]).includes(r.source) && r.status === "success" && r.startedAt.slice(0, 10) >= day,
   );
 }
 

@@ -106,11 +106,12 @@ async function main() {
   if (!token || !email) throw new Error("Set SLACK_BOT_TOKEN and SLACK_PREVIEW_EMAIL in .env.local");
   const slack = createSlackClient(token);
 
-  const userId = await slack.lookupUserByEmail(email);
-  if (!userId) throw new Error(`No Slack user for ${email}`);
+  const user = await slack.lookupUserByEmail(email);
+  if (!user) throw new Error(`No Slack user for ${email}`);
+  console.log(`Slack user ${user.id}, time zone ${user.tz ?? "(none)"}`);
   const png = makeTestPng();
   const fileId = await slack.uploadImage(png, "smoke.png", "SMOKE TEST CHART");
-  const channel = await slack.openDm(userId);
+  const channel = await slack.openDm(user.id);
 
   const blocks = [
     { type: "section", text: { type: "mrkdwn", text: "*AI Spend smoke test*\nThe chart below should render inside this message." } },

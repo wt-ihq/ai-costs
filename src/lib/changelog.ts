@@ -12,6 +12,15 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-10-07",
+    title: "Slack spend digests arrive at 10:30 on weekdays",
+    items: [
+      "Spend summaries in Slack now arrive at 10:30 in your own time zone, Monday to Friday only, so they come when your Slack notifications are on instead of silently first thing in the morning.",
+      "Nothing is sent at weekends. Monday's daily summary covers Friday, and Monday's weekly summary still covers the whole previous week, weekend included.",
+      "A Monday's spend is now compared with the Friday before it, not with a near-empty Sunday.",
+    ],
+  },
+  {
+    date: "2026-10-07",
     title: "Bigger totals in Slack spend digests",
     items: [
       "Each chart in the Slack spend summary now opens with its total in large orange numbers and the change from last time beside it, in Intent's brand font. The line of text above each chart is now just its label, so the number isn't shown twice.",

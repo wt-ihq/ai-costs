@@ -1,7 +1,7 @@
 import { chartLayout, type ChartLayout } from "./chart";
 import type { Digest, TeamDigest } from "./digest";
+import { DEFAULT_TZ } from "./schedule";
 import { chartHeadline, chartSpan, chartTitle, renderDigest, renderTeamDigest, teamChartTitle, type RenderedDigest } from "./render";
-import { CADENCE_UNIT } from "./schedule";
 import { SlackApiError, type SlackClient } from "./slack-client";
 import type { NotifyStore } from "./store";
 import type { NotifyEmployee } from "./types";
@@ -10,19 +10,19 @@ export type RenderChart = (layout: ChartLayout) => Promise<Uint8Array<ArrayBuffe
 
 /** One chart per section, each titled with whose numbers it shows. */
 export function chartLayoutsFor(d: Digest): { you: ChartLayout; reports?: ChartLayout } {
-  const unit = CADENCE_UNIT[d.period.cadence];
+  const { compareTo } = d.period;
   const caption = chartSpan(d.period.cadence);
   return {
-    you: chartLayout(chartTitle("you", d), d.you.chart, d.you.chartTools, d.you.byTool, { headline: chartHeadline(d.you, unit), caption }),
+    you: chartLayout(chartTitle("you", d), d.you.chart, d.you.chartTools, d.you.byTool, { headline: chartHeadline(d.you, compareTo), caption }),
     ...(d.reports
-      ? { reports: chartLayout(chartTitle("reports", d), d.reports.chart, d.reports.chartTools, d.reports.byTool, { headline: chartHeadline(d.reports, unit), caption }) }
+      ? { reports: chartLayout(chartTitle("reports", d), d.reports.chart, d.reports.chartTools, d.reports.byTool, { headline: chartHeadline(d.reports, compareTo), caption }) }
       : {}),
   };
 }
 
 /** A team digest has one chart, for the whole team. */
 export function chartLayoutsForTeam(d: TeamDigest): { team: ChartLayout } {
-  const headline = chartHeadline(d.team, CADENCE_UNIT[d.period.cadence]);
+  const headline = chartHeadline(d.team, d.period.compareTo);
   return { team: chartLayout(teamChartTitle(d), d.team.chart, d.team.chartTools, d.team.byTool, { headline, caption: chartSpan(d.period.cadence) }) };
 }
 
@@ -47,21 +47,33 @@ async function uploadCharts(
   return files;
 }
 
-/** Trust a cached "not found" for a week before asking Slack again. */
-export const SLACK_NOT_FOUND_TTL_MS = 7 * 86_400_000;
+/** Ask Slack about a person again after a week: a not-found may have joined, a found one may have changed time zone. */
+export const SLACK_USER_TTL_MS = 7 * 86_400_000;
 
+export interface SlackRecipient { slackUserId: string; tz: string | null }
+
+/** The person's Slack id and time zone, cached in slack_users. A known person keeps being served through a Slack error. */
 export async function resolveSlackUser(
   store: Pick<NotifyStore, "slackUser" | "saveSlackUser">,
   slack: SlackClient,
   e: NotifyEmployee,
   now: Date,
-): Promise<string | null> {
+): Promise<SlackRecipient | null> {
   const cached = await store.slackUser(e.id);
-  if (cached?.slackUserId) return cached.slackUserId;
-  if (cached && now.getTime() - Date.parse(cached.lookedUpAt) < SLACK_NOT_FOUND_TTL_MS) return null;
-  const id = await slack.lookupUserByEmail(e.email);
-  await store.saveSlackUser(e.id, id);
-  return id;
+  const fresh = !!cached && now.getTime() - Date.parse(cached.lookedUpAt) < SLACK_USER_TTL_MS;
+  if (fresh && cached.slackUserId && cached.tz) return { slackUserId: cached.slackUserId, tz: cached.tz };
+  if (fresh && !cached.slackUserId) return null;
+  let found: Awaited<ReturnType<SlackClient["lookupUserByEmail"]>>;
+  try {
+    found = await slack.lookupUserByEmail(e.email);
+  } catch (err) {
+    if (cached?.slackUserId) return { slackUserId: cached.slackUserId, tz: cached.tz };
+    throw err;
+  }
+  // No zone from Slack counts as London (as sendDay would) — and is cached as such, not re-asked every hour.
+  const user = found && { id: found.id, tz: found.tz ?? DEFAULT_TZ };
+  await store.saveSlackUser(e.id, user);
+  return user ? { slackUserId: user.id, tz: user.tz } : null;
 }
 
 /**

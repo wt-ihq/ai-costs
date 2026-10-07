@@ -18,10 +18,11 @@ const fail = (error: string) => new Response(JSON.stringify({ ok: false, error }
 const form = (c: Call) => new URLSearchParams(String(c.init.body));
 
 describe("createSlackClient", () => {
-  it("looks users up by email; users_not_found is null, not an error", async () => {
-    const f = fakeFetch([ok({ user: { id: "U1" } }), fail("users_not_found")]);
+  it("looks users up by email with their time zone; users_not_found is null, not an error", async () => {
+    const f = fakeFetch([ok({ user: { id: "U1", tz: "Europe/London" } }), ok({ user: { id: "U2" } }), fail("users_not_found")]);
     const slack = createSlackClient("xoxb-t", { fetch: f.fn });
-    expect(await slack.lookupUserByEmail("a@x.com")).toBe("U1");
+    expect(await slack.lookupUserByEmail("a@x.com")).toEqual({ id: "U1", tz: "Europe/London" });
+    expect(await slack.lookupUserByEmail("c@x.com")).toEqual({ id: "U2", tz: null });
     expect(await slack.lookupUserByEmail("b@x.com")).toBeNull();
     expect(f.calls[0].url).toBe("https://slack.com/api/users.lookupByEmail");
     expect(form(f.calls[0]).get("email")).toBe("a@x.com");

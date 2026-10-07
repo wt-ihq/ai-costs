@@ -28,13 +28,16 @@ export interface NotifyStore {
   toolColors(): Promise<Record<string, string>>;
   recentSyncRuns(sinceIso: string): Promise<SyncRunRow[]>;
   importCoverage(nowMonth: string): Promise<CoverageMonthRow[]>;
+  /** Existing send rows for these period keys in one mode — lets a run skip the heavy data load when nothing is left to send. */
+  sendStates(periodKeys: string[], mode: SendMode): Promise<(SendKey & { status: string; attempts: number })[]>;
   /** Insert a pending row; true = this run owns the send. */
   claimSend(key: SendKey): Promise<boolean>;
   finishSend(key: SendKey, r: SendResult): Promise<void>;
   /** Pending rows older than the cutoff → failed "interrupted", never retried. Returns how many. */
   expireStalePending(olderThanIso: string): Promise<number>;
-  slackUser(employeeId: string): Promise<{ slackUserId: string | null; lookedUpAt: string } | null>;
-  saveSlackUser(employeeId: string, slackUserId: string | null): Promise<void>;
+  slackUser(employeeId: string): Promise<{ slackUserId: string | null; tz: string | null; lookedUpAt: string } | null>;
+  /** null = looked up, not found. */
+  saveSlackUser(employeeId: string, user: { id: string; tz: string | null } | null): Promise<void>;
 }
 
 export const MAX_SEND_ATTEMPTS = 3;
@@ -93,6 +96,21 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
       const scope = await getImportCoverageScope(supabase);
       return buildImportCoverage(scope.facts, scope.imports, nowMonth);
     },
+    async sendStates(periodKeys, mode) {
+      if (!periodKeys.length) return [];
+      const rows = await pageAll<{ employee_id: string; cadence: Cadence; period_key: string; status: string; attempts: number }>(
+        (a, b) =>
+          supabase
+            .from("notification_sends")
+            .select("employee_id, cadence, period_key, status, attempts")
+            .in("period_key", periodKeys)
+            .eq("mode", mode)
+            .order("id")
+            .range(a, b),
+        "sendStates",
+      );
+      return rows.map((r) => ({ employeeId: r.employee_id, cadence: r.cadence, periodKey: r.period_key, mode, status: r.status, attempts: r.attempts }));
+    },
     async claimSend(key) {
       const { error } = await supabase.from("notification_sends").insert({ ...keyMatch(key), status: "pending" });
       if (!error) return true;
@@ -127,14 +145,19 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
       return data?.length ?? 0;
     },
     async slackUser(employeeId) {
-      const { data, error } = await supabase.from("slack_users").select("slack_user_id, looked_up_at").eq("employee_id", employeeId).maybeSingle();
+      const { data, error } = await supabase.from("slack_users").select("slack_user_id, tz, looked_up_at").eq("employee_id", employeeId).maybeSingle();
       if (error) throw new Error(`slackUser: ${error.message}`);
-      return data ? { slackUserId: (data.slack_user_id as string | null) ?? null, lookedUpAt: data.looked_up_at as string } : null;
+      return data
+        ? { slackUserId: (data.slack_user_id as string | null) ?? null, tz: (data.tz as string | null) ?? null, lookedUpAt: data.looked_up_at as string }
+        : null;
     },
-    async saveSlackUser(employeeId, slackUserId) {
+    async saveSlackUser(employeeId, user) {
       const { error } = await supabase
         .from("slack_users")
-        .upsert({ employee_id: employeeId, slack_user_id: slackUserId, looked_up_at: new Date().toISOString() }, { onConflict: "employee_id" });
+        .upsert(
+          { employee_id: employeeId, slack_user_id: user?.id ?? null, tz: user?.tz ?? null, looked_up_at: new Date().toISOString() },
+          { onConflict: "employee_id" },
+        );
       if (error) throw new Error(`saveSlackUser: ${error.message}`);
     },
   };

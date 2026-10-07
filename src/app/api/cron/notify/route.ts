@@ -13,10 +13,11 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 /**
- * Daily Slack spend digests (Vercel Cron 07:00 UTC, an hour after the sync).
+ * Slack spend digests. Vercel Cron runs this hourly at :30; each run DMs whoever
+ * it's now 10:30+ for on a working day in their own Slack time zone (runNotify).
  * CRON_SECRET-gated (fails closed). SLACK_NOTIFY_MODE off|preview|live — off
  * (the default) returns without touching anything. ?date=YYYY-MM-DD replays
- * that morning, preview mode only.
+ * that day straight away (no 10:30 wait), preview mode only.
  */
 export async function GET(req: Request) {
   if (!isCronAuthorized(req)) {
@@ -36,6 +37,7 @@ export async function GET(req: Request) {
       mode,
       previewEmail: process.env.SLACK_PREVIEW_EMAIL ?? null,
       now: runDate.now,
+      replay: runDate.replay,
       baseUrl: appBaseUrl(),
     });
     return NextResponse.json({ ranAt: new Date().toISOString(), mode, ...result });
