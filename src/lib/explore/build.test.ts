@@ -14,7 +14,7 @@ const companyScope: RawScope = {
   kind: "company", title: "Company", earliest: "2026-05", facts,
   headcounts: { Eng: 2 },
   employees: [{ id: "a", fullName: "A", department: "Eng" }, { id: "z", fullName: "Z", department: "Sales" }],
-  toolColors: {}, horizons: {},
+  toolColors: {}, horizons: {}, snapshotAsOf: {},
 };
 
 describe("buildExploreData", () => {
@@ -46,6 +46,14 @@ describe("buildExploreData", () => {
     expect(june.trends).not.toBeNull();
     expect(june.trends!.priorLabel).toBe("May 2026");
     expect(buildExploreData(companyScope, allTimePeriod("2026-05", NOW), NOW).trends).toBeNull();
+  });
+
+  it("draws a month-to-date snapshot only up to its import's as-of day", () => {
+    const paste: ShapeFact = { day: "2026-06-01", source: "claude_team", costType: "overage", costUsd: 70, employeeId: "a", department: "Eng", fullName: "A", entityKey: "a@x", model: "" };
+    const scope: RawScope = { ...companyScope, facts: [...facts, paste], snapshotAsOf: { "claude_team:2026-06": "2026-06-07" } };
+    const trend = buildExploreData(scope, parsePeriod("2026-06", NOW), NOW).trend.vendor;
+    expect(trend.find((p) => p.label === "7")?.claude_team).toBeCloseTo(10, 6);
+    expect(trend.find((p) => p.label === "8")?.claude_team).toBeUndefined();
   });
 
   it("includes the company All-staff roster ($0 staff kept)", () => {

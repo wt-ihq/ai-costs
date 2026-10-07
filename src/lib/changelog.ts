@@ -11,6 +11,13 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-10-07",
+    title: "Claude Team usage lands on the right days",
+    items: [
+      "A Claude Team usage paste only covers the month up to the day you copied it, so the daily chart now spreads it across those days only. Before, a paste taken on the 7th was spread over the whole month, so the first week looked too low and days that hadn't happened yet already showed Claude spend. Monthly totals don't change.",
+    ],
+  },
+  {
     date: "2026-10-01",
     title: "Test any Slack digest",
     items: [

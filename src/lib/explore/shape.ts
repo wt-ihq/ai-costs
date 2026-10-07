@@ -34,6 +34,13 @@ const dimKey = (r: ShapeFact, dim: Dim): string =>
 export const MONTHLY_SNAPSHOT_SOURCES = new Set(["claude_team"]);
 
 /**
+ * `${source}:${YYYY-MM}` → the latest month-to-date import's as-of day for a
+ * monthly-snapshot source. The lump covers the 1st → that day only, so the
+ * trend spreads it there rather than over days the paste never saw.
+ */
+export type SnapshotAsOf = Record<string, string>;
+
+/**
  * Facts that represent a MONTHLY cost posted as a single fact stamped to the
  * 1st: seats, subscriptions, and monthly-snapshot usage. Shared taxonomy —
  * the projection treats these as a monthly level, and day/week trend charts
@@ -142,9 +149,11 @@ function groupBy(rows: ShapeFact[], key: (r: ShapeFact) => string | null): Map<s
  * subscriptions, monthly snapshots — all stamped to the 1st) are amortized
  * evenly across their month's days: without this a quarter's first week
  * towers with the whole quarter's fixed spend while later weeks look free.
+ * Month-to-date snapshot usage spreads only up to its import's as-of day
+ * (`snapshotAsOf`) — a paste taken on the 7th covers seven days, not thirty.
  * Totals are preserved; month-bucketed views are unaffected.
  */
-export function trendForPeriod(rows: ShapeFact[], period: Period, dim: Dim): TrendPoint[] {
+export function trendForPeriod(rows: ShapeFact[], period: Period, dim: Dim, snapshotAsOf: SnapshotAsOf = {}): TrendPoint[] {
   const DAY_MS = 86_400_000;
   const buckets = enumerateBuckets(period);
   const points = new Map<string, TrendPoint>(buckets.map((b) => [b.key, { label: b.label }]));
@@ -170,7 +179,10 @@ export function trendForPeriod(rows: ShapeFact[], period: Period, dim: Dim): Tre
       const month = r.day.slice(0, 7);
       const start = Date.parse(`${month}-01T00:00:00Z`);
       const [y, m] = month.split("-").map(Number);
-      const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      const monthDays = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      const isFee = r.costType === "seat" || r.costType === "subscription";
+      const asOf = isFee ? undefined : snapshotAsOf[`${r.source}:${month}`];
+      const days = asOf?.startsWith(month) ? Math.min(monthDays, Number(asOf.slice(8, 10))) : monthDays;
       // Skip months the window can't touch — otherwise every scope row spreads.
       if (`${month}-01` >= windowTo || new Date(start + days * DAY_MS).toISOString().slice(0, 10) <= windowFrom) continue;
       for (let i = 0; i < days; i++) add(new Date(start + i * DAY_MS).toISOString().slice(0, 10), k, r.costUsd / days);

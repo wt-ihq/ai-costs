@@ -26,7 +26,7 @@ function companyScope(facts: ShapeFact[]): RawScope {
       { id: "b", fullName: "Bob", department: "Sales" },
       { id: "c", fullName: "Carol", department: "Eng" },
     ],
-    toolColors: {}, horizons: {},
+    toolColors: {}, horizons: {}, snapshotAsOf: {},
   };
 }
 
@@ -34,7 +34,7 @@ function teamScope(facts: ShapeFact[]): RawScope {
   return {
     kind: "team", title: "Eng", earliest: "2026-06", facts, team: "Eng",
     employees: [{ id: "a", fullName: "Alice" }, { id: "c", fullName: "Carol" }],
-    toolColors: {}, horizons: {},
+    toolColors: {}, horizons: {}, snapshotAsOf: {},
   };
 }
 

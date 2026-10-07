@@ -157,6 +157,30 @@ describe("trendForPeriod", () => {
     const total = t.reduce((s, p) => s + ((p.cursor as number) ?? 0) + ((p.anthropic as number) ?? 0), 0);
     expect(total).toBeCloseTo(40, 6);
   });
+
+  describe("month-to-date snapshot usage (Claude Team paste)", () => {
+    const snap: ShapeFact[] = [
+      { day: "2026-06-01", source: "claude_team", costType: "overage", costUsd: 700, employeeId: "b", department: "Eng", fullName: "B", entityKey: "b@x", model: "" },
+      { day: "2026-06-01", source: "claude_team", costType: "seat", costUsd: 300, employeeId: "b", department: "Eng", fullName: "B", entityKey: "b@x", model: "" },
+    ];
+    const usage = (p: TrendPoint) => (p.overage as number) ?? 0;
+
+    it("spreads over the 1st → the import's as-of day, not the days after it", () => {
+      const t = trendForPeriod(snap, parsePeriod("2026-06", NOW2), "cost_type", { "claude_team:2026-06": "2026-06-07" });
+      expect(t.find((p) => p.label === "1")?.overage).toBeCloseTo(100, 6);
+      expect(t.find((p) => p.label === "7")?.overage).toBeCloseTo(100, 6);
+      expect(t.find((p) => p.label === "8")?.overage).toBeUndefined();
+      expect(t.reduce((s, p) => s + usage(p), 0)).toBeCloseTo(700, 6);
+    });
+    it("still spreads the same vendor's seats across the whole month", () => {
+      const t = trendForPeriod(snap, parsePeriod("2026-06", NOW2), "cost_type", { "claude_team:2026-06": "2026-06-07" });
+      expect(t.find((p) => p.label === "30")?.seat).toBeCloseTo(10, 6);
+    });
+    it("spreads across the whole month when no as-of is known for that month", () => {
+      const t = trendForPeriod(snap, parsePeriod("2026-06", NOW2), "cost_type", { "claude_team:2026-05": "2026-05-07" });
+      expect(t.find((p) => p.label === "30")?.overage).toBeCloseTo(700 / 30, 6);
+    });
+  });
 });
 
 describe("seriesOrder", () => {
