@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { earliestFactDay, fetchEmployeesAll, fetchFactsInRange, type EnrichedFact, type FactFilter } from "./common";
-import { UNATTRIBUTED, type ShapeFact } from "@/lib/explore/shape";
+import { MONTHLY_SNAPSHOT_SOURCES, UNATTRIBUTED, type ShapeFact, type SnapshotAsOf } from "@/lib/explore/shape";
 import type { RawScope } from "@/lib/explore/build";
 import { OTHER_TOOL_PALETTE } from "@/lib/colors";
 import { VENDOR_LABEL, type Vendor } from "@/lib/types";
@@ -26,6 +26,36 @@ export async function getSourceHorizons(supabase: SupabaseClient): Promise<Recor
       if (data?.[0]?.day) out[v] = data[0].day as string;
     }),
   );
+  return out;
+}
+
+/**
+ * `${source}:${YYYY-MM}` → the latest month-to-date paste's as-of day, for the
+ * monthly-snapshot sources. Their usage facts are stamped to the 1st, so the
+ * trend needs this to spread a paste over the days it actually covers.
+ */
+export async function getSnapshotAsOf(supabase: SupabaseClient): Promise<SnapshotAsOf> {
+  const PAGE = 1000;
+  const out: SnapshotAsOf = {};
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await supabase
+      .from("imports")
+      .select("source, data_as_of")
+      .in("source", [...MONTHLY_SNAPSHOT_SOURCES])
+      .eq("kind", "clipboard")
+      .eq("status", "success")
+      .order("created_at")
+      .order("id")
+      .range(offset, offset + PAGE - 1);
+    if (error) throw new Error(`getSnapshotAsOf: ${error.message}`);
+    for (const r of data ?? []) {
+      const asOf = r.data_as_of as string | null;
+      if (!asOf) continue;
+      const key = `${r.source as string}:${asOf.slice(0, 7)}`;
+      if (!out[key] || asOf > out[key]) out[key] = asOf;
+    }
+    if (!data || data.length < PAGE) break;
+  }
   return out;
 }
 
@@ -71,11 +101,12 @@ async function fetchScope(
 export async function getCompanyScope(supabase: SupabaseClient): Promise<RawScope> {
   // Independent reads run concurrently — sequential awaits added whole
   // round-trips of latency per page view.
-  const [{ rows, earliest }, emps, toolColors, horizons] = await Promise.all([
+  const [{ rows, earliest }, emps, toolColors, horizons, snapshotAsOf] = await Promise.all([
     fetchScope(supabase),
     fetchEmployeesAll(supabase, "id, full_name, department"),
     getToolColors(supabase),
     getSourceHorizons(supabase),
+    getSnapshotAsOf(supabase),
   ]);
   const employees = emps.map((e) => ({ id: e.id as string, fullName: e.full_name as string | null, department: e.department as string | null }));
   const headcounts: Record<string, number> = {};
@@ -83,7 +114,7 @@ export async function getCompanyScope(supabase: SupabaseClient): Promise<RawScop
     const d = e.department ?? UNATTRIBUTED;
     headcounts[d] = (headcounts[d] ?? 0) + 1;
   }
-  return { kind: "company", title: "Company", earliest, facts: rows, headcounts, employees, toolColors, horizons };
+  return { kind: "company", title: "Company", earliest, facts: rows, headcounts, employees, toolColors, horizons, snapshotAsOf };
 }
 
 export async function getTeamScope(supabase: SupabaseClient, team: string): Promise<RawScope> {
@@ -94,7 +125,7 @@ export async function getTeamScope(supabase: SupabaseClient, team: string): Prom
   const isUnattributed = team === UNATTRIBUTED;
   const emps = await fetchEmployeesAll(supabase, "id, full_name", { department: isUnattributed ? null : team });
   const employees = emps.map((e) => ({ id: e.id as string, fullName: e.full_name as string | null }));
-  const [{ rows: facts, earliest }, toolColors, horizons] = await Promise.all([
+  const [{ rows: facts, earliest }, toolColors, horizons, snapshotAsOf] = await Promise.all([
     fetchScope(supabase, {
       employeeIds: employees.map((e) => e.id),
       includeNullEmployee: isUnattributed,
@@ -102,8 +133,9 @@ export async function getTeamScope(supabase: SupabaseClient, team: string): Prom
     }),
     getToolColors(supabase),
     getSourceHorizons(supabase),
+    getSnapshotAsOf(supabase),
   ]);
-  return { kind: "team", title: team, earliest, facts, team, employees, toolColors, horizons };
+  return { kind: "team", title: team, earliest, facts, team, employees, toolColors, horizons, snapshotAsOf };
 }
 
 export interface SearchItem {
@@ -146,11 +178,12 @@ export async function getSearchIndex(supabase: SupabaseClient): Promise<SearchIt
 }
 
 export async function getPersonScope(supabase: SupabaseClient, employeeId: string): Promise<RawScope> {
-  const [{ rows: facts, earliest }, { data: emp }, toolColors, horizons] = await Promise.all([
+  const [{ rows: facts, earliest }, { data: emp }, toolColors, horizons, snapshotAsOf] = await Promise.all([
     fetchScope(supabase, { employeeIds: [employeeId] }),
     supabase.from("employees").select("full_name").eq("id", employeeId).single(),
     getToolColors(supabase),
     getSourceHorizons(supabase),
+    getSnapshotAsOf(supabase),
   ]);
-  return { kind: "person", title: (emp?.full_name as string) ?? "Unknown", earliest, facts, toolColors, horizons };
+  return { kind: "person", title: (emp?.full_name as string) ?? "Unknown", earliest, facts, toolColors, horizons, snapshotAsOf };
 }
