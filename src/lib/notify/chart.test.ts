@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { axisUsd, CHART_CAPTION, CHART_HEADLINE, CHART_PLOT, chartLayout, niceMax } from "./chart";
+import { axisUsd, barUsd, CHART_CAPTION, CHART_HEADLINE, CHART_PLOT, chartLayout, niceMax } from "./chart";
 import type { ChartBucket, ToolAmount } from "./digest";
 
 const tools: ToolAmount[] = [
@@ -10,6 +10,14 @@ const buckets: ChartBucket[] = [
   { label: "14 Sep", current: false, byTool: { cursor: 300, anthropic: 150 }, totalUsd: 450 },
   { label: "21", current: true, byTool: { cursor: 380, anthropic: 190 }, totalUsd: 570 },
 ];
+
+describe("barUsd", () => {
+  it("fits a bar: cents under $10, whole dollars under $1k, then one-decimal thousands", () => {
+    expect([barUsd(4.2), barUsd(38.6), barUsd(950), barUsd(1_000), barUsd(6_240), barUsd(12_345), barUsd(25_000), barUsd(123_456)]).toEqual([
+      "$4.20", "$39", "$950", "$1k", "$6.2k", "$12.3k", "$25k", "$123k",
+    ]);
+  });
+});
 
 describe("niceMax / axisUsd", () => {
   it("rounds up to 1/2/2.5/5 × 10^k, with a floor for empty charts", () => {
@@ -31,8 +39,14 @@ describe("chartLayout", () => {
     expect(top.y + top.h).toBeCloseTo(first.y, 5);
   });
 
-  it("labels only the current bar's total and keeps every bar inside the plot", () => {
-    expect(l.bars.map((b) => b.totalLabel)).toEqual([null, "$570"]);
+  it("labels every bar's total — the current one exactly, earlier ones compact — and keeps every bar inside the plot", () => {
+    expect(l.bars.map((b) => b.totalLabel)).toEqual(["$450", "$570"]);
+    const big = chartLayout("YOU", [
+      { label: "a", current: false, byTool: { cursor: 12_345 }, totalUsd: 12_345 },
+      { label: "b", current: false, byTool: {}, totalUsd: 0 },
+      { label: "c", current: true, byTool: { cursor: 12_345 }, totalUsd: 12_345 },
+    ], tools, tools);
+    expect(big.bars.map((b) => b.totalLabel)).toEqual(["$12.3k", null, "$12,345"]);
     for (const b of l.bars) expect(b.x + b.w).toBeLessThanOrEqual(CHART_PLOT.right);
   });
 
@@ -65,10 +79,11 @@ describe("chartLayout headline", () => {
     expect([chartLayout("YOU", buckets, tools, tools).headline, chartLayout("YOU", buckets, tools, tools).caption]).toEqual([null, null]);
   });
 
-  it("stacks headline, then caption, then plot — the tallest bar's total label clear of the headline", () => {
+  it("stacks headline, then caption, then plot — the tallest bar's total label clear of both", () => {
     const headlineBottom = CHART_HEADLINE.top + CHART_HEADLINE.size * 1.2;
     expect(CHART_CAPTION.top).toBeGreaterThanOrEqual(headlineBottom);
     expect(CHART_PLOT.top - 12).toBeGreaterThanOrEqual(CHART_CAPTION.top + CHART_CAPTION.size * 1.2); // top gridline label is 24px tall, centred on the line
-    expect(CHART_PLOT.top - 30).toBeGreaterThanOrEqual(headlineBottom); // the current bar's label sits 30px above its top
+    // every bar's total sits 30px above its top — a full-height bar's label must clear the caption
+    expect(CHART_PLOT.top - 30).toBeGreaterThanOrEqual(CHART_CAPTION.top + CHART_CAPTION.size * 1.2);
   });
 });

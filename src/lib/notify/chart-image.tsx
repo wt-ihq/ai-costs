@@ -50,8 +50,8 @@ function Headline({ h }: { h: ChartHeadline }) {
 /**
  * ChartLayout → PNG via next/og (Satori). Satori is flexbox-only and needs
  * `display: flex` on any element with more than one child, so everything is
- * absolutely-positioned boxes. Earlier buckets are dimmed; the current one is
- * full-strength with its total above.
+ * absolutely-positioned boxes. Every bar carries its total; earlier buckets are
+ * dimmed with a small grey total, the current one full-strength with its exact total.
  */
 export async function renderChartPng(layout: ChartLayout): Promise<Uint8Array<ArrayBuffer>> {
   const image = new ImageResponse(
@@ -74,7 +74,22 @@ export async function renderChartPng(layout: ChartLayout): Promise<Uint8Array<Ar
           )),
           <div key={`l${i}`} style={abs({ left: b.x - 30, top: CHART_PLOT.bottom + 10, width: b.w + 60, justifyContent: "center", fontSize: 20, fontWeight: b.current ? 500 : 400, color: b.current ? "#1d1c1d" : "#8a8a8a" })}>{b.label}</div>,
           ...(b.totalLabel
-            ? [<div key={`t${i}`} style={abs({ left: b.x - 60, top: (b.segments.at(-1)?.y ?? CHART_PLOT.bottom) - 30, width: b.w + 120, justifyContent: "center", fontSize: 22, fontWeight: 500, color: "#1d1c1d" })}>{b.totalLabel}</div>]
+            ? [
+                <div
+                  key={`t${i}`}
+                  style={abs({
+                    left: b.x - 60,
+                    top: (b.segments.at(-1)?.y ?? CHART_PLOT.bottom) - (b.current ? 30 : 26),
+                    width: b.w + 120,
+                    justifyContent: "center",
+                    fontSize: b.current ? 22 : 18,
+                    fontWeight: b.current ? 500 : 400,
+                    color: b.current ? "#1d1c1d" : "#8a8a8a",
+                  })}
+                >
+                  {b.totalLabel}
+                </div>,
+              ]
             : []),
         ])}
         <div style={abs({ left: CHART_PLOT.left, top: CHART_PLOT.bottom + 46, width: layout.width - CHART_PLOT.left - 20, alignItems: "center", flexWrap: "wrap" })}>

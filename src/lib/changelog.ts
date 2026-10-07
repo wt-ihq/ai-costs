@@ -12,6 +12,13 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-10-07",
+    title: "Totals on every bar in Slack digest charts",
+    items: [
+      "Every bar in the Slack spend charts now shows its total, so you can compare periods at a glance. The highlighted bar is the period the big number is about and shows its exact total; earlier bars stay faded with a short total such as $6.2k.",
+    ],
+  },
+  {
+    date: "2026-10-07",
     title: "Slack spend digests arrive at 10:30 on weekdays",
     items: [
       "Spend summaries in Slack now arrive at 10:30 in your own time zone, Monday to Friday only, so they come when your Slack notifications are on instead of silently first thing in the morning.",
