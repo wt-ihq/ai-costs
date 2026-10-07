@@ -1,5 +1,6 @@
 import type { ShapeFact } from "@/lib/explore/shape";
 import type { CoverageMonthRow } from "@/lib/queries/import-coverage";
+import { NO_FIXED_COST_SETTINGS, type FixedCostSettings } from "./fixed-costs";
 import type { SyncRunRow } from "./freshness";
 import { canRetakeClaim, MAX_SEND_ATTEMPTS, type NotifyStore, type SendKey } from "./store";
 import type { Cadence, NotifyEmployee } from "./types";
@@ -21,6 +22,7 @@ export interface MemorySeed {
   coverage?: CoverageMonthRow[];
   sourceHorizons?: Record<string, string>;
   sends?: SendRow[];
+  fixedCosts?: FixedCostSettings;
 }
 
 const same = (a: SendKey, b: SendKey) =>
@@ -58,6 +60,7 @@ export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.no
     sourceHorizons: async () => seed.sourceHorizons ?? {},
     toolColors: async () => ({}),
     recentSyncRuns: async (since) => (seed.syncRuns ?? []).filter((r) => r.startedAt >= since),
+    fixedCostSettings: async () => seed.fixedCosts ?? NO_FIXED_COST_SETTINGS,
     async importCoverage(nowMonth) {
       coverageCalls.push(nowMonth);
       return seed.coverage ?? [];

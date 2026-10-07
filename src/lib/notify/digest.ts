@@ -23,7 +23,7 @@ export interface ChartBucket {
 
 export interface MonthContext {
   monthLabel: string; // "September"
-  soFarUsd: number; // all cost types
+  soFarUsd: number; // on the section's basis (fixed costs counted in full when included)
   projectedUsd: number | null; // current month only
   complete: boolean; // the month has ended → "September total $X"
 }
@@ -98,6 +98,8 @@ export interface SectionInput {
   freshness: SourceFreshness[];
   missingImports: MissingImport[];
   baseUrl: string;
+  /** Count seats & subscriptions (fixed-costs.ts resolves it for the recipient or team). */
+  includeFixed: boolean;
 }
 
 export interface DigestInput extends SectionInput {
@@ -140,11 +142,43 @@ function toolAmounts(totals: Map<string, number>, toolColors: Record<string, str
     .sort((a, b) => b.usd - a.usd || a.label.localeCompare(b.label));
 }
 
-/** Daily/weekly count usage only; seats, subscriptions and monthly usage lumps would distort short periods. */
-const basisOf = (p: DigestPeriod): Basis => (p.cadence === "monthly" ? "total" : "usage");
-const counted = (facts: ShapeFact[], basis: Basis) => (basis === "usage" ? facts.filter((f) => !isMonthlyLevelFact(f)) : facts);
+const isFixed = (f: ShapeFact) => f.costType === "seat" || f.costType === "subscription";
+const basisOf = (input: Pick<SectionInput, "includeFixed">): Basis => (input.includeFixed ? "total" : "usage");
 
-function monthContext(pop: ShapeFact[], { period, now, sourceHorizons }: SectionInput): MonthContext {
+/** A fixed cost as equal daily shares of its month — Explore's day-view rule — so a daily or weekly gets its share. */
+function spreadOverMonth(f: ShapeFact): ShapeFact[] {
+  const month = f.day.slice(0, 7);
+  const [y, m] = month.split("-").map(Number);
+  const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return Array.from({ length: days }, (_, i) => ({ ...f, day: `${month}-${String(i + 1).padStart(2, "0")}`, costUsd: f.costUsd / days }));
+}
+
+/**
+ * The facts a section counts:
+ *  - seats & subscriptions only when included — as posted for a monthly, spread by day for a daily/weekly;
+ *  - Claude Team's monthly usage lump only in a monthly (it can't be split by day);
+ *  - everything else always.
+ * Only months touching the chart span are spread: nothing outside it is ever read.
+ */
+function counted(facts: ShapeFact[], { period, includeFixed }: Pick<SectionInput, "period" | "includeFixed">): ShapeFact[] {
+  const monthly = period.cadence === "monthly";
+  const spanFrom = period.buckets[0].from.slice(0, 7);
+  const spanTo = period.toExclusive;
+  return facts.flatMap((f) => {
+    if (isFixed(f)) {
+      if (!includeFixed) return [];
+      if (monthly) return [f];
+      const month = f.day.slice(0, 7);
+      return month < spanFrom || `${month}-01` >= spanTo ? [] : spreadOverMonth(f);
+    }
+    if (isMonthlyLevelFact(f)) return monthly ? [f] : [];
+    return [f];
+  });
+}
+
+function monthContext(all: ShapeFact[], { period, now, sourceHorizons, includeFixed }: SectionInput): MonthContext {
+  // The month as posted (a seat in full on the 1st), on the section's basis.
+  const pop = includeFixed ? all : all.filter((f) => !isFixed(f));
   const lastDay = new Date(Date.parse(`${period.toExclusive}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
   const month = lastDay.slice(0, 7);
   const [y, m] = month.split("-").map(Number);
@@ -166,8 +200,8 @@ function monthContext(pop: ShapeFact[], { period, now, sourceHorizons }: Section
 
 function section(pop: ShapeFact[], input: SectionInput): DigestSection {
   const { period, toolColors } = input;
-  const basis = basisOf(period);
-  const base = counted(pop, basis);
+  const basis = basisOf(input);
+  const base = counted(pop, input);
   const cur = base.filter((f) => inRange(f, period.from, period.toExclusive));
   const headlineUsd = round2(total(cur));
   const prevUsd = round2(total(base.filter((f) => inRange(f, period.prev.from, period.prev.toExclusive))));
@@ -189,7 +223,7 @@ function section(pop: ShapeFact[], input: SectionInput): DigestSection {
     byTool: toolAmounts(sumBy(cur, vendorKeyOf), toolColors),
     chartTools: toolAmounts(sumBy(inSpan, vendorKeyOf), toolColors),
     chart,
-    month: basis === "usage" ? monthContext(pop, input) : null,
+    month: period.cadence === "monthly" ? null : monthContext(pop, input),
   };
 }
 
@@ -205,7 +239,7 @@ function peopleSection(pop: ShapeFact[], memberIds: readonly string[], input: Se
   const base = section(pop, input);
   // Only current members are ranked and named; anything else in `pop` is team-level spend.
   const perPerson = sumBy(
-    counted(pop, base.basis).filter((f) => f.employeeId !== null && members.has(f.employeeId) && inRange(f, period.from, period.toExclusive)),
+    counted(pop, input).filter((f) => f.employeeId !== null && members.has(f.employeeId) && inRange(f, period.from, period.toExclusive)),
     (f) => f.employeeId as string,
   );
   const ranked = [...perPerson]
@@ -231,10 +265,10 @@ function peopleSection(pop: ShapeFact[], memberIds: readonly string[], input: Se
   };
 }
 
-/** Same basis as the headline: a seat stamped on the 1st doesn't make a weekly recipient a "user" of that source. */
-function caveatsOf(pop: ShapeFact[], basis: Basis, input: SectionInput): string[] {
+/** Same basis as the headline: a seat the digest doesn't count doesn't make the recipient a "user" of that source. */
+function caveatsOf(pop: ShapeFact[], input: SectionInput): string[] {
   const { period, freshness, missingImports } = input;
-  const sourcesUsed = new Set<string>(counted(pop, basis).filter((f) => inRange(f, period.buckets[0].from, period.toExclusive)).map((f) => f.source));
+  const sourcesUsed = new Set<string>(counted(pop, input).filter((f) => inRange(f, period.buckets[0].from, period.toExclusive)).map((f) => f.source));
   return caveatsFor({ period, sourcesUsed, freshness, missingImports });
 }
 
@@ -259,7 +293,7 @@ export function buildDigest(input: DigestInput): Digest | null {
     period,
     you,
     reports,
-    caveats: caveatsOf([...youFacts, ...reportFacts], you.basis, input),
+    caveats: caveatsOf([...youFacts, ...reportFacts], input),
     dashboardUrl: personHref(baseUrl, recipient),
   };
 }
@@ -279,7 +313,7 @@ export function buildTeamDigest(input: TeamDigestInput): TeamDigest | null {
   const pop = facts.filter((f) => isMember(f) || f.department === department);
 
   const ranked = peopleSection(pop, memberIds, input);
-  const teamLevelUsd = round2(total(counted(pop, ranked.basis).filter((f) => !isMember(f) && inRange(f, period.from, period.toExclusive))));
+  const teamLevelUsd = round2(total(counted(pop, input).filter((f) => !isMember(f) && inRange(f, period.from, period.toExclusive))));
   const team: ReportsSection = { ...ranked, teamLevelUsd };
   if (period.cadence === "daily" && team.headlineUsd === 0) return null;
 
@@ -288,7 +322,7 @@ export function buildTeamDigest(input: TeamDigestInput): TeamDigest | null {
     department,
     period,
     team,
-    caveats: caveatsOf(pop, team.basis, input),
+    caveats: caveatsOf(pop, input),
     dashboardUrl: teamHref(baseUrl, department),
   };
 }

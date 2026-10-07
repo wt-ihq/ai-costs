@@ -5,7 +5,7 @@ import { auth } from "@/auth";
 import { requireAdmin } from "@/lib/auth-guard";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchEmployeesAll } from "@/lib/queries/common";
-import { addSubscriptions, removeSubscriptions, setSubscription } from "@/lib/notify/admin-store";
+import { addSubscriptions, removeSubscriptions, setFixedCostSetting, setSubscription } from "@/lib/notify/admin-store";
 import { renderChartPng } from "@/lib/notify/chart-image";
 import type { TestSubject, TestTarget } from "@/lib/notify/subject";
 import { supabaseNotifyStore } from "@/lib/notify/store";
@@ -63,6 +63,32 @@ export async function removeRecipient(employeeId: string): Promise<void> {
   await requireAdmin();
   if (!isUuid(employeeId)) throw new Error("Invalid input");
   await removeSubscriptions(getSupabaseAdminClient(), employeeId);
+  revalidatePath("/data");
+}
+
+const isIncludeChoice = (v: unknown): v is boolean | null => v === null || typeof v === "boolean";
+
+/** The organisation default for counting seats & subscriptions in digests. */
+export async function setOrgFixedCosts(include: boolean): Promise<void> {
+  await requireAdmin();
+  if (typeof include !== "boolean") throw new Error("Invalid input");
+  await setFixedCostSetting(getSupabaseAdminClient(), "org", "", include, await actorEmail());
+  revalidatePath("/data");
+}
+
+/** A team's override; null removes it (the team follows the organisation default). */
+export async function setTeamFixedCosts(department: string, include: boolean | null): Promise<void> {
+  await requireAdmin();
+  if (typeof department !== "string" || !department.trim() || department.length > 200 || !isIncludeChoice(include)) throw new Error("Invalid input");
+  await setFixedCostSetting(getSupabaseAdminClient(), "department", department, include, await actorEmail());
+  revalidatePath("/data");
+}
+
+/** A person's override; null removes it (they follow their team, else the default). */
+export async function setPersonFixedCosts(employeeId: string, include: boolean | null): Promise<void> {
+  await requireAdmin();
+  if (!isUuid(employeeId) || !isIncludeChoice(include)) throw new Error("Invalid input");
+  await setFixedCostSetting(getSupabaseAdminClient(), "employee", employeeId, include, await actorEmail());
   revalidatePath("/data");
 }
 

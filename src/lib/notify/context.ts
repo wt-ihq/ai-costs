@@ -1,6 +1,7 @@
 import type { ShapeFact } from "@/lib/explore/shape";
 import type { CoverageMonthRow } from "@/lib/queries/import-coverage";
 import { buildDigest, buildTeamDigest, type Digest, type SectionInput, type TeamDigest } from "./digest";
+import { fixedCostsFor, fixedCostsForTeam, type FixedCostSettings } from "./fixed-costs";
 import { monthlyReadiness, sourceFreshness, type SourceFreshness, type SyncRunRow } from "./freshness";
 import type { DigestPeriod } from "./schedule";
 import type { NotifyStore } from "./store";
@@ -19,6 +20,7 @@ export interface NotifyContext {
   freshness: SourceFreshness[];
   coverage: CoverageMonthRow[];
   syncRuns: SyncRunRow[];
+  fixedCosts: FixedCostSettings;
 }
 
 /** 6-month monthly charts + the month before + projection history (trend lookback ≤ 4 complete months). */
@@ -43,13 +45,14 @@ export async function loadNotifyContext(
   opts: { earliest?: string; coverage?: CoverageMonthRow[]; syncRuns?: SyncRunRow[]; employees?: NotifyEmployee[] } = {},
 ): Promise<NotifyContext> {
   const w = factsWindow(now, opts.earliest);
-  const [employees, facts, sourceHorizons, toolColors, coverage, syncRuns] = await Promise.all([
+  const [employees, facts, sourceHorizons, toolColors, coverage, syncRuns, fixedCosts] = await Promise.all([
     opts.employees ?? store.employees(),
     store.facts(w.from, w.toExclusive),
     store.sourceHorizons(),
     store.toolColors(),
     opts.coverage ?? store.importCoverage(now.toISOString().slice(0, 7)),
     opts.syncRuns ?? store.recentSyncRuns(syncRunsSince(now)),
+    store.fixedCostSettings(),
   ]);
   return {
     now,
@@ -63,10 +66,11 @@ export async function loadNotifyContext(
     freshness: sourceFreshness(syncRuns),
     coverage,
     syncRuns,
+    fixedCosts,
   };
 }
 
-function sectionInput(ctx: NotifyContext, period: DigestPeriod): SectionInput {
+function sectionInput(ctx: NotifyContext, period: DigestPeriod, includeFixed: boolean): SectionInput {
   return {
     employeesById: ctx.employeesById,
     facts: ctx.facts,
@@ -77,16 +81,18 @@ function sectionInput(ctx: NotifyContext, period: DigestPeriod): SectionInput {
     freshness: ctx.freshness,
     missingImports: period.cadence === "monthly" ? monthlyReadiness(ctx.coverage, period.key).missing : [],
     baseUrl: ctx.baseUrl,
+    includeFixed,
   };
 }
 
 export function digestFor(ctx: NotifyContext, employeeId: string, period: DigestPeriod): Digest | null {
   const recipient = ctx.employeesById.get(employeeId);
   if (!recipient) return null;
-  return buildDigest({ ...sectionInput(ctx, period), recipient, reportIds: ctx.tree.reportsOf(employeeId) });
+  const { include } = fixedCostsFor(ctx.fixedCosts, recipient);
+  return buildDigest({ ...sectionInput(ctx, period, include), recipient, reportIds: ctx.tree.reportsOf(employeeId) });
 }
 
 /** A whole Okta department's digest (preview/test only — never scheduled). Callers validate the department. */
 export function teamDigestFor(ctx: NotifyContext, department: string, period: DigestPeriod): TeamDigest | null {
-  return buildTeamDigest({ ...sectionInput(ctx, period), department });
+  return buildTeamDigest({ ...sectionInput(ctx, period, fixedCostsForTeam(ctx.fixedCosts, department).include), department });
 }

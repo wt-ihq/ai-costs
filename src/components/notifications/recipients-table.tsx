@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState, useTransition } from "react";
-import { addRecipients, addTeamRecipients, removeRecipient, setRecipientCadence } from "@/app/(dashboard)/data/notifications-actions";
+import { addRecipients, addTeamRecipients, removeRecipient, setPersonFixedCosts, setRecipientCadence } from "@/app/(dashboard)/data/notifications-actions";
 import type { RecipientRow } from "@/lib/notify/admin-store";
 import { CADENCES, type Cadence } from "@/lib/notify/types";
 
@@ -78,6 +78,7 @@ export function RecipientsTable({ rows, people, departments, previewing }: {
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
                 <th className="px-3 py-2 font-medium">Person</th>
                 {CADENCES.map((c) => <th key={c} className="px-2 py-2 text-center font-medium">{LABEL[c]}</th>)}
+                <th className="px-3 py-2 font-medium">Fixed costs</th>
                 <th className="px-3 py-2 font-medium">Reports</th>
                 <th className="px-3 py-2 font-medium">Slack</th>
                 <th className="px-3 py-2 font-medium">Last sent</th>
@@ -101,6 +102,21 @@ export function RecipientsTable({ rows, people, departments, previewing }: {
                       />
                     </td>
                   ))}
+                  <td className="px-3 py-2">
+                    <select
+                      disabled={pending}
+                      value={r.fixedCosts.override === null ? "default" : r.fixedCosts.override ? "include" : "exclude"}
+                      onChange={(e) => run(() => setPersonFixedCosts(r.employeeId, e.target.value === "default" ? null : e.target.value === "include"))}
+                      aria-label={`Fixed costs for ${r.name}`}
+                      className="rounded-md border border-border bg-surface-2 px-1.5 py-0.5 text-xs text-foreground"
+                    >
+                      <option value="default">
+                        Default: {r.fixedCosts.inherited.include ? "include" : "exclude"}{r.fixedCosts.inherited.source === "team" ? " (team)" : ""}
+                      </option>
+                      <option value="include">Include</option>
+                      <option value="exclude">Exclude</option>
+                    </select>
+                  </td>
                   <td className="px-3 py-2">{r.reports || "—"}</td>
                   <td className={`px-3 py-2 text-xs ${SLACK[r.slack].cls}`}>{SLACK[r.slack].text}</td>
                   <td className="px-3 py-2 text-xs text-muted">{r.lastSent ?? "never"}</td>

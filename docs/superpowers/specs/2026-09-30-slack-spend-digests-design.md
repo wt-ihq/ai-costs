@@ -138,6 +138,11 @@ codebase.
 | weekly | previous Mon–Sun | Mondays | `2026-W39` (ISO week) | last 8 weeks |
 | monthly | previous calendar month | 3rd–5th working days, see below | `2026-09` | last 6 months |
 
+**Fixed costs (amended 2026-10-07):** whether seats & subscriptions count is
+now an admin setting with team/person overrides — see
+`2026-10-07-digest-fixed-costs-design.md`. The basis column below describes
+the old fixed rule (daily/weekly usage, monthly total).
+
 **Send time (amended 2026-10-07).** Nothing goes out on a Saturday or
 Sunday. The cron runs hourly at :30; each run DMs whoever it is now 10:30 or
 later for, on a working day, in **their own Slack time zone**
