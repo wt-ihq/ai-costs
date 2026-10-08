@@ -109,6 +109,12 @@ describe("renderDigest", () => {
     expect(r.text.startsWith("[Preview for Tom &amp; &lt;Jerry&gt; (weekly)] Your AI spend")).toBe(true);
   });
 
+  it("points the dashboard button at the tracked open link when one is given", () => {
+    const tracked = renderDigest(digest(), {}, { openUrl: "https://x.test/api/digest/open/abc" }).blocks.at(-1);
+    expect(tracked).toMatchObject({ type: "actions", elements: [{ url: "https://x.test/api/digest/open/abc" }] });
+    expect(renderDigest(digest(), {}).blocks.at(-1)).toMatchObject({ elements: [{ url: "https://x.test/explore/Engineering/m" }] });
+  });
+
   it("people without reports get no reports section", () => {
     const b = renderDigest(digest({ reports: null }), {}).blocks;
     expect(b.some((x) => x.type === "section" && mrk(x).includes("REPORTS"))).toBe(false);

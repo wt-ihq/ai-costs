@@ -17,7 +17,7 @@ export interface RecipientRow {
   /** Fixed costs: the person's own override (null = none) and what applies without it (team, else default). */
   fixedCosts: { override: boolean | null; inherited: FixedCostChoice };
 }
-export interface SendLogRow { at: string; name: string; cadence: string; periodKey: string; mode: string; status: string; detail: string | null }
+export interface SendLogRow { at: string; name: string; cadence: string; periodKey: string; mode: string; status: string; detail: string | null; openedAt: string | null }
 export interface LastRun {
   day: string;
   mode: SendMode; // live if any live row that day, else preview
@@ -38,9 +38,19 @@ export interface NotificationsAdminData {
   activePeople: PersonOption[]; // every active employee — the preview and test-send pickers
   departments: string[];
   fixedCosts: FixedCostSettings;
+  /** Live digests sent in the last OPEN_RATE_DAYS, and how many were opened from the "Open in dashboard" button. */
+  opens: { sent: number; opened: number };
 }
 
-type SendRowLite = { employee_id: string; cadence: string; mode: string; status: string; updated_at: string };
+export const OPEN_RATE_DAYS = 30;
+
+/** Live sent digests and how many were opened. Previews, skips and failures don't count. */
+export function openRate(rows: { mode: string; status: string; opened_at: string | null }[]): { sent: number; opened: number } {
+  const sent = rows.filter((r) => r.mode === "live" && r.status === "sent");
+  return { sent: sent.length, opened: sent.filter((r) => r.opened_at).length };
+}
+
+type SendRowLite = { employee_id: string; cadence: string; mode: string; status: string; updated_at: string; opened_at: string | null };
 
 /** Rows newest first. Each person's newest LIVE send; their newest preview only when no live one exists. */
 export function lastSentLabels(rows: Pick<SendRowLite, "employee_id" | "cadence" | "mode" | "updated_at">[]): Map<string, string> {
@@ -100,7 +110,8 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
     (a, b) => supabase.from("notification_subscriptions").select("employee_id, cadence").order("employee_id").order("cadence").range(a, b),
     "notification_subscriptions",
   );
-  const [subs, lastSent, empRows, slackRows, sendRes, fixedCosts] = await Promise.all([
+  const opensSince = new Date(Date.now() - OPEN_RATE_DAYS * 86_400_000).toISOString();
+  const [subs, lastSent, empRows, slackRows, sendRes, fixedCosts, recentSent] = await Promise.all([
     subsP,
     subsP.then((rows) => loadLastSent(supabase, [...new Set(rows.map((r) => r.employee_id))])),
     fetchEmployeesAll(supabase, NOTIFY_EMPLOYEE_COLUMNS),
@@ -109,8 +120,12 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
       "slack_users",
     ),
     // Bounded newest-first read of a growing log — never a full scan.
-    supabase.from("notification_sends").select("employee_id, cadence, period_key, mode, status, detail, updated_at").order("updated_at", { ascending: false }).order("id").limit(200),
+    supabase.from("notification_sends").select("employee_id, cadence, period_key, mode, status, detail, updated_at, opened_at").order("updated_at", { ascending: false }).order("id").limit(200),
     supabaseNotifyStore(supabase).fixedCostSettings(),
+    pageAll<{ mode: string; status: string; opened_at: string | null }>(
+      (a, b) => supabase.from("notification_sends").select("mode, status, opened_at").eq("mode", "live").eq("status", "sent").gte("updated_at", opensSince).order("id").range(a, b),
+      "notification_sends(opens)",
+    ),
   ]);
   if (sendRes.error) throw new Error(`notification_sends: ${sendRes.error.message}`);
 
@@ -148,7 +163,7 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
     recipients,
     sends: sends.slice(0, 50).map((s) => ({
       at: s.updated_at, name: byId.get(s.employee_id)?.fullName ?? "Unknown", cadence: s.cadence,
-      periodKey: s.period_key, mode: s.mode, status: s.status, detail: s.detail,
+      periodKey: s.period_key, mode: s.mode, status: s.status, detail: s.detail, openedAt: s.opened_at,
     })),
     lastRun: summariseLastRun(sends),
     tree: { active: active.length, resolved: active.filter((e) => !unresolved.has(e.id)).length, unresolved: active.filter((e) => unresolved.has(e.id)).map((e) => e.fullName).sort() },
@@ -156,6 +171,7 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
     activePeople,
     departments: activeDepartments(employees),
     fixedCosts,
+    opens: openRate(recentSent),
   };
 }
 

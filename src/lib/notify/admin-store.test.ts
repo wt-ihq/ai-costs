@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lastSentLabels, summariseLastRun } from "./admin-store";
+import { lastSentLabels, openRate, summariseLastRun } from "./admin-store";
 
 const row = (employee_id: string, mode: string, cadence: string, updated_at: string, status = "sent") => ({ employee_id, mode, cadence, status, updated_at });
 
@@ -43,5 +43,18 @@ describe("summariseLastRun", () => {
         row("c", "live", "weekly", "2026-09-28T07:00:00Z", "failed"),
       ]),
     ).toEqual({ day: "2026-09-28", mode: "live", cadences: ["daily", "weekly"], sent: 1, skipped: 0, failed: 1, plusPreview: 2 });
+  });
+});
+
+describe("openRate", () => {
+  it("counts live digests sent and how many were opened; previews and failures don't count", () => {
+    expect(
+      openRate([
+        { mode: "live", status: "sent", opened_at: null },
+        { mode: "live", status: "sent", opened_at: "2026-10-12T10:00:00Z" },
+        { mode: "preview", status: "sent", opened_at: "2026-10-12T10:00:00Z" },
+        { mode: "live", status: "failed", opened_at: null },
+      ]),
+    ).toEqual({ sent: 2, opened: 1 });
   });
 });

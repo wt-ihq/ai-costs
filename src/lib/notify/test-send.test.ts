@@ -36,7 +36,7 @@ function setup(over: { employees?: NotifyEmployee[]; slack?: Partial<SlackClient
   // Any write to the send log is a bug: a test must neither block nor duplicate the scheduled send.
   const store = {
     ...inner,
-    claimSend: async () => { calls.push("claimSend"); return true; },
+    claimSend: async () => { calls.push("claimSend"); return "x"; },
     finishSend: async () => { calls.push("finishSend"); },
   };
   const posts: { channel: string; blocks: unknown[]; text: string }[] = [];

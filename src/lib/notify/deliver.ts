@@ -162,14 +162,15 @@ interface DeliverArgs {
   renderChart: RenderChart;
   slackUserId: string;
   banner?: string; // admin test sends: a context line above the digest
+  openUrl?: string; // scheduled sends: the tracked "Open in dashboard" link
   log?: (m: string) => void;
   sleep?: (ms: number) => Promise<void>;
 }
 
 /** A person's digest (the cron's send, the preview redirect, and admin test sends). */
 export function deliverDigest(args: DeliverArgs & { digest: Digest; previewFor?: string }): Promise<string> {
-  const { digest, previewFor, banner } = args;
-  return deliverRendered({ ...args, layouts: chartLayoutsFor(digest), render: (files) => renderDigest(digest, files, { previewFor, banner }) });
+  const { digest, previewFor, banner, openUrl } = args;
+  return deliverRendered({ ...args, layouts: chartLayoutsFor(digest), render: (files) => renderDigest(digest, files, { previewFor, banner, openUrl }) });
 }
 
 /** A whole team's digest (admin test sends only). */

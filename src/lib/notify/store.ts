@@ -35,8 +35,10 @@ export interface NotifyStore {
   fixedCostSettings(): Promise<FixedCostSettings>;
   /** Existing send rows for these period keys in one mode — lets a run skip the heavy data load when nothing is left to send. */
   sendStates(periodKeys: string[], mode: SendMode): Promise<(SendKey & { status: string; attempts: number })[]>;
-  /** Insert a pending row; true = this run owns the send. */
-  claimSend(key: SendKey): Promise<boolean>;
+  /** Insert a pending row; its id = this run owns the send (the id carries the DM's tracked open link), null = it doesn't. */
+  claimSend(key: SendKey): Promise<string | null>;
+  /** Stamp a send's first open (the digest's "Open in dashboard" click); its recipient, or null for an unknown id. */
+  markOpened(sendId: string): Promise<{ employeeId: string; department: string | null } | null>;
   finishSend(key: SendKey, r: SendResult): Promise<void>;
   /** Pending rows older than the cutoff → failed "interrupted", never retried. Returns how many. */
   expireStalePending(olderThanIso: string): Promise<number>;
@@ -136,12 +138,12 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
       return toFixedCostSettings(rows);
     },
     async claimSend(key) {
-      const { error } = await supabase.from("notification_sends").insert({ ...keyMatch(key), status: "pending" });
-      if (!error) return true;
+      const { data: inserted, error } = await supabase.from("notification_sends").insert({ ...keyMatch(key), status: "pending" }).select("id").single();
+      if (!error) return inserted.id as string;
       if (error.code !== "23505") throw new Error(`claimSend: ${error.message}`);
       const { data: existing, error: readErr } = await supabase.from("notification_sends").select("status, attempts").match(keyMatch(key)).single();
       if (readErr) throw new Error(`claimSend(read): ${readErr.message}`);
-      if (!canRetakeClaim(existing as { status: string; attempts: number })) return false;
+      if (!canRetakeClaim(existing as { status: string; attempts: number })) return null;
       // Optimistic takeover: only succeeds if nobody else retook it first.
       const { data: taken, error: takeErr } = await supabase
         .from("notification_sends")
@@ -149,7 +151,19 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
         .match({ ...keyMatch(key), status: "failed", attempts: existing.attempts })
         .select("id");
       if (takeErr) throw new Error(`claimSend(retake): ${takeErr.message}`);
-      return (taken?.length ?? 0) === 1;
+      return taken?.length === 1 ? (taken[0].id as string) : null;
+    },
+    async markOpened(sendId) {
+      const { data: send, error } = await supabase.from("notification_sends").select("employee_id, opened_at").eq("id", sendId).maybeSingle();
+      if (error) throw new Error(`markOpened: ${error.message}`);
+      if (!send) return null;
+      if (!send.opened_at) {
+        // First open only: a later click (or a forwarded link) never moves it.
+        const { error: upErr } = await supabase.from("notification_sends").update({ opened_at: new Date().toISOString() }).eq("id", sendId).is("opened_at", null);
+        if (upErr) throw new Error(`markOpened(update): ${upErr.message}`);
+      }
+      const { data: emp } = await supabase.from("employees").select("department").eq("id", send.employee_id).maybeSingle();
+      return { employeeId: send.employee_id as string, department: (emp?.department as string | null) ?? null };
     },
     async finishSend(key, r) {
       const { error } = await supabase

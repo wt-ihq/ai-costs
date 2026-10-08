@@ -138,6 +138,12 @@ codebase.
 | weekly | previous Mon–Sun | Mondays | `2026-W39` (ISO week) | last 8 weeks |
 | monthly | previous calendar month | 3rd–5th working days, see below | `2026-09` | last 6 months |
 
+**Open tracking (amended 2026-10-08):** each scheduled DM's "Open in
+dashboard" button goes through `/api/digest/open/<send id>`, which stamps
+`notification_sends.opened_at` on the first click and redirects to the
+recipient's Explore page. Data → Notifications shows it per send and as a
+30-day open rate over live digests. Admin-only; test sends aren't tracked.
+
 **Fixed costs (amended 2026-10-07):** whether seats & subscriptions count is
 now an admin setting with team/person overrides — see
 `2026-10-07-digest-fixed-costs-design.md`. The basis column below describes

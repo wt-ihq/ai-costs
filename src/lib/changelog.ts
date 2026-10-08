@@ -12,6 +12,13 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-10-08",
+    title: "See which Slack spend summaries get opened",
+    items: [
+      "Admins can now see on Data → Notifications which Slack spend summaries were opened in the dashboard, and the share opened over the last 30 days. It counts clicks on a summary's Open in dashboard button; test sends aren't counted.",
+    ],
+  },
+  {
+    date: "2026-10-08",
     title: "Projections count Claude Team usage properly",
     items: [
       "A Claude Team usage paste only covers the month up to the day it was taken, but projections treated it as the whole month — so the projected total for the month (and the \"on track for\" line in Slack summaries) came out too low. Projections now carry Claude Team's pace forward to the end of the month, blended with last month's, like every other tool. Before the first paste of a month, last month's pace is used.",
