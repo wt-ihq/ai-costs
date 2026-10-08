@@ -1,4 +1,4 @@
-import { isMonthlyLevelFact, type ShapeFact } from "./shape";
+import { isMonthlyLevelFact, MONTHLY_SNAPSHOT_SOURCES, type ShapeFact, type SnapshotAsOf } from "./shape";
 import type { TrendPoint } from "./types";
 import type { Granularity } from "./period";
 
@@ -62,6 +62,8 @@ const clamp = (n: number, [lo, hi]: readonly [number, number]) => Math.min(hi, M
 const isDailyVariable = (f: ShapeFact) => !isMonthlyLevelFact(f);
 /** Posts once per month at a known/assumed level: fixed cost types + monthly-snapshot usage. */
 const isMonthlyLevel = isMonthlyLevelFact;
+/** A month-to-date paste (Claude Team usage): usage, but known only as one lump covering the 1st → its as-of day. */
+const isSnapshotUsage = (f: ShapeFact) => MONTHLY_SNAPSHOT_SOURCES.has(f.source) && f.costType !== "seat" && f.costType !== "subscription";
 const monthOf = (d: Date) => d.toISOString().slice(0, 7);
 const daysInMonth = (ym: string) => {
   const [y, m] = ym.split("-").map(Number);
@@ -107,14 +109,17 @@ interface MonthModel {
  * not unknown. Without the map, the scope's own last fact day is the best
  * available horizon.
  */
-function monthModel(facts: ShapeFact[], now: Date, sourceHorizons?: Record<string, string>): MonthModel | null {
+function monthModel(facts: ShapeFact[], now: Date, sourceHorizons?: Record<string, string>, snapshotAsOf?: SnapshotAsOf): MonthModel | null {
   const month = monthOf(now);
   const prevMonth = addMonths(month, -1);
   const inMonth = facts.filter((f) => f.day.slice(0, 7) === month);
   const inPrevMonth = facts.filter((f) => f.day.slice(0, 7) === prevMonth);
   if (inMonth.length === 0 && inPrevMonth.length === 0) return null; // nothing to project
 
-  const levelUsd = sum(inMonth.filter(isMonthlyLevel));
+  // With as-of days, a paste is usage with a known window, so its pace extrapolates; without them it
+  // stays a monthly level (the old reading: the paste IS the month).
+  const pacedSnapshots = snapshotAsOf !== undefined;
+  const levelUsd = sum(inMonth.filter((f) => isMonthlyLevel(f) && !(pacedSnapshots && isSnapshotUsage(f))));
 
   const cutoff = new Date(now.getTime() - LAG_DAYS * 86_400_000);
   const cutoffDay = monthOf(cutoff) === month ? cutoff.toISOString().slice(0, 10) : `${month}-00`;
@@ -149,24 +154,51 @@ function monthModel(facts: ShapeFact[], now: Date, sourceHorizons?: Record<strin
       // the quiet month never happened.
       const hasHistory = rows.some((f) => f.day < `${prevMonth}-01`);
       const prevDaily = prev.length ? sum(prev) / daysInMonth(prevMonth) : hasHistory ? 0 : null;
-      let rate: number;
-      if (windowDays > 0 && prevDaily !== null) {
-        // Shrinkage: last month's rate carries BLEND_PRIOR_DAYS of weight.
-        rate = (windowUsd + prevDaily * BLEND_PRIOR_DAYS) / (windowDays + BLEND_PRIOR_DAYS);
-      } else if (windowDays > 0) {
-        rate = windowUsd / windowDays;
-      } else {
-        rate = prevDaily ?? 0; // no current window: last month's pace, or a dead source
-      }
-      // The range spans the model's candidate readings: the observed pace,
-      // the prior, and the blend between them. One reading → no range.
-      const candidates = [rate, ...(windowDays > 0 ? [windowUsd / windowDays] : []), ...(prevDaily !== null ? [prevDaily] : [])];
-      return { mtdUsd, windowDays, windowUsd, rate, lowRate: Math.min(...candidates), highRate: Math.max(...candidates) };
+      return { mtdUsd, windowDays, windowUsd, ...blendedRate(windowUsd, windowDays, prevDaily) };
     });
+  if (pacedSnapshots) sources.push(...snapshotSources(facts, month, prevMonth, snapshotAsOf));
 
   const basis: PeriodProjection["basis"] = sources.some((s) => s.windowDays >= 3) ? "run-rate" : "previous-month";
 
   return { month, levelUsd, sources, growth: trendGrowth(variable, month), basis };
+}
+
+/**
+ * A source's daily rate: the observed pace blended with last month's (shrinkage — last month carries
+ * BLEND_PRIOR_DAYS of weight), and the range across the candidate readings (pace, prior, blend).
+ */
+function blendedRate(windowUsd: number, windowDays: number, prevDaily: number | null): Pick<SourceRate, "rate" | "lowRate" | "highRate"> {
+  let rate: number;
+  if (windowDays > 0 && prevDaily !== null) rate = (windowUsd + prevDaily * BLEND_PRIOR_DAYS) / (windowDays + BLEND_PRIOR_DAYS);
+  else if (windowDays > 0) rate = windowUsd / windowDays;
+  else rate = prevDaily ?? 0; // no current window: last month's pace, or a dead source
+  const candidates = [rate, ...(windowDays > 0 ? [windowUsd / windowDays] : []), ...(prevDaily !== null ? [prevDaily] : [])];
+  return { rate, lowRate: Math.min(...candidates), highRate: Math.max(...candidates) };
+}
+
+/**
+ * Month-to-date pastes as variable sources: this month's paste covers the 1st → its as-of day (the
+ * window), last month's covers ITS as-of span (the prior). No paste yet this month → last month's
+ * pace carries it. A month with no known as-of day counts as fully covered.
+ */
+function snapshotSources(facts: ShapeFact[], month: string, prevMonth: string, asOf: SnapshotAsOf): SourceRate[] {
+  const bySource = new Map<string, ShapeFact[]>();
+  for (const f of facts.filter(isSnapshotUsage)) bySource.set(f.source, [...(bySource.get(f.source) ?? []), f]);
+  return [...bySource.entries()]
+    .filter(([, rows]) => rows.some((f) => f.day >= `${prevMonth}-01`)) // dormant sources project nothing
+    .map(([source, rows]) => {
+      const covered = (m: string) => {
+        const day = asOf[`${source}:${m}`];
+        return day?.startsWith(m) ? Math.min(Number(day.slice(8, 10)), daysInMonth(m)) : daysInMonth(m);
+      };
+      const cur = rows.filter((f) => f.day.slice(0, 7) === month);
+      const prev = rows.filter((f) => f.day.slice(0, 7) === prevMonth);
+      const mtdUsd = sum(cur);
+      const windowDays = cur.length ? covered(month) : 0;
+      const hasHistory = rows.some((f) => f.day < `${prevMonth}-01`);
+      const prevDaily = prev.length ? sum(prev) / covered(prevMonth) : hasHistory ? 0 : null;
+      return { mtdUsd, windowDays, windowUsd: mtdUsd, ...blendedRate(mtdUsd, windowDays, prevDaily) };
+    });
 }
 
 /**
@@ -243,11 +275,17 @@ const shortLabel = (label: string) => label.replace(/ 20(\d\d)$/, " $1").replace
  * reach back that far (a partial base yields nonsense percentages). Only
  * call with a period that includes `now`.
  */
-export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: ProjectionPeriod, sourceHorizons?: Record<string, string>): PeriodProjection | null {
+export function projectPeriodEnd(
+  facts: ShapeFact[],
+  now: Date,
+  period: ProjectionPeriod,
+  sourceHorizons?: Record<string, string>,
+  snapshotAsOf?: SnapshotAsOf,
+): PeriodProjection | null {
   // Nothing meaningful to project inside a day or a week: the model works in
   // months, and a few hours of run-rate is noise, not a forecast.
   if (period.granularity === "day" || period.granularity === "week") return null;
-  const m = monthModel(facts, now, sourceHorizons);
+  const m = monthModel(facts, now, sourceHorizons, snapshotAsOf);
   if (!m) return null;
   const { month, basis } = m;
 
@@ -308,9 +346,15 @@ export function projectPeriodEnd(facts: ShapeFact[], now: Date, period: Projecti
  *  - all: current month + 3 future months in the all-time style ("Jul 26").
  * Day/week granularities get no line ([]).
  */
-export function projectTrendForPeriod(facts: ShapeFact[], now: Date, period: ProjectionPeriod, sourceHorizons?: Record<string, string>): TrendPoint[] {
+export function projectTrendForPeriod(
+  facts: ShapeFact[],
+  now: Date,
+  period: ProjectionPeriod,
+  sourceHorizons?: Record<string, string>,
+  snapshotAsOf?: SnapshotAsOf,
+): TrendPoint[] {
   if (period.granularity !== "year" && period.granularity !== "all") return [];
-  const m = monthModel(facts, now, sourceHorizons);
+  const m = monthModel(facts, now, sourceHorizons, snapshotAsOf);
   if (!m) return [];
   if (period.granularity === "year" && period.from.slice(0, 4) !== m.month.slice(0, 4)) return []; // past year
 
@@ -337,8 +381,14 @@ export function projectTrendForPeriod(facts: ShapeFact[], now: Date, period: Pro
  * SAME producer as `projectPeriodEnd`'s future sum, so a quarter/year tile
  * equals the actual bars plus the dashed line's months — one story, not two.
  */
-export function projectTrend(facts: ShapeFact[], now: Date, horizonMonths = 3, sourceHorizons?: Record<string, string>): FutureMonth[] {
-  const m = monthModel(facts, now, sourceHorizons);
+export function projectTrend(
+  facts: ShapeFact[],
+  now: Date,
+  horizonMonths = 3,
+  sourceHorizons?: Record<string, string>,
+  snapshotAsOf?: SnapshotAsOf,
+): FutureMonth[] {
+  const m = monthModel(facts, now, sourceHorizons, snapshotAsOf);
   if (!m) return [];
   return futureMonths(m, horizonMonths);
 }

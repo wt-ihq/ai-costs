@@ -53,7 +53,10 @@ export function buildExploreData(scope: RawScope, period: Period, now: Date = ne
     scorecard: scorecardFor(cur),
     trend: bothDims((d) => trendForPeriod(scope.facts, period, d, scope.snapshotAsOf)),
     treemap: bothDims((d) => treemapByDim(cur, d, 12, scope.toolColors)),
-    projection: { periodEnd: projectPeriodEnd(scope.facts, now, period, scope.horizons), trend: projectTrendForPeriod(scope.facts, now, period, scope.horizons) },
+    projection: {
+      periodEnd: projectPeriodEnd(scope.facts, now, period, scope.horizons, scope.snapshotAsOf),
+      trend: projectTrendForPeriod(scope.facts, now, period, scope.horizons, scope.snapshotAsOf),
+    },
     trends: buildTrends(scope, period, now),
   };
   if (scope.kind === "company") {

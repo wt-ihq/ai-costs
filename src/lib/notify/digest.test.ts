@@ -80,6 +80,15 @@ describe("buildDigest — monthly (total basis)", () => {
   });
 });
 
+describe("month line with a month-to-date paste", () => {
+  it("projects Claude Team's paste at its pace when the as-of day is known", () => {
+    const sep = [fact("2026-09-01", "claude_team", "overage", 300, "m")];
+    const d = buildDigest(input({ facts: sep, reportIds: [], snapshotAsOf: { "claude_team:2026-09": "2026-09-10" } }));
+    // weekly: the paste isn't in the headline, but the month line projects it: $30/day × 30
+    expect(d?.you.month?.projectedUsd ?? null).toBeCloseTo(900, 0);
+  });
+});
+
 describe("fixed costs (seats & subscriptions)", () => {
   const weekly = (includeFixed: boolean, over: Partial<DigestInput> = {}) => buildDigest(input({ includeFixed, ...over }))!;
 

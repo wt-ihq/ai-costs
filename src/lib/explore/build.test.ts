@@ -56,6 +56,13 @@ describe("buildExploreData", () => {
     expect(trend.find((p) => p.label === "8")?.claude_team).toBeUndefined();
   });
 
+  it("projects a month-to-date paste at its pace, using the scope's as-of days", () => {
+    const paste: ShapeFact = { day: "2026-06-01", source: "claude_team", costType: "overage", costUsd: 70, employeeId: "a", department: "Eng", fullName: "A", entityKey: "a@x", model: "" };
+    const scope: RawScope = { ...companyScope, facts: [paste], snapshotAsOf: { "claude_team:2026-06": "2026-06-07" } };
+    const p = buildExploreData(scope, parsePeriod("2026-06", NOW), NOW).projection.periodEnd!;
+    expect(p.projectedUsd).toBeCloseTo(300, 0); // $10/day over 30 days, not the $70 pasted
+  });
+
   it("includes the company All-staff roster ($0 staff kept)", () => {
     const data = buildExploreData(companyScope, parsePeriod("2026-06", NOW));
     expect(data.allStaff).toBeDefined();
