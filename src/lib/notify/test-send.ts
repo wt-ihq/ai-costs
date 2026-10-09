@@ -1,6 +1,6 @@
-import { digestFor, loadNotifyContext, teamDigestFor } from "./context";
-import { isTeamDigest } from "./digest";
-import { deliverDigest, deliverTeamDigest, resolveSlackUser, type RenderChart } from "./deliver";
+import { companyDigestFor, digestFor, loadNotifyContext, teamDigestFor } from "./context";
+import { isCompanyDigest, isTeamDigest } from "./digest";
+import { deliverCompanyDigest, deliverDigest, deliverTeamDigest, resolveSlackUser, type RenderChart } from "./deliver";
 import { periodFor } from "./schedule";
 import type { SlackClient } from "./slack-client";
 import type { TestSubject, TestTarget } from "./subject";
@@ -29,6 +29,7 @@ function parseSubject(v: unknown): TestSubject | null {
   if (!isRecord(v)) return null;
   if (v.kind === "person" && isUuid(v.employeeId)) return { kind: "person", employeeId: v.employeeId };
   if (v.kind === "team" && typeof v.department === "string" && v.department.length > 0) return { kind: "team", department: v.department };
+  if (v.kind === "company") return { kind: "company" };
   return null;
 }
 
@@ -46,6 +47,11 @@ export function testBanner(a: { adminName: string; subjectName: string; cadence:
     : `🧪 Test: ${a.subjectName}'s ${a.cadence} digest, sent to you by ${a.adminName}`;
 }
 
+/** The company report has no subject to send to: every test of it goes to someone, so it names the report. */
+export function companyTestBanner(adminName: string, cadence: Cadence): string {
+  return `🧪 Test: the company ${cadence} report, sent to you by ${adminName}`;
+}
+
 /**
  * An admin's explicit test: build the digest of any person or team and DM it to a chosen ACTIVE
  * employee, in any SLACK_NOTIFY_MODE. It never touches notification_sends — a test must not block
@@ -58,6 +64,7 @@ export async function sendTest(deps: TestSendDeps, input: { subject: unknown; ca
   const { cadence, periodKey } = input;
   if (!subject || !to || !isCadence(cadence) || typeof periodKey !== "string") return fail("Invalid input");
   if (subject.kind === "team" && to.kind === "subject") return fail("A team can't receive its own digest: pick yourself or someone else");
+  if (subject.kind === "company" && to.kind === "subject") return fail("Pick yourself or someone else to receive the company report");
 
   let period;
   try {
@@ -79,9 +86,11 @@ export async function sendTest(deps: TestSendDeps, input: { subject: unknown; ca
       if (!s) return fail("Unknown person");
       subjectName = s.fullName;
       subjectId = s.id;
-    } else {
+    } else if (subject.kind === "team") {
       if (!activeDepartments(ctx.employees).includes(subject.department)) return fail("Unknown team");
       subjectName = subject.department;
+    } else {
+      subjectName = "the company";
     }
 
     let target: NotifyEmployee | undefined;
@@ -93,19 +102,27 @@ export async function sendTest(deps: TestSendDeps, input: { subject: unknown; ca
     }
     if (!target || !isActiveEmployee(target)) return fail(NOT_ACTIVE);
 
-    const digest = subject.kind === "person" ? digestFor(ctx, subject.employeeId, period) : teamDigestFor(ctx, subject.department, period);
+    const digest =
+      subject.kind === "person" ? digestFor(ctx, subject.employeeId, period)
+      : subject.kind === "team" ? teamDigestFor(ctx, subject.department, period)
+      : companyDigestFor(ctx, period);
     if (!digest) return fail("Nothing to send for that period (no usage)");
 
     const slackUser = await resolveSlackUser(deps.store, deps.slack, target, deps.now);
     if (!slackUser) return fail(`No Slack account found for ${target.fullName}`);
     const { slackUserId } = slackUser;
 
-    const banner = testBanner({ adminName, subjectName, cadence, toSubject: subjectId !== null && target.id === subjectId });
+    const banner =
+      subject.kind === "company"
+        ? companyTestBanner(adminName, cadence)
+        : testBanner({ adminName, subjectName, cadence, toSubject: subjectId !== null && target.id === subjectId });
     const send = { slack: deps.slack, renderChart: deps.renderChart, slackUserId, banner, log: deps.log, sleep: deps.sleep };
-    if (isTeamDigest(digest)) await deliverTeamDigest({ ...send, digest });
+    if (isCompanyDigest(digest)) await deliverCompanyDigest({ ...send, digest });
+    else if (isTeamDigest(digest)) await deliverTeamDigest({ ...send, digest });
     else await deliverDigest({ ...send, digest });
 
-    log(`[notify] test send subject=${subject.kind === "person" ? `person:${subject.employeeId}` : `team:${subject.department}`} target=${target.id} cadence=${cadence}`);
+    const subjectLog = subject.kind === "person" ? `person:${subject.employeeId}` : subject.kind === "team" ? `team:${subject.department}` : "company";
+    log(`[notify] test send subject=${subjectLog} target=${target.id} cadence=${cadence}`);
     return { ok: true, sentTo: target.fullName };
   } catch (err) {
     return fail(err instanceof Error ? err.message : String(err));

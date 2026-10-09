@@ -14,6 +14,11 @@ describe("previewHref", () => {
     expect(previewHref({ kind: "team", department: "R&D / Ops?#" }, "weekly")).toBe("/data?tab=notifications&team=R%26D%20%2F%20Ops%3F%23&cadence=weekly");
   });
 
+  it("links the company report", () => {
+    expect(previewHref({ kind: "company" }, "monthly", "2026-09")).toBe("/data?tab=notifications&company=1&cadence=monthly&at=2026-09");
+    expect(previewHref({ kind: "company" }, "weekly")).toBe("/data?tab=notifications&company=1&cadence=weekly");
+  });
+
   it("omits the period when there is none (the latest complete one is used)", () => {
     expect(previewHref({ kind: "team", department: "Eng" }, "weekly", null)).toBe("/data?tab=notifications&team=Eng&cadence=weekly");
   });
