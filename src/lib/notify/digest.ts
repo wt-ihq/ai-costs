@@ -39,6 +39,24 @@ export interface DigestSection {
   month: MonthContext | null; // daily/weekly only
 }
 
+/** A month of fixed costs as posted, against the month before: the only real movement in a fixed bill. */
+export interface MonthTotal {
+  label: string; // "October"
+  usd: number;
+  prevLabel: string; // "September"
+  prevUsd: number;
+  deltaPct: number | null; // null when the previous month was $0
+}
+
+/**
+ * Every seat & subscription in the company. A daily/weekly headline is a share of the monthly bill, so
+ * its change vs the day/week before would only reflect month lengths: those cadences compare whole
+ * months instead (`monthTotal`). A monthly's headline already is the month: `monthTotal` is null.
+ */
+export interface FixedCostsSection extends DigestSection {
+  monthTotal: MonthTotal | null;
+}
+
 export interface TopPerson {
   employeeId: string;
   name: string;
@@ -58,6 +76,24 @@ export interface ReportsSection extends DigestSection {
    * `othersUsd`; the renderer shows it separately so "others" is only people.
    */
   teamLevelUsd?: number;
+}
+
+export interface TeamAmount {
+  department: string;
+  usd: number;
+  href: string;
+}
+
+/**
+ * The company's usage, ranked by person (a ReportsSection whose members are every employee, so
+ * `teamLevelUsd` is the usage that belongs to no person: unkeyed rows, workspace keys) and by team.
+ */
+export interface CompanyUsageSection extends ReportsSection {
+  teams: TeamAmount[]; // top TOP_N departments by usage
+  otherTeamsCount: number;
+  /** The headline minus the top teams and unattributed usage, exact to the cent. */
+  otherTeamsUsd: number;
+  unattributedUsd: number; // usage with no department: Explore's "Unattributed"
 }
 
 export interface Digest {
@@ -82,9 +118,25 @@ export interface TeamDigest {
   dashboardUrl: string;
 }
 
-/** Person digests carry no `kind`; team digests are `kind: "team"`. */
-export function isTeamDigest(d: Digest | TeamDigest): d is TeamDigest {
+/** The whole-company report: its own recipients and its own DM (notification_company_recipients). */
+export interface CompanyDigest {
+  kind: "company";
+  period: DigestPeriod;
+  usage: CompanyUsageSection;
+  fixed: FixedCostsSection;
+  /** Monthly only: every fact in the month, usage and fixed: Explore's company total. */
+  totalUsd: number | null;
+  caveats: string[];
+  dashboardUrl: string;
+}
+
+/** Person digests carry no `kind`; team digests are `kind: "team"`, the company report `kind: "company"`. */
+export function isTeamDigest(d: Digest | TeamDigest | CompanyDigest): d is TeamDigest {
   return "kind" in d && d.kind === "team";
+}
+
+export function isCompanyDigest(d: Digest | TeamDigest | CompanyDigest): d is CompanyDigest {
+  return "kind" in d && d.kind === "company";
 }
 
 /** What every digest kind needs to turn a fact population into a section. */
@@ -268,10 +320,14 @@ function peopleSection(pop: ShapeFact[], memberIds: readonly string[], input: Se
 }
 
 /** Same basis as the headline: a seat the digest doesn't count doesn't make the recipient a "user" of that source. */
-function caveatsOf(pop: ShapeFact[], input: SectionInput): string[] {
+function sourcesIn(pop: ShapeFact[], input: SectionInput): string[] {
+  const { period } = input;
+  return counted(pop, input).filter((f) => inRange(f, period.buckets[0].from, period.toExclusive)).map((f) => f.source);
+}
+
+function caveatsOf(sources: string[], input: SectionInput): string[] {
   const { period, freshness, missingImports } = input;
-  const sourcesUsed = new Set<string>(counted(pop, input).filter((f) => inRange(f, period.buckets[0].from, period.toExclusive)).map((f) => f.source));
-  return caveatsFor({ period, sourcesUsed, freshness, missingImports });
+  return caveatsFor({ period, sourcesUsed: new Set(sources), freshness, missingImports });
 }
 
 /**
@@ -295,7 +351,7 @@ export function buildDigest(input: DigestInput): Digest | null {
     period,
     you,
     reports,
-    caveats: caveatsOf([...youFacts, ...reportFacts], input),
+    caveats: caveatsOf(sourcesIn([...youFacts, ...reportFacts], input), input),
     dashboardUrl: personHref(baseUrl, recipient),
   };
 }
@@ -324,7 +380,85 @@ export function buildTeamDigest(input: TeamDigestInput): TeamDigest | null {
     department,
     period,
     team,
-    caveats: caveatsOf(pop, input),
+    caveats: caveatsOf(sourcesIn(pop, input), input),
     dashboardUrl: teamHref(baseUrl, department),
+  };
+}
+
+const prevMonthOf = (month: string) => {
+  const [y, m] = month.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 7);
+};
+
+/** The month the period ends in, as posted, against the month before. */
+function monthTotal(pop: ShapeFact[], period: DigestPeriod): MonthTotal {
+  const lastDay = new Date(Date.parse(`${period.toExclusive}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+  const month = lastDay.slice(0, 7);
+  const prev = prevMonthOf(month);
+  const usd = round2(total(pop.filter((f) => f.day.startsWith(month))));
+  const prevUsd = round2(total(pop.filter((f) => f.day.startsWith(prev))));
+  return {
+    label: MONTHS[Number(month.slice(5, 7)) - 1],
+    usd,
+    prevLabel: MONTHS[Number(prev.slice(5, 7)) - 1],
+    prevUsd,
+    deltaPct: prevUsd > 0 ? Math.round(((usd - prevUsd) / prevUsd) * 1000) / 10 : null,
+  };
+}
+
+/** This period's usage by department, Explore's grouping (rankTeams): the fact's department, else the person's. */
+function teamRanking(cur: ShapeFact[], headlineUsd: number, baseUrl: string) {
+  const byDept = sumBy(cur, (f) => f.department ?? UNATTRIBUTED);
+  const unattributedUsd = round2(byDept.get(UNATTRIBUTED) ?? 0);
+  byDept.delete(UNATTRIBUTED);
+  const ranked = [...byDept]
+    .map(([department, usd]) => ({ department, usd: round2(usd), href: teamHref(baseUrl, department) }))
+    .filter((t) => t.usd > 0)
+    .sort((a, b) => b.usd - a.usd || a.department.localeCompare(b.department));
+  const teams = ranked.slice(0, TOP_N);
+  return {
+    teams,
+    otherTeamsCount: ranked.length - teams.length,
+    // The remainder of the headline, so top teams + others + unattributed equal it to the cent.
+    otherTeamsUsd: Math.max(0, round2(headlineUsd - unattributedUsd - teams.reduce((s, t) => s + t.usd, 0))),
+    unattributedUsd,
+  };
+}
+
+/**
+ * The whole-company report, or null (a daily with no usage: the bill alone never makes a daily).
+ * Usage and seats & subscriptions are always apart, whatever the fixed-costs setting (`includeFixed`
+ * is ignored). Usage ranks every employee (leavers' spend counts; headcount is active people) and
+ * every department. The second section is every seat & subscription, person-less ones included.
+ * Only seats count for caveats: subscriptions come from recurring costs, which no sync can leave stale.
+ */
+export function buildCompanyDigest(input: SectionInput): CompanyDigest | null {
+  const { employeesById, facts, period, baseUrl } = input;
+  const usageInput: SectionInput = { ...input, includeFixed: false };
+  const fixedInput: SectionInput = { ...input, includeFixed: true };
+  const usagePop = facts.filter((f) => !isFixed(f));
+  const fixedPop = facts.filter(isFixed);
+
+  const people = peopleSection(usagePop, [...employeesById.keys()], usageInput);
+  if (period.cadence === "daily" && people.headlineUsd === 0) return null;
+
+  const cur = counted(usagePop, usageInput).filter((f) => inRange(f, period.from, period.toExclusive));
+  const isPerson = (f: ShapeFact) => f.employeeId !== null && employeesById.has(f.employeeId);
+  const usage: CompanyUsageSection = {
+    ...people,
+    teamLevelUsd: round2(total(cur.filter((f) => !isPerson(f)))),
+    ...teamRanking(cur, people.headlineUsd, baseUrl),
+  };
+  const monthly = period.cadence === "monthly";
+  const fixed: FixedCostsSection = { ...section(fixedPop, fixedInput), month: null, monthTotal: monthly ? null : monthTotal(fixedPop, period) };
+
+  return {
+    kind: "company",
+    period,
+    usage,
+    fixed,
+    totalUsd: monthly ? round2(total(facts.filter((f) => inRange(f, period.from, period.toExclusive)))) : null,
+    caveats: caveatsOf([...sourcesIn(usagePop, usageInput), ...sourcesIn(fixedPop.filter((f) => f.costType === "seat"), fixedInput)], input),
+    dashboardUrl: `${baseUrl}/explore`,
   };
 }
