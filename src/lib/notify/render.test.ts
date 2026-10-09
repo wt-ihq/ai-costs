@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Digest, DigestSection, TeamDigest } from "./digest";
-import { chartHeadline, chartSpan, chartTitle, deltaText, escapeMrkdwn, renderDigest, renderTeamDigest, teamChartTitle } from "./render";
+import type { CompanyDigest, Digest, DigestSection, TeamDigest } from "./digest";
+import { chartHeadline, chartSpan, chartTitle, companyChartTitle, deltaText, escapeMrkdwn, renderCompanyDigest, renderDigest, renderTeamDigest, teamChartTitle } from "./render";
 import { periodFor } from "./schedule";
 
 const now = new Date("2026-09-30T07:00:00Z");
@@ -279,5 +279,123 @@ describe("chartHeadline", () => {
   it("has no direction when there's nothing to compare or no change", () => {
     expect(chartHeadline(sec({ deltaPct: null, headlineUsd: 5 }), "previous month")).toMatchObject({ trend: null, change: "up from $0 the previous month" });
     expect(chartHeadline(sec({ deltaPct: 0.2 }), "previous week")).toMatchObject({ trend: null, change: "no change vs previous week" });
+  });
+});
+
+const companyDigest = (over: Partial<CompanyDigest> = {}): CompanyDigest => ({
+  kind: "company",
+  period: periodFor("weekly", "2026-W39", now),
+  usage: {
+    ...sec({ headlineUsd: 340, prevUsd: 100, deltaPct: 240 }),
+    headcount: 142,
+    top: [{ employeeId: "a", name: "Alex Kim", usd: 140, href: "https://x.test/explore/Engineering/a" }],
+    othersCount: 3, othersUsd: 200, teamLevelUsd: 32,
+    teams: [
+      { department: "Engineering", usd: 212, href: "https://x.test/explore/Engineering" },
+      { department: "R&D <Ops>", usd: 108, href: "https://x.test/explore/R%26D%20%3COps%3E" },
+    ],
+    otherTeamsCount: 0, otherTeamsUsd: 0, unattributedUsd: 20,
+  },
+  fixed: {
+    ...sec({
+      basis: "total", headlineUsd: 91, prevUsd: 91, deltaPct: 0, month: null,
+      byTool: [{ key: "cursor", label: "Cursor", color: "#f59e0b", usd: 70 }, { key: "other:Figma AI", label: "Figma AI", color: "#888888", usd: 21 }],
+    }),
+    monthTotal: { label: "September", usd: 390, prevLabel: "August", prevUsd: 400, deltaPct: -2.5 },
+  },
+  totalUsd: null,
+  caveats: ["⚠ Cursor data may be incomplete (last synced 26 Sep)"],
+  dashboardUrl: "https://x.test/explore",
+  ...over,
+});
+
+describe("renderCompanyDigest", () => {
+  const { blocks, text } = renderCompanyDigest(companyDigest(), { company: "F1" });
+  const fixedAt = (b: Record<string, unknown>[]) => b.findIndex((x) => x.type === "section" && mrk(x).startsWith("*SEATS"));
+
+  it("leads with the company header", () => {
+    expect(blocks[0]).toEqual({ type: "header", text: { type: "plain_text", text: "📊 Company AI spend · 21–27 Sep 2026", emoji: true } });
+  });
+
+  it("labels the usage section with the headcount and draws its chart", () => {
+    expect(mrk(blocks[1])).toBe("*COMPANY · 142 PEOPLE*");
+    expect(blocks[2]).toEqual({ type: "image", slack_file: { id: "F1" }, alt_text: "COMPANY (142 PEOPLE) · USAGE, 21–27 SEP 2026: $340 · ▲ 240% vs previous week" });
+  });
+
+  it("lists linked, escaped top teams with unattributed apart, then top people with usage tied to no one apart", () => {
+    expect(mrk(blocks[3])).toBe(
+      "<https://x.test/explore/Engineering|Engineering> $212 · <https://x.test/explore/R%26D%20%3COps%3E|R&amp;D &lt;Ops&gt;> $108 · unattributed $20.00\n" +
+        "<https://x.test/explore/Engineering/a|Alex Kim> $140 · +3 others $168 · not tied to a person $32.00",
+    );
+    expect(blocks[4]).toEqual({ type: "context", elements: [
+      { type: "mrkdwn", text: "Cursor $30.10 · Anthropic API $8.10" },
+      { type: "mrkdwn", text: "September so far $142 · on track for ~$190" },
+    ] });
+  });
+
+  it("counts the teams beyond the top five", () => {
+    const u = companyDigest().usage;
+    const line = (n: number) => mrk(renderCompanyDigest(companyDigest({ usage: { ...u, otherTeamsCount: n, otherTeamsUsd: 5 } }), {}).blocks[2]);
+    expect(line(1)).toContain(" · +1 team $5.00 · unattributed $20.00");
+    expect(line(3)).toContain(" · +3 teams $5.00 · ");
+  });
+
+  it("says so when nobody used anything", () => {
+    const u = companyDigest().usage;
+    const quiet = { ...u, headlineUsd: 0, top: [], othersCount: 0, othersUsd: 0, teamLevelUsd: 0, teams: [], unattributedUsd: 0 };
+    expect(renderCompanyDigest(companyDigest({ usage: quiet }), {}).blocks.some((b) => b.type === "section" && mrk(b) === "No usage this week")).toBe(true);
+  });
+
+  it("shows seats & subscriptions as text: a week's share, then the month against the month before", () => {
+    const i = fixedAt(blocks);
+    expect(blocks[i - 1]).toEqual({ type: "divider" });
+    expect(mrk(blocks[i])).toBe("*SEATS &amp; SUBSCRIPTIONS*\n*$91.00* total · a week's share of the monthly bill");
+    expect(blocks[i + 1]).toEqual({ type: "context", elements: [
+      { type: "mrkdwn", text: "Cursor $70.00 · Figma AI $21.00" },
+      { type: "mrkdwn", text: "September $390 · ▼ 3% vs August" },
+    ] });
+    expect(blocks.some((b) => b.type === "image" && (b as { slack_file: { id: string } }).slack_file.id !== "F1")).toBe(false);
+  });
+
+  it("the month line has no change with nothing before it, and reads 'no change' under half a percent", () => {
+    const fx = companyDigest().fixed;
+    const monthLine = (monthTotal: CompanyDigest["fixed"]["monthTotal"]) => {
+      const b = renderCompanyDigest(companyDigest({ fixed: { ...fx, monthTotal } }), {}).blocks;
+      return (b[fixedAt(b) + 1] as { elements: { text: string }[] }).elements[1].text;
+    };
+    expect(monthLine({ label: "September", usd: 390, prevLabel: "August", prevUsd: 0, deltaPct: null })).toBe("September $390");
+    expect(monthLine({ label: "September", usd: 390, prevLabel: "August", prevUsd: 389, deltaPct: 0.3 })).toBe("September $390 · no change vs August");
+  });
+
+  it("a daily's figure is a day's share", () => {
+    const b = renderCompanyDigest(companyDigest({ period: periodFor("daily", "2026-09-25", now) }), {}).blocks;
+    expect(mrk(b[fixedAt(b)])).toContain("total · a day's share of the monthly bill");
+  });
+
+  it("a monthly compares the bill with last month and ends with the month's total", () => {
+    const fx = { ...companyDigest().fixed, headlineUsd: 390, prevUsd: 400, deltaPct: -2.5, monthTotal: null };
+    const b = renderCompanyDigest(companyDigest({ period: periodFor("monthly", "2026-08", now), fixed: fx, totalUsd: 1330 }), {}).blocks;
+    expect(mrk(b[fixedAt(b)])).toBe("*SEATS &amp; SUBSCRIPTIONS*\n*$390* total · ▼ 3% vs previous month");
+    expect(b[fixedAt(b) + 1]).toEqual({ type: "context", elements: [{ type: "mrkdwn", text: "Cursor $70.00 · Figma AI $21.00" }] });
+    expect(mrk(b[fixedAt(b) + 2])).toBe("*August 2026 total $1,330* · usage + seats &amp; subscriptions");
+  });
+
+  it("ends with caveats and a button to the Company page, or the send's tracked link", () => {
+    expect(blocks.at(-2)).toEqual({ type: "context", elements: [{ type: "mrkdwn", text: "⚠ Cursor data may be incomplete (last synced 26 Sep)" }] });
+    expect(blocks.at(-1)).toMatchObject({ type: "actions", elements: [{ type: "button", url: "https://x.test/explore" }] });
+    const tracked = renderCompanyDigest(companyDigest(), {}, { openUrl: "https://x.test/api/digest/open/abc" }).blocks.at(-1);
+    expect(tracked).toMatchObject({ elements: [{ url: "https://x.test/api/digest/open/abc" }] });
+  });
+
+  it("has an escaped plain-text fallback with both figures, and takes the preview line", () => {
+    expect(text).toBe("Company AI spend · 21–27 Sep 2026: usage $340 · seats &amp; subscriptions $91.00");
+    const r = renderCompanyDigest(companyDigest(), {}, { previewFor: "Priya Nair (company weekly)" });
+    expect(r.blocks[0]).toEqual({ type: "context", elements: [{ type: "mrkdwn", text: "🔍 Preview · would send to Priya Nair (company weekly)" }] });
+  });
+});
+
+describe("companyChartTitle", () => {
+  it("names the company, its headcount, the basis and the headline's period", () => {
+    expect(companyChartTitle(companyDigest())).toBe("COMPANY (142 PEOPLE) · USAGE, 21–27 SEP 2026");
   });
 });
