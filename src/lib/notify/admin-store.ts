@@ -3,7 +3,7 @@ import { fetchEmployeesAll } from "@/lib/queries/common";
 import { fixedCostsForTeam, type FixedCostChoice, type FixedCostSettings } from "./fixed-costs";
 import { pageAll, supabaseNotifyStore } from "./store";
 import { buildReportingTree } from "./tree";
-import { activeDepartments, CADENCES, isActiveEmployee, NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence, type SendMode } from "./types";
+import { activeDepartments, CADENCES, isActiveEmployee, NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence, type ReportKind, type SendMode } from "./types";
 
 export interface RecipientRow {
   employeeId: string;
@@ -17,7 +17,16 @@ export interface RecipientRow {
   /** Fixed costs: the person's own override (null = none) and what applies without it (team, else default). */
   fixedCosts: { override: boolean | null; inherited: FixedCostChoice };
 }
-export interface SendLogRow { at: string; name: string; cadence: string; periodKey: string; mode: string; status: string; detail: string | null; openedAt: string | null }
+/** A company report recipient: the cadences they get it on. */
+export interface CompanyRecipientRow {
+  employeeId: string;
+  name: string;
+  team: string | null;
+  cadences: Cadence[];
+  slack: RecipientRow["slack"];
+  left: boolean;
+}
+export interface SendLogRow { at: string; name: string; report: ReportKind; cadence: string; periodKey: string; mode: string; status: string; detail: string | null; openedAt: string | null }
 export interface LastRun {
   day: string;
   mode: SendMode; // live if any live row that day, else preview
@@ -31,6 +40,8 @@ export interface LastRun {
 export interface PersonOption { id: string; label: string; name: string }
 export interface NotificationsAdminData {
   recipients: RecipientRow[];
+  companyRecipients: CompanyRecipientRow[];
+  companyPeople: PersonOption[]; // active, not on the company list yet: its add-a-person picker
   sends: SendLogRow[]; // newest first, ≤ 50
   lastRun: LastRun | null;
   tree: { active: number; resolved: number; unresolved: string[] };
@@ -85,7 +96,7 @@ export function summariseLastRun(sends: Pick<SendRowLite, "cadence" | "mode" | "
 
 const LAST_SENT_LOOKBACK_DAYS = 40;
 
-/** Paginated (gotcha #1): one recipient can have many rows, so a bounded newest-N read could miss someone. */
+/** Paginated (gotcha #1): one recipient can have many rows, so a bounded newest-N read could miss someone. Personal sends only: the company report has its own list. */
 async function loadLastSent(supabase: SupabaseClient, enrolledIds: string[]): Promise<Map<string, string>> {
   if (!enrolledIds.length) return new Map();
   const since = new Date(Date.now() - LAST_SENT_LOOKBACK_DAYS * 86_400_000).toISOString();
@@ -96,6 +107,7 @@ async function loadLastSent(supabase: SupabaseClient, enrolledIds: string[]): Pr
         .select("employee_id, cadence, mode, updated_at")
         .in("employee_id", enrolledIds)
         .eq("status", "sent")
+        .eq("report", "personal")
         .gte("updated_at", since)
         .order("updated_at", { ascending: false })
         .order("id")
@@ -110,9 +122,14 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
     (a, b) => supabase.from("notification_subscriptions").select("employee_id, cadence").order("employee_id").order("cadence").range(a, b),
     "notification_subscriptions",
   );
+  const companyP = pageAll<{ employee_id: string; cadence: Cadence }>(
+    (a, b) => supabase.from(RECIPIENT_TABLE.company).select("employee_id, cadence").order("employee_id").order("cadence").range(a, b),
+    RECIPIENT_TABLE.company,
+  );
   const opensSince = new Date(Date.now() - OPEN_RATE_DAYS * 86_400_000).toISOString();
-  const [subs, lastSent, empRows, slackRows, sendRes, fixedCosts, recentSent] = await Promise.all([
+  const [subs, companyRows, lastSent, empRows, slackRows, sendRes, fixedCosts, recentSent] = await Promise.all([
     subsP,
+    companyP,
     subsP.then((rows) => loadLastSent(supabase, [...new Set(rows.map((r) => r.employee_id))])),
     fetchEmployeesAll(supabase, NOTIFY_EMPLOYEE_COLUMNS),
     pageAll<{ employee_id: string; slack_user_id: string | null }>(
@@ -120,7 +137,7 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
       "slack_users",
     ),
     // Bounded newest-first read of a growing log — never a full scan.
-    supabase.from("notification_sends").select("employee_id, cadence, period_key, mode, status, detail, updated_at, opened_at").order("updated_at", { ascending: false }).order("id").limit(200),
+    supabase.from("notification_sends").select("employee_id, cadence, period_key, mode, report, status, detail, updated_at, opened_at").order("updated_at", { ascending: false }).order("id").limit(200),
     supabaseNotifyStore(supabase).fixedCostSettings(),
     pageAll<{ mode: string; status: string; opened_at: string | null }>(
       (a, b) => supabase.from("notification_sends").select("mode, status, opened_at").eq("mode", "live").eq("status", "sent").gte("updated_at", opensSince).order("id").range(a, b),
@@ -133,10 +150,16 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
   const byId = new Map(employees.map((e) => [e.id, e]));
   const tree = buildReportingTree(employees);
   const slack = new Map(slackRows.map((r) => [r.employee_id, r.slack_user_id]));
-  const sends = (sendRes.data ?? []) as (SendRowLite & { period_key: string; detail: string | null })[];
+  const sends = (sendRes.data ?? []) as (SendRowLite & { period_key: string; detail: string | null; report: ReportKind })[];
 
-  const cadencesBy = new Map<string, Cadence[]>();
-  for (const s of subs) cadencesBy.set(s.employee_id, [...(cadencesBy.get(s.employee_id) ?? []), s.cadence]);
+  const byPerson = (rows: { employee_id: string; cadence: Cadence }[]) => {
+    const m = new Map<string, Cadence[]>();
+    for (const r of rows) m.set(r.employee_id, [...(m.get(r.employee_id) ?? []), r.cadence]);
+    return m;
+  };
+  const cadencesBy = byPerson(subs);
+  const companyBy = byPerson(companyRows);
+  const slackStatus = (id: string): RecipientRow["slack"] => (!slack.has(id) ? "unknown" : slack.get(id) ? "found" : "not_found");
 
   const recipients: RecipientRow[] = [...cadencesBy].map(([id, cadences]): RecipientRow => {
     const e = byId.get(id);
@@ -146,11 +169,16 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
       team: e?.department ?? null,
       cadences,
       reports: tree.reportsOf(id).filter((r) => { const x = byId.get(r); return x ? isActiveEmployee(x) : false; }).length,
-      slack: !slack.has(id) ? "unknown" : slack.get(id) ? "found" : "not_found",
+      slack: slackStatus(id),
       lastSent: lastSent.get(id) ?? null,
       left: e ? !isActiveEmployee(e) : true,
       fixedCosts: { override: id in fixedCosts.employees ? fixedCosts.employees[id] : null, inherited: fixedCostsForTeam(fixedCosts, e?.department ?? null) },
     };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+
+  const companyRecipients: CompanyRecipientRow[] = [...companyBy].map(([id, cadences]): CompanyRecipientRow => {
+    const e = byId.get(id);
+    return { employeeId: id, name: e?.fullName ?? "Unknown", team: e?.department ?? null, cadences, slack: slackStatus(id), left: e ? !isActiveEmployee(e) : true };
   }).sort((a, b) => a.name.localeCompare(b.name));
 
   const active = employees.filter(isActiveEmployee);
@@ -161,13 +189,15 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
 
   return {
     recipients,
+    companyRecipients,
     sends: sends.slice(0, 50).map((s) => ({
-      at: s.updated_at, name: byId.get(s.employee_id)?.fullName ?? "Unknown", cadence: s.cadence,
+      at: s.updated_at, name: byId.get(s.employee_id)?.fullName ?? "Unknown", report: s.report, cadence: s.cadence,
       periodKey: s.period_key, mode: s.mode, status: s.status, detail: s.detail, openedAt: s.opened_at,
     })),
     lastRun: summariseLastRun(sends),
     tree: { active: active.length, resolved: active.filter((e) => !unresolved.has(e.id)).length, unresolved: active.filter((e) => unresolved.has(e.id)).map((e) => e.fullName).sort() },
     people: activePeople.filter((p) => !cadencesBy.has(p.id)),
+    companyPeople: activePeople.filter((p) => !companyBy.has(p.id)),
     activePeople,
     departments: activeDepartments(employees),
     fixedCosts,
@@ -195,26 +225,45 @@ export async function setFixedCostSetting(
   if (error) throw new Error(`setFixedCostSetting: ${error.message}`);
 }
 
-export async function addSubscriptions(supabase: SupabaseClient, employeeIds: string[], cadences: Cadence[], createdBy: string): Promise<number> {
+/** Each DM's recipients table (person × cadence). */
+export const RECIPIENT_TABLE: Record<ReportKind, string> = {
+  personal: "notification_subscriptions",
+  company: "notification_company_recipients",
+};
+
+export async function addSubscriptions(
+  supabase: SupabaseClient,
+  employeeIds: string[],
+  cadences: Cadence[],
+  createdBy: string,
+  report: ReportKind = "personal",
+): Promise<number> {
   const rows = employeeIds.flatMap((employee_id) => cadences.map((cadence) => ({ employee_id, cadence, created_by: createdBy })));
   const { data, error } = await supabase
-    .from("notification_subscriptions")
+    .from(RECIPIENT_TABLE[report])
     .upsert(rows, { onConflict: "employee_id,cadence", ignoreDuplicates: true })
     .select("employee_id");
   if (error) throw new Error(`addSubscriptions: ${error.message}`);
   return data?.length ?? 0;
 }
 
-export async function setSubscription(supabase: SupabaseClient, employeeId: string, cadence: Cadence, enabled: boolean, createdBy: string): Promise<void> {
+export async function setSubscription(
+  supabase: SupabaseClient,
+  employeeId: string,
+  cadence: Cadence,
+  enabled: boolean,
+  createdBy: string,
+  report: ReportKind = "personal",
+): Promise<void> {
   if (enabled) {
-    await addSubscriptions(supabase, [employeeId], [cadence], createdBy);
+    await addSubscriptions(supabase, [employeeId], [cadence], createdBy, report);
     return;
   }
-  const { error } = await supabase.from("notification_subscriptions").delete().eq("employee_id", employeeId).eq("cadence", cadence);
+  const { error } = await supabase.from(RECIPIENT_TABLE[report]).delete().eq("employee_id", employeeId).eq("cadence", cadence);
   if (error) throw new Error(`setSubscription: ${error.message}`);
 }
 
-export async function removeSubscriptions(supabase: SupabaseClient, employeeId: string): Promise<void> {
-  const { error } = await supabase.from("notification_subscriptions").delete().eq("employee_id", employeeId);
+export async function removeSubscriptions(supabase: SupabaseClient, employeeId: string, report: ReportKind = "personal"): Promise<void> {
+  const { error } = await supabase.from(RECIPIENT_TABLE[report]).delete().eq("employee_id", employeeId);
   if (error) throw new Error(`removeSubscriptions: ${error.message}`);
 }

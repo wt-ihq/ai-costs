@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { lastSentLabels, openRate, summariseLastRun } from "./admin-store";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { addSubscriptions, lastSentLabels, openRate, removeSubscriptions, setSubscription, summariseLastRun } from "./admin-store";
 
 const row = (employee_id: string, mode: string, cadence: string, updated_at: string, status = "sent") => ({ employee_id, mode, cadence, status, updated_at });
 
@@ -56,5 +57,41 @@ describe("openRate", () => {
         { mode: "live", status: "failed", opened_at: null },
       ]),
     ).toEqual({ sent: 2, opened: 1 });
+  });
+});
+
+/** Records each query-builder call by table; every query resolves to one written row. */
+function fakeSupabase() {
+  const calls: { table: string; op: string; args: unknown[] }[] = [];
+  const from = (table: string) => {
+    const q: Record<string, unknown> = {};
+    for (const op of ["upsert", "delete", "eq", "select"]) {
+      q[op] = (...args: unknown[]) => {
+        calls.push({ table, op, args });
+        return q;
+      };
+    }
+    q.then = (resolve: (v: unknown) => void) => resolve({ data: [{ employee_id: "e1" }], error: null });
+    return q;
+  };
+  return { client: { from } as unknown as SupabaseClient, calls };
+}
+
+describe("recipient writes", () => {
+  it("company recipients go to their own table; personal ones stay where they were", async () => {
+    const s = fakeSupabase();
+    expect(await addSubscriptions(s.client, ["e1"], ["weekly"], "admin@x.com", "company")).toBe(1);
+    await setSubscription(s.client, "e1", "daily", false, "admin@x.com", "company");
+    await removeSubscriptions(s.client, "e1", "company");
+    expect(new Set(s.calls.map((c) => c.table))).toEqual(new Set(["notification_company_recipients"]));
+    expect(s.calls[0]).toMatchObject({
+      op: "upsert",
+      args: [[{ employee_id: "e1", cadence: "weekly", created_by: "admin@x.com" }], { onConflict: "employee_id,cadence", ignoreDuplicates: true }],
+    });
+
+    const p = fakeSupabase();
+    await addSubscriptions(p.client, ["e1"], ["weekly"], "admin@x.com");
+    await removeSubscriptions(p.client, "e1");
+    expect(new Set(p.calls.map((c) => c.table))).toEqual(new Set(["notification_subscriptions"]));
   });
 });
