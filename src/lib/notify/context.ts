@@ -1,6 +1,6 @@
 import type { ShapeFact, SnapshotAsOf } from "@/lib/explore/shape";
 import type { CoverageMonthRow } from "@/lib/queries/import-coverage";
-import { buildDigest, buildTeamDigest, type Digest, type SectionInput, type TeamDigest } from "./digest";
+import { buildCompanyDigest, buildDigest, buildTeamDigest, type CompanyDigest, type Digest, type SectionInput, type TeamDigest } from "./digest";
 import { fixedCostsFor, fixedCostsForTeam, type FixedCostSettings } from "./fixed-costs";
 import { monthlyReadiness, sourceFreshness, type SourceFreshness, type SyncRunRow } from "./freshness";
 import type { DigestPeriod } from "./schedule";
@@ -99,4 +99,9 @@ export function digestFor(ctx: NotifyContext, employeeId: string, period: Digest
 /** A whole Okta department's digest (preview/test only — never scheduled). Callers validate the department. */
 export function teamDigestFor(ctx: NotifyContext, department: string, period: DigestPeriod): TeamDigest | null {
   return buildTeamDigest({ ...sectionInput(ctx, period, fixedCostsForTeam(ctx.fixedCosts, department).include), department });
+}
+
+/** The whole-company report: the same for every recipient. Seats & subscriptions are their own section, so no setting applies. */
+export function companyDigestFor(ctx: NotifyContext, period: DigestPeriod): CompanyDigest | null {
+  return buildCompanyDigest(sectionInput(ctx, period, false));
 }

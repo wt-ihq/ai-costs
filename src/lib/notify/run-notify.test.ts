@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ShapeFact } from "@/lib/explore/shape";
 import { memoryStore, type MemorySeed } from "./memory-store";
+import { openRedirectPath } from "./opens";
 import { runNotify, STALE_PENDING_MS, type RunNotifyDeps } from "./run-notify";
 import { SlackApiError, type SlackClient } from "./slack-client";
 import type { NotifyEmployee } from "./types";
@@ -378,5 +379,75 @@ describe("runNotify", () => {
       expect(store.sends.some((s) => s.employeeId === "a")).toBe(false); // nothing claimed: the next run tries again
       expect(logs).toContain("[notify] Slack lookup failed employee=a: ratelimited");
     });
+  });
+});
+
+describe("runNotify: company report", () => {
+  const withCompany = (over: MemorySeed = {}) =>
+    seed({
+      companyRecipients: [{ employeeId: "m", cadence: "weekly" }, { employeeId: "gareth", cadence: "daily" }, { employeeId: "gone", cadence: "weekly" }],
+      ...over,
+    });
+  const header = (p: { blocks: unknown[] }) => JSON.stringify(p.blocks[0]);
+
+  it("sends the company report as its own DM beside a personal digest for the same period, once", async () => {
+    const store = memoryStore(withCompany(), () => MONDAY.getTime());
+    const slack = fakeSlack();
+    expect(await runNotify(deps(store, slack.client))).toMatchObject({ sent: 4, failed: 0 });
+    const toM = slack.posts.filter((p) => p.channel === "D-U-m");
+    expect(toM).toHaveLength(2);
+    expect(toM.some((p) => header(p).includes("Company AI spend · 21–27 Sep 2026"))).toBe(true);
+    expect(toM.some((p) => header(p).includes("Your AI spend · 21–27 Sep 2026"))).toBe(true);
+    expect(store.sends.filter((s) => s.employeeId === "m").map((s) => s.report).sort()).toEqual(["company", "personal"]);
+    expect(await runNotify(deps(store, slack.client))).toMatchObject({ sent: 0, alreadyHandled: 4 });
+  });
+
+  it("a company recipient needs no personal subscription and no reports; leavers get nothing", async () => {
+    const store = memoryStore(withCompany(), () => MONDAY.getTime());
+    const slack = fakeSlack();
+    await runNotify(deps(store, slack.client));
+    const toG = slack.posts.filter((p) => p.channel === "D-U-gareth");
+    expect(toG).toHaveLength(1);
+    expect(header(toG[0])).toContain("Company AI spend · 25 Sep 2026");
+    expect(store.sends.some((s) => s.employeeId === "gone")).toBe(false);
+  });
+
+  it("its tracked button opens the Company page", async () => {
+    const store = memoryStore(withCompany(), () => MONDAY.getTime());
+    const slack = fakeSlack();
+    await runNotify(deps(store, slack.client));
+    const post = slack.posts.find((p) => p.channel === "D-U-gareth")!;
+    const row = store.sends.find((s) => s.employeeId === "gareth" && s.report === "company")!;
+    expect((post.blocks.at(-1) as { elements: { url: string }[] }).elements[0].url).toBe(`https://x.test/api/digest/open/${row.id}`);
+    expect(await openRedirectPath(store, row.id!)).toBe("/explore");
+  });
+
+  it("a spent personal send for the same period neither blocks the company send nor is taken over by it", async () => {
+    const spent = { employeeId: "m", cadence: "weekly" as const, periodKey: "2026-W39", mode: "live" as const, status: "failed", attempts: 3, slackTs: null, detail: "x", updatedAt: "2026-09-28T06:59:00Z" };
+    const store = memoryStore(withCompany({ sends: [spent] }), () => MONDAY.getTime());
+    expect(await runNotify(deps(store, fakeSlack().client))).toMatchObject({ sent: 3, alreadyHandled: 1 });
+    expect(store.sends.find((s) => s.employeeId === "m" && s.report === "company")!.status).toBe("sent");
+    expect(store.sends.find((s) => s.employeeId === "m" && s.report === "personal")).toMatchObject({ status: "failed", attempts: 3 });
+  });
+
+  it("preview mode names the company report in the would-send line", async () => {
+    const store = memoryStore(withCompany({ subscriptions: [] }), () => MONDAY.getTime());
+    const slack = fakeSlack();
+    await runNotify(deps(store, slack.client, { mode: "preview" }));
+    expect(slack.posts.every((p) => p.channel === "D-U-gareth")).toBe(true);
+    expect(slack.posts.some((p) => header(p).includes("would send to Person m (company weekly)"))).toBe(true);
+    expect(store.sends.every((s) => s.report === "company" && s.mode === "preview")).toBe(true);
+  });
+
+  it("logs a company daily with no usage as skipped, never a bill-only DM", async () => {
+    const TUESDAY = new Date("2026-09-29T09:30:00Z"); // daily for Monday 28th: no usage that day
+    const store = memoryStore(
+      withCompany({ subscriptions: [], syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-09-29T06:00:03Z" }] }),
+      () => TUESDAY.getTime(),
+    );
+    const slack = fakeSlack();
+    expect(await runNotify(deps(store, slack.client, { now: TUESDAY, clock: () => TUESDAY.getTime() }))).toMatchObject({ sent: 0, skipped: 1 });
+    expect(slack.posts).toHaveLength(0);
+    expect(store.sends).toEqual([expect.objectContaining({ employeeId: "gareth", report: "company", status: "skipped", detail: "no usage" })]);
   });
 });

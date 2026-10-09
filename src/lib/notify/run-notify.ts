@@ -1,10 +1,11 @@
-import { loadNotifyContext, digestFor, syncRunsSince, type NotifyContext } from "./context";
-import { deliverDigest, PostOutcomeUnknownError, resolveSlackUser, type RenderChart, type SlackRecipient } from "./deliver";
+import { companyDigestFor, digestFor, loadNotifyContext, syncRunsSince, type NotifyContext } from "./context";
+import { deliverCompanyDigest, deliverDigest, PostOutcomeUnknownError, resolveSlackUser, type RenderChart, type SlackRecipient } from "./deliver";
+import type { CompanyDigest } from "./digest";
 import { monthlyReadiness, syncSucceededSince } from "./freshness";
 import { dueDigests, latestCompleteKey, MONTHLY_WINDOW, monthlyLastDay, sendDay, type DigestPeriod, type DueDigest } from "./schedule";
 import { SlackApiError, type SlackClient } from "./slack-client";
 import { canRetakeClaim, type NotifyStore, type SendKey } from "./store";
-import { isActiveEmployee, type Cadence, type NotifyEmployee, type SendMode } from "./types";
+import { isActiveEmployee, type Cadence, type NotifyEmployee, type ReportKind, type SendMode } from "./types";
 
 export interface RunNotifyDeps {
   store: NotifyStore;
@@ -66,7 +67,12 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
 
   result.expired = await store.expireStalePending(new Date(clock() - STALE_PENDING_MS).toISOString());
 
-  const subs = await store.subscriptions(CADENCES);
+  // Both lists, each (person, cadence) tagged with its DM: someone on both gets two messages.
+  const [personal, company] = await Promise.all([store.subscriptions(CADENCES), store.companyRecipients(CADENCES)]);
+  const subs: { employeeId: string; cadence: Cadence; report: ReportKind }[] = [
+    ...personal.map((s) => ({ ...s, report: "personal" as const })),
+    ...company.map((s) => ({ ...s, report: "company" as const })),
+  ];
   if (!subs.length) return done();
   const employees = await store.employees();
   const employeesById = new Map(employees.map((e) => [e.id, e]));
@@ -76,7 +82,7 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
   // 1. Whose day it is: the DM's recipient (in preview, the previewer) must be past 10:30 on a working day.
   const slackUsers = new Map<string, SlackRecipient | null>();
   const lookupFailed = new Set<string>();
-  const candidates: { recipient: NotifyEmployee; cadence: Cadence; slackUser: SlackRecipient | null; day: string }[] = [];
+  const candidates: { recipient: NotifyEmployee; cadence: Cadence; report: ReportKind; slackUser: SlackRecipient | null; day: string }[] = [];
   for (const sub of subs) {
     const recipient = employeesById.get(sub.employeeId);
     if (!recipient || !isActiveEmployee(recipient)) continue;
@@ -103,7 +109,7 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
       result.waiting++;
       continue;
     }
-    candidates.push({ recipient, cadence: sub.cadence, slackUser, day });
+    candidates.push({ recipient, cadence: sub.cadence, report: sub.report, slackUser, day });
   }
   if (!candidates.length) return done();
 
@@ -136,7 +142,7 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
   //    A missing Slack account isn't retried: Slack's answer is cached for a week.
   const states = await store.sendStates([...new Set(work.map((w) => w.period.key))], deps.mode);
   const open = work.filter((w) => {
-    const row = states.find((s) => s.employeeId === w.recipient.id && s.cadence === w.cadence && s.periodKey === w.period.key && s.report === "personal");
+    const row = states.find((s) => s.employeeId === w.recipient.id && s.cadence === w.cadence && s.periodKey === w.period.key && s.report === w.report);
     return !row || (w.slackUser !== null && canRetakeClaim(row));
   });
   result.alreadyHandled += work.length - open.length;
@@ -152,23 +158,27 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
   if (!sendable.length) return done();
 
   const ctx = await loadNotifyContext(store, now, deps.baseUrl, { coverage, syncRuns, employees });
+  const companyDigests = new Map<string, CompanyDigest | null>(); // by period key: built once per period per run
   for (const w of sendable) {
     if (clock() - start > budget) {
       result.notReached++;
       continue;
     }
-    await sendOne(deps, w, ctx, result, { log, previewTarget });
+    await sendOne(deps, w, ctx, result, { log, previewTarget, companyDigests });
   }
   return done();
 }
 
-const sendKey = (deps: RunNotifyDeps, w: { recipient: NotifyEmployee; cadence: Cadence; period: DigestPeriod }): SendKey => ({
+const sendKey = (deps: RunNotifyDeps, w: { recipient: NotifyEmployee; cadence: Cadence; report: ReportKind; period: DigestPeriod }): SendKey => ({
   employeeId: w.recipient.id,
   cadence: w.cadence,
   periodKey: w.period.key,
   mode: deps.mode,
-  report: "personal",
+  report: w.report,
 });
+
+/** A send's ids for a log line. Personal sends keep their established shape; company ones say so. */
+const who = (k: SendKey) => `employee=${k.employeeId} cadence=${k.cadence}${k.report === "company" ? " report=company" : ""}`;
 
 /**
  * Claim the send row; its id when ours, null when not (already handled, or the claim errored). A claim
@@ -182,18 +192,18 @@ async function claim(store: NotifyStore, key: SendKey, result: RunNotifyResult, 
     result.alreadyHandled++;
   } catch (err) {
     result.failed++;
-    log(`[notify] claim failed employee=${key.employeeId} cadence=${key.cadence}: ${errorDetail(err)}`);
+    log(`[notify] claim failed ${who(key)}: ${errorDetail(err)}`);
   }
   return null;
 }
 
-/** One (recipient, cadence): claim → build → DM → mark, with every failure contained here. */
+/** One (recipient, cadence, report): claim → build → DM → mark, with every failure contained here. */
 async function sendOne(
   deps: RunNotifyDeps,
-  w: { recipient: NotifyEmployee; cadence: Cadence; slackUser: SlackRecipient; period: DigestPeriod },
+  w: { recipient: NotifyEmployee; cadence: Cadence; report: ReportKind; slackUser: SlackRecipient; period: DigestPeriod },
   ctx: NotifyContext,
   result: RunNotifyResult,
-  { log, previewTarget }: { log: (m: string) => void; previewTarget: NotifyEmployee | undefined },
+  { log, previewTarget, companyDigests }: { log: (m: string) => void; previewTarget: NotifyEmployee | undefined; companyDigests: Map<string, CompanyDigest | null> },
 ): Promise<void> {
   const { store, slack } = deps;
   const { recipient, cadence, period } = w;
@@ -201,24 +211,35 @@ async function sendOne(
   const sendId = await claim(store, key, result, log);
   if (!sendId) return;
 
+  const skip = async () => {
+    await store.finishSend(key, { status: "skipped", detail: "no usage" });
+    result.skipped++;
+  };
+  const common = {
+    slack,
+    renderChart: deps.renderChart,
+    slackUserId: w.slackUser.slackUserId,
+    openUrl: `${deps.baseUrl}/api/digest/open/${sendId}`,
+    log,
+    sleep: deps.sleep,
+  };
   let posted = false;
   try {
-    const digest = digestFor(ctx, recipient.id, period);
-    if (!digest) {
-      await store.finishSend(key, { status: "skipped", detail: "no usage" });
-      result.skipped++;
-      return;
+    let ts: string;
+    if (w.report === "company") {
+      // The same report for everyone it is due to.
+      let digest = companyDigests.get(period.key);
+      if (digest === undefined) {
+        digest = companyDigestFor(ctx, period);
+        companyDigests.set(period.key, digest);
+      }
+      if (!digest) return await skip();
+      ts = await deliverCompanyDigest({ ...common, digest, previewFor: previewTarget ? `${recipient.fullName} (company ${cadence})` : undefined });
+    } else {
+      const digest = digestFor(ctx, recipient.id, period);
+      if (!digest) return await skip();
+      ts = await deliverDigest({ ...common, digest, previewFor: previewTarget ? `${recipient.fullName} (${cadence})` : undefined });
     }
-    const ts = await deliverDigest({
-      slack,
-      renderChart: deps.renderChart,
-      slackUserId: w.slackUser.slackUserId,
-      digest,
-      previewFor: previewTarget ? `${recipient.fullName} (${cadence})` : undefined,
-      openUrl: `${deps.baseUrl}/api/digest/open/${sendId}`,
-      log,
-      sleep: deps.sleep,
-    });
     posted = true;
     await store.finishSend(key, { status: "sent", slackTs: ts });
     result.sent++;
@@ -226,15 +247,15 @@ async function sendOne(
     if (posted) {
       // The DM went out; leave the row pending → it expires as "interrupted" and is never retried.
       result.sent++;
-      log(`[notify] sent but not recorded employee=${recipient.id} cadence=${cadence}: ${errorDetail(err)}`);
+      log(`[notify] sent but not recorded ${who(key)}: ${errorDetail(err)}`);
     } else if (err instanceof PostOutcomeUnknownError) {
       // Slack may have accepted the DM. Leave the row pending (no finishSend) → the stale sweep
       // marks it "interrupted", which is never retried. Counted failed so the run is flagged.
       result.failed++;
-      log(`[notify] post outcome unknown employee=${recipient.id} cadence=${cadence}: ${err.code}`);
+      log(`[notify] post outcome unknown ${who(key)}: ${err.code}`);
     } else {
       result.failed++;
-      log(`[notify] send failed employee=${recipient.id} cadence=${cadence}: ${errorDetail(err)}`);
+      log(`[notify] send failed ${who(key)}: ${errorDetail(err)}`);
       await store.finishSend(key, { status: "failed", detail: errorDetail(err) }).catch(() => undefined);
     }
   }

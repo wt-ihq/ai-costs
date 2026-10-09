@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ShapeFact } from "@/lib/explore/shape";
-import { digestFor, factsWindow, loadNotifyContext, teamDigestFor } from "./context";
+import { companyDigestFor, digestFor, factsWindow, loadNotifyContext, teamDigestFor } from "./context";
 import { memoryStore } from "./memory-store";
 import { periodFor } from "./schedule";
 import type { NotifyEmployee } from "./types";
@@ -84,5 +84,19 @@ describe("fixed costs setting", () => {
     const ctx = await loadNotifyContext(store, now, "https://x.test");
     expect(teamDigestFor(ctx, "Design", aug)!.team).toMatchObject({ basis: "total", headlineUsd: 50 });
     expect(teamDigestFor(ctx, "Eng", aug)!.team).toMatchObject({ basis: "usage", headlineUsd: 20 });
+  });
+});
+
+describe("companyDigestFor", () => {
+  it("builds the company report from the shared context, linked to the Company page", async () => {
+    const store = memoryStore({
+      employees: [emp("m"), emp("s", { department: "Data" })],
+      facts: [fact("2026-09-22", 10, "m"), { ...fact("2026-09-23", 5, "s"), department: "Data" }],
+      fixedCosts: { orgInclude: true, departments: {}, employees: {} },
+    });
+    const ctx = await loadNotifyContext(store, now, "https://x.test");
+    const d = companyDigestFor(ctx, periodFor("weekly", "2026-W39", now))!;
+    expect(d).toMatchObject({ kind: "company", dashboardUrl: "https://x.test/explore" });
+    expect(d.usage).toMatchObject({ basis: "usage", headlineUsd: 15, headcount: 2 }); // the org's "include" setting doesn't apply
   });
 });
