@@ -6,6 +6,8 @@ export const CADENCES: readonly Cadence[] = ["daily", "weekly", "monthly"];
 /** off = nothing sent; preview = every DM goes to SLACK_PREVIEW_EMAIL; live = DMs go to recipients. */
 export type NotifyMode = "off" | "preview" | "live";
 export type SendMode = Exclude<NotifyMode, "off">;
+/** Which DM a send is: the person's own digest, or the whole-company report. */
+export type ReportKind = "personal" | "company";
 
 /** Fails safe: anything but an explicit preview/live is off. */
 export function notifyMode(env: Record<string, string | undefined> = process.env): NotifyMode {

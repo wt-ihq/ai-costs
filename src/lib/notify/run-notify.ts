@@ -136,7 +136,7 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
   //    A missing Slack account isn't retried: Slack's answer is cached for a week.
   const states = await store.sendStates([...new Set(work.map((w) => w.period.key))], deps.mode);
   const open = work.filter((w) => {
-    const row = states.find((s) => s.employeeId === w.recipient.id && s.cadence === w.cadence && s.periodKey === w.period.key);
+    const row = states.find((s) => s.employeeId === w.recipient.id && s.cadence === w.cadence && s.periodKey === w.period.key && s.report === "personal");
     return !row || (w.slackUser !== null && canRetakeClaim(row));
   });
   result.alreadyHandled += work.length - open.length;
@@ -167,6 +167,7 @@ const sendKey = (deps: RunNotifyDeps, w: { recipient: NotifyEmployee; cadence: C
   cadence: w.cadence,
   periodKey: w.period.key,
   mode: deps.mode,
+  report: "personal",
 });
 
 /**
