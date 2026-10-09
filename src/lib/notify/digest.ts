@@ -1,4 +1,4 @@
-import { dimColorFor, dimLabel, isMonthlyLevelFact, UNATTRIBUTED, type ShapeFact } from "@/lib/explore/shape";
+import { dimColorFor, dimLabel, isMonthlyLevelFact, UNATTRIBUTED, type ShapeFact, type SnapshotAsOf } from "@/lib/explore/shape";
 import { vendorKeyOf } from "@/lib/explore/vendor-filter";
 import { projectPeriodEnd } from "@/lib/explore/project";
 import { caveatsFor, type MissingImport, type SourceFreshness } from "./freshness";
@@ -100,6 +100,8 @@ export interface SectionInput {
   baseUrl: string;
   /** Count seats & subscriptions (fixed-costs.ts resolves it for the recipient or team). */
   includeFixed: boolean;
+  /** Month-to-date pastes' as-of days, so the month line projects a paste at its pace. */
+  snapshotAsOf?: SnapshotAsOf;
 }
 
 export interface DigestInput extends SectionInput {
@@ -176,7 +178,7 @@ function counted(facts: ShapeFact[], { period, includeFixed }: Pick<SectionInput
   });
 }
 
-function monthContext(all: ShapeFact[], { period, now, sourceHorizons, includeFixed }: SectionInput): MonthContext {
+function monthContext(all: ShapeFact[], { period, now, sourceHorizons, includeFixed, snapshotAsOf }: SectionInput): MonthContext {
   // The month as posted (a seat in full on the 1st), on the section's basis.
   const pop = includeFixed ? all : all.filter((f) => !isFixed(f));
   const lastDay = new Date(Date.parse(`${period.toExclusive}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
@@ -189,7 +191,7 @@ function monthContext(all: ShapeFact[], { period, now, sourceHorizons, includeFi
   const projection =
     complete || pop.length === 0
       ? null
-      : projectPeriodEnd(pop, now, { granularity: "month", from, toExclusive, label: `${MONTHS[m - 1]} ${y}` }, sourceHorizons);
+      : projectPeriodEnd(pop, now, { granularity: "month", from, toExclusive, label: `${MONTHS[m - 1]} ${y}` }, sourceHorizons, snapshotAsOf);
   return {
     monthLabel: MONTHS[m - 1],
     soFarUsd: round2(total(pop.filter((f) => inRange(f, from, toExclusive)))),
