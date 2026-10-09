@@ -35,7 +35,8 @@ export function SendTestControls({ subject, subjectName, subjectActive, cadence,
     else return;
     // Only a third party (neither the admin nor the person it is about) needs a second look.
     const thirdParty = choice === "other" && !(subject.kind === "person" && otherPerson?.id === subject.employeeId);
-    if (thirdParty && !window.confirm(`Send ${subjectName}'s ${cadence} digest to ${otherPerson?.name}?`)) return;
+    const what = subject.kind === "company" ? `the company ${cadence} report` : `${subjectName}'s ${cadence} digest`;
+    if (thirdParty && !window.confirm(`Send ${what} to ${otherPerson?.name}?`)) return;
     start(async () => {
       setMsg(null);
       try {
