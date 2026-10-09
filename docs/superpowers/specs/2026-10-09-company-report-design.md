@@ -74,7 +74,8 @@ October $18,277 · no change vs September
 
 ### Monthly only
 
-A final line, `September total $X`, adds usage and seats & subscriptions. It
+A final line, `September 2026 total $X · usage + seats & subscriptions`, adds
+usage and seats & subscriptions. It
 equals Explore's Company total for the month: together the two sections count
 every fact once.
 
