@@ -70,7 +70,7 @@ export function RecipientsTable({ rows, people, departments, previewing }: {
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-sm text-muted">Nobody is enrolled yet. Only people listed here get anything.</p>
+        <p className="text-sm text-muted">Nobody is enrolled yet. Only people listed here get a personal digest.</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full text-sm">

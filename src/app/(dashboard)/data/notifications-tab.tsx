@@ -162,7 +162,7 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
       <div className="grid items-start gap-4 xl:grid-cols-[1.35fr_1fr]">
         <Panel>
           <h2 className="mb-1 text-sm font-medium">Pilot recipients · {data.recipients.length}</h2>
-          <p className="mb-4 text-xs text-muted">Only people listed here get anything. Checkboxes save as you click. Reports come from the Okta manager chain.</p>
+          <p className="mb-4 text-xs text-muted">Only people listed here get a personal digest (the company report has its own list below). Checkboxes save as you click. Reports come from the Okta manager chain.</p>
           <RecipientsTable rows={data.recipients} people={data.people} departments={data.departments} previewing={isUuid(params.preview) ? params.preview : null} />
           <div className="mt-6 border-t border-border pt-4">
             <h2 className="mb-1 text-sm font-medium">Fixed costs</h2>

@@ -1,10 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ShapeFact } from "@/lib/explore/shape";
+import * as context from "./context";
 import { memoryStore, type MemorySeed } from "./memory-store";
 import { openRedirectPath } from "./opens";
 import { runNotify, STALE_PENDING_MS, type RunNotifyDeps } from "./run-notify";
 import { SlackApiError, type SlackClient } from "./slack-client";
 import type { NotifyEmployee } from "./types";
+
+// Pass-through spy: the company report must be built once per period per run, however many get it.
+vi.mock("./context", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./context")>();
+  return { ...actual, companyDigestFor: vi.fn(actual.companyDigestFor) };
+});
 
 const MONDAY = new Date("2026-09-28T09:30:00Z"); // 10:30 BST: daily for Friday 2026-09-25 + weekly 2026-W39 due
 const emp = (id: string, over: Partial<NotifyEmployee> = {}): NotifyEmployee => ({
@@ -437,6 +444,26 @@ describe("runNotify: company report", () => {
     expect(slack.posts.every((p) => p.channel === "D-U-gareth")).toBe(true);
     expect(slack.posts.some((p) => header(p).includes("would send to Person m (company weekly)"))).toBe(true);
     expect(store.sends.every((s) => s.report === "company" && s.mode === "preview")).toBe(true);
+  });
+
+  it("builds the report once per period, however many people it goes to (a skipped daily too)", async () => {
+    const build = vi.mocked(context.companyDigestFor);
+    const weekly = (employeeId: string) => ({ employeeId, cadence: "weekly" as const });
+    build.mockClear();
+    const store = memoryStore(withCompany({ subscriptions: [], companyRecipients: [weekly("m"), weekly("a"), weekly("gareth")] }), () => MONDAY.getTime());
+    await runNotify(deps(store, fakeSlack().client));
+    expect(store.sends.filter((s) => s.report === "company" && s.status === "sent")).toHaveLength(3);
+    expect(build).toHaveBeenCalledTimes(1);
+
+    const TUESDAY = new Date("2026-09-29T09:30:00Z"); // daily for Monday 28th: no usage, so the report is null
+    const daily = (employeeId: string) => ({ employeeId, cadence: "daily" as const });
+    build.mockClear();
+    const quiet = memoryStore(
+      withCompany({ subscriptions: [], companyRecipients: [daily("m"), daily("gareth")], syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-09-29T06:00:03Z" }] }),
+      () => TUESDAY.getTime(),
+    );
+    expect(await runNotify(deps(quiet, fakeSlack().client, { now: TUESDAY, clock: () => TUESDAY.getTime() }))).toMatchObject({ skipped: 2 });
+    expect(build).toHaveBeenCalledTimes(1);
   });
 
   it("logs a company daily with no usage as skipped, never a bill-only DM", async () => {
