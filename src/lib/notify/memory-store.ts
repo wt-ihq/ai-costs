@@ -7,11 +7,13 @@ import type { Cadence, NotifyEmployee } from "./types";
 
 /** In-memory NotifyStore for unit tests. Claim semantics share canRetakeClaim with the Supabase store. */
 export interface SendRow extends SendKey {
+  id?: string; // generated when absent
   status: string;
   attempts: number;
   slackTs: string | null;
   detail: string | null;
   updatedAt: string;
+  openedAt?: string | null;
 }
 
 export interface MemorySeed {
@@ -30,7 +32,9 @@ const same = (a: SendKey, b: SendKey) =>
   a.employeeId === b.employeeId && a.cadence === b.cadence && a.periodKey === b.periodKey && a.mode === b.mode;
 
 export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.now) {
-  const sends: SendRow[] = [...(seed.sends ?? [])];
+  let nextId = 0;
+  const newId = () => `00000000-0000-4000-8000-${String(++nextId).padStart(12, "0")}`;
+  const sends: SendRow[] = (seed.sends ?? []).map((s) => ({ ...s, id: s.id ?? newId(), openedAt: s.openedAt ?? null }));
   const slackUserCache = new Map<string, { slackUserId: string | null; tz: string | null; lookedUpAt: string }>();
   const factCalls: [string, string][] = [];
   const coverageCalls: string[] = [];
@@ -73,12 +77,20 @@ export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.no
     async claimSend(key) {
       const existing = sends.find((s) => same(s, key));
       if (!existing) {
-        sends.push({ ...key, status: "pending", attempts: 1, slackTs: null, detail: null, updatedAt: nowIso() });
-        return true;
+        const id = newId();
+        sends.push({ ...key, id, status: "pending", attempts: 1, slackTs: null, detail: null, updatedAt: nowIso(), openedAt: null });
+        return id;
       }
-      if (!canRetakeClaim(existing)) return false;
+      if (!canRetakeClaim(existing)) return null;
       Object.assign(existing, { status: "pending", attempts: existing.attempts + 1, detail: null, updatedAt: nowIso() });
-      return true;
+      return existing.id!;
+    },
+    async markOpened(sendId) {
+      const row = sends.find((s) => s.id === sendId);
+      if (!row) return null;
+      row.openedAt ??= nowIso();
+      const e = (seed.employees ?? []).find((x) => x.id === row.employeeId);
+      return { employeeId: row.employeeId, department: e?.department ?? null };
     },
     async finishSend(key, r) {
       if (store.failNextFinish) {

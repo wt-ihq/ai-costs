@@ -170,19 +170,20 @@ const sendKey = (deps: RunNotifyDeps, w: { recipient: NotifyEmployee; cadence: C
 });
 
 /**
- * Claim the send row; false = not ours (already handled, or the claim errored). A claim error means
- * this run does not own the row (or can't tell), so it must never reach finishSend for it: whatever
- * state the row is in stays as is — an orphaned pending row just expires as "interrupted".
+ * Claim the send row; its id when ours, null when not (already handled, or the claim errored). A claim
+ * error means this run does not own the row (or can't tell), so it must never reach finishSend for it:
+ * whatever state the row is in stays as is — an orphaned pending row just expires as "interrupted".
  */
-async function claim(store: NotifyStore, key: SendKey, result: RunNotifyResult, log: (m: string) => void): Promise<boolean> {
+async function claim(store: NotifyStore, key: SendKey, result: RunNotifyResult, log: (m: string) => void): Promise<string | null> {
   try {
-    if (await store.claimSend(key)) return true;
+    const id = await store.claimSend(key);
+    if (id) return id;
     result.alreadyHandled++;
   } catch (err) {
     result.failed++;
     log(`[notify] claim failed employee=${key.employeeId} cadence=${key.cadence}: ${errorDetail(err)}`);
   }
-  return false;
+  return null;
 }
 
 /** One (recipient, cadence): claim → build → DM → mark, with every failure contained here. */
@@ -196,7 +197,8 @@ async function sendOne(
   const { store, slack } = deps;
   const { recipient, cadence, period } = w;
   const key = sendKey(deps, w);
-  if (!(await claim(store, key, result, log))) return;
+  const sendId = await claim(store, key, result, log);
+  if (!sendId) return;
 
   let posted = false;
   try {
@@ -212,6 +214,7 @@ async function sendOne(
       slackUserId: w.slackUser.slackUserId,
       digest,
       previewFor: previewTarget ? `${recipient.fullName} (${cadence})` : undefined,
+      openUrl: `${deps.baseUrl}/api/digest/open/${sendId}`,
       log,
       sleep: deps.sleep,
     });

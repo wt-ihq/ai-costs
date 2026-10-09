@@ -6,7 +6,7 @@ import { RecipientsTable } from "@/components/notifications/recipients-table";
 import { PreviewPicker } from "@/components/notifications/preview-picker";
 import { SendTestControls } from "@/components/notifications/send-test-controls";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
-import { loadNotificationsAdmin } from "@/lib/notify/admin-store";
+import { loadNotificationsAdmin, OPEN_RATE_DAYS } from "@/lib/notify/admin-store";
 import { renderChartPng } from "@/lib/notify/chart-image";
 import type { ChartLayout } from "@/lib/notify/chart";
 import { digestFor, loadNotifyContext, teamDigestFor } from "@/lib/notify/context";
@@ -219,13 +219,20 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
 
       <Panel>
         <h2 className="mb-1 text-sm font-medium">Recent sends</h2>
-        <p className="mb-4 text-xs text-muted">Last 50 log entries. Failed sends retry on the next run while the period is still due (up to 3 attempts).</p>
+        <p className="mb-1 text-xs text-muted">Last 50 log entries. Failed sends retry on the next run while the period is still due (up to 3 attempts).</p>
+        <p className="mb-4 text-xs text-muted">
+          Opened from Slack ({OPEN_RATE_DAYS} days):{" "}
+          <span className="text-foreground">
+            {data.opens.sent === 0 ? "no live digests yet" : `${data.opens.opened} of ${data.opens.sent} live digests (${Math.round((data.opens.opened / data.opens.sent) * 100)}%)`}
+          </span>
+          {" "}— counted when someone clicks a digest&apos;s Open in dashboard button. Test sends aren&apos;t tracked.
+        </p>
         {data.sends.length === 0 ? <p className="text-sm text-muted">Nothing yet.</p> : (
           <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
-                  {["When", "Person", "Cadence", "Period", "Mode", "Status", "Detail"].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}
+                  {["When", "Person", "Cadence", "Period", "Mode", "Status", "Opened", "Detail"].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -237,6 +244,7 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
                     <td className="px-3 py-2 text-xs">{s.periodKey}</td>
                     <td className="px-3 py-2 text-xs">{s.mode}</td>
                     <td className={`px-3 py-2 text-xs ${s.status === "failed" ? "text-pink-300" : s.status === "sent" ? "text-emerald-400" : "text-muted"}`}>{s.status}</td>
+                    <td className="px-3 py-2 text-xs text-muted">{s.openedAt ? s.openedAt.slice(0, 16).replace("T", " ") : ""}</td>
                     <td className="px-3 py-2 text-xs text-muted">{s.detail ?? ""}</td>
                   </tr>
                 ))}

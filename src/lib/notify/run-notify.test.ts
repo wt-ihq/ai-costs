@@ -60,6 +60,17 @@ describe("runNotify", () => {
     expect(slack.posts).toHaveLength(2);
   });
 
+  it("each DM's dashboard button opens through its own send's tracked link", async () => {
+    const store = memoryStore(seed(), () => MONDAY.getTime());
+    const slack = fakeSlack();
+    await runNotify(deps(store, slack.client));
+    for (const post of slack.posts) {
+      const button = (post.blocks.at(-1) as { elements: { url: string }[] }).elements[0];
+      const row = store.sends.find((s) => `D-U-${s.employeeId}` === post.channel)!;
+      expect(button.url).toBe(`https://x.test/api/digest/open/${row.id}`);
+    }
+  });
+
   it("never sends to leavers", async () => {
     const store = memoryStore(seed(), () => MONDAY.getTime());
     await runNotify(deps(store, fakeSlack().client));

@@ -13,7 +13,12 @@ export interface RenderedDigest { blocks: SlackBlock[]; text: string }
  * previewFor: the cron's preview mode ("would send to X"). banner: a context line above everything
  * (admin test sends) — the plain-text fallback carries it too, as "[banner] ".
  */
-export interface RenderOpts { previewFor?: string; banner?: string }
+export interface RenderOpts {
+  previewFor?: string;
+  banner?: string;
+  /** The send's tracked "Open in dashboard" link (/api/digest/open/<send id>); absent = link straight to the dashboard. */
+  openUrl?: string;
+}
 
 const TOOLS_MAX = 4;
 const CONTEXT_MAX = 10; // Slack's element cap per context block
@@ -144,7 +149,7 @@ export function renderDigest(d: Digest, files: ChartFileIds, opts: RenderOpts = 
     blocks.push(...sectionBlocks(`YOUR REPORTS · ${people(d.reports.headcount)}`, d.reports, files.reports, chartTitle("reports", d), d.period.compareTo, topLine(d.reports, unit)));
   }
   if (d.caveats.length) blocks.push(context(d.caveats.map(escapeMrkdwn)));
-  blocks.push(dashboardButton(d.dashboardUrl));
+  blocks.push(dashboardButton(opts.openUrl ?? d.dashboardUrl));
 
   const text =
     `Your AI spend · ${d.period.label}: you ${formatUsd(d.you.headlineUsd)} ${d.you.basis}` +
@@ -161,7 +166,7 @@ export function renderTeamDigest(d: TeamDigest, files: TeamChartFileIds, opts: R
     ...sectionBlocks(`${escapeMrkdwn(d.department.toUpperCase())} · ${people(d.team.headcount)}`, d.team, files.team, teamChartTitle(d), d.period.compareTo, teamTopLine(d.team, unit)),
   ];
   if (d.caveats.length) blocks.push(context(d.caveats.map(escapeMrkdwn)));
-  blocks.push(dashboardButton(d.dashboardUrl));
+  blocks.push(dashboardButton(opts.openUrl ?? d.dashboardUrl));
 
   // Slack parses `text` as mrkdwn as well, so the department is escaped here (the header block is plain_text and is not).
   const text = `AI spend · ${escapeMrkdwn(d.department)} · ${d.period.label}: team ${formatUsd(d.team.headlineUsd)} ${d.team.basis}`;
