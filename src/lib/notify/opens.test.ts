@@ -9,7 +9,7 @@ const emp: NotifyEmployee = {
   managerRef: null, employmentStatus: "active", leaveDate: null,
 };
 const row = (over: Partial<SendRow> = {}): SendRow => ({
-  id: ID, employeeId: emp.id, cadence: "weekly", periodKey: "2026-W41", mode: "live", status: "sent", attempts: 1,
+  id: ID, employeeId: emp.id, cadence: "weekly", periodKey: "2026-W41", mode: "live", report: "personal", status: "sent", attempts: 1,
   slackTs: "1", detail: null, updatedAt: "2026-10-12T09:30:00Z", openedAt: null, ...over,
 });
 
@@ -29,5 +29,11 @@ describe("openRedirectPath", () => {
     expect(await openRedirectPath(store, "6f1c2a9e-1b2c-4d5e-8f90-000000000000")).toBe("/explore");
     expect(await openRedirectPath(store, "not-a-uuid")).toBe("/explore");
     expect(store.sends[0].openedAt).toBeNull();
+  });
+
+  it("records a company report's open and lands on the Company page", async () => {
+    const store = memoryStore({ employees: [emp], sends: [row({ report: "company" })] });
+    expect(await openRedirectPath(store, ID)).toBe("/explore");
+    expect(store.sends[0].openedAt).not.toBeNull();
   });
 });

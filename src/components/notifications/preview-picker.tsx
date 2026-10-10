@@ -7,7 +7,7 @@ import { previewHref, type TestSubject } from "@/lib/notify/subject";
 import type { Cadence } from "@/lib/notify/types";
 
 /**
- * Preview any active person or any Okta team. Choosing one navigates (the tab is link-driven: the
+ * Preview any active person, any Okta team, or the company report. Choosing one navigates (the tab is link-driven: the
  * subject lives in the URL), keeping the current cadence and dropping the period so it opens on the
  * latest complete one. The parent remounts this (key) per subject, so the select can be uncontrolled
  * (defaultValue): it keeps showing the choice while the new preview loads, then remounts with it.
@@ -48,6 +48,11 @@ export function PreviewPicker({ people, departments, cadence, current, currentPe
         <option value="">Any team…</option>
         {departments.map((d) => <option key={d} value={d}>{d}</option>)}
       </select>
+      <span className="text-muted">or</span>
+      <button
+        type="button" onClick={() => go({ kind: "company" })} aria-pressed={current?.kind === "company"}
+        className={`rounded-md border px-2 py-1 ${current?.kind === "company" ? "border-accent bg-accent/15 text-accent" : "border-border bg-surface-2 text-foreground"}`}
+      >Company report</button>
       {loading && <span className="text-muted" role="status">Loading…</span>}
     </div>
   );

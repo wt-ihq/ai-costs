@@ -11,6 +11,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-10-09",
+    title: "A company-wide AI spend report in Slack",
+    items: [
+      "Admins can now pick people to receive a company AI spend report in Slack, daily, weekly or monthly, under Data → Notifications. It's its own message, separate from anyone's personal summary, and arrives at the same time.",
+      "It shows the company's AI usage with a chart, the teams and people spending the most, and the company's seats and subscriptions bill compared with last month. The monthly report ends with the month's total, matching the dashboard's Company page.",
+    ],
+  },
+  {
     date: "2026-10-08",
     title: "See which Slack spend summaries get opened",
     items: [

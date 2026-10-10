@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ShapeFact } from "@/lib/explore/shape";
 import { memoryStore } from "./memory-store";
 import { SlackApiError, type SlackClient } from "./slack-client";
-import { sendTest, testBanner, type TestSendDeps } from "./test-send";
+import { companyTestBanner, sendTest, testBanner, type TestSendDeps } from "./test-send";
 import type { NotifyEmployee } from "./types";
 
 const NOW = new Date("2026-09-30T07:00:00Z");
@@ -60,6 +60,7 @@ function setup(over: { employees?: NotifyEmployee[]; slack?: Partial<SlackClient
 const first = (blocks: unknown[]) => JSON.stringify(blocks[0]);
 const person = (employeeId: string) => ({ kind: "person" as const, employeeId });
 const team = (department: string) => ({ kind: "team" as const, department });
+const company = { kind: "company" as const };
 
 describe("testBanner", () => {
   it("is plain about being a test; names the subject when it goes to someone else", () => {
@@ -162,6 +163,48 @@ describe("sendTest — a team's digest", () => {
   });
 });
 
+describe("sendTest: the company report", () => {
+  it("to me: the report, marked as a test, linked to the Company page", async () => {
+    const t = setup();
+    const r = await sendTest(t.deps, { subject: company, cadence: "weekly", periodKey: "2026-W39", to: { kind: "me" } });
+    expect(r).toEqual({ ok: true, sentTo: "Gareth Admin" });
+    expect(t.posts[0].channel).toBe("D-U-gareth");
+    expect(first(t.posts[0].blocks)).toContain("🧪 Test: the company weekly report, sent to you by Gareth Admin");
+    expect(t.posts[0].text).toContain("Company AI spend · 21–27 Sep 2026");
+    expect(JSON.stringify(t.posts[0].blocks.at(-1))).toContain('"url":"https://x.test/explore"');
+  });
+
+  it("to any other active employee", async () => {
+    const t = setup();
+    expect(await sendTest(t.deps, { subject: company, cadence: "weekly", periodKey: "2026-W39", to: { kind: "employee", employeeId: ID.ds } })).toEqual({ ok: true, sentTo: "Sam Lee" });
+    expect(t.posts[0].channel).toBe("D-U-sam");
+  });
+
+  it("has no subject to send to", async () => {
+    const t = setup();
+    expect(await sendTest(t.deps, { subject: company, cadence: "weekly", periodKey: "2026-W39", to: { kind: "subject" } })).toMatchObject({ ok: false });
+    expect(t.posts).toHaveLength(0);
+  });
+
+  it("says so when a daily had no usage, whatever the bill", async () => {
+    const t = setup();
+    expect(await sendTest(t.deps, { subject: company, cadence: "daily", periodKey: "2026-09-26", to: { kind: "me" } })).toEqual({ ok: false, error: "Nothing to send for that period (no usage)" });
+  });
+
+  it("never writes the send log and logs ids only", async () => {
+    const t = setup();
+    await sendTest(t.deps, { subject: company, cadence: "weekly", periodKey: "2026-W39", to: { kind: "me" } });
+    expect(t.calls).toEqual([]);
+    expect(t.logs).toContain(`[notify] test send subject=company target=${ID.admin} cadence=weekly`);
+  });
+});
+
+describe("companyTestBanner", () => {
+  it("says it is a test of the company report and who sent it", () => {
+    expect(companyTestBanner("Gareth", "monthly")).toBe("🧪 Test: the company monthly report, sent to you by Gareth");
+  });
+});
+
 describe("sendTest — safety", () => {
   const ok = { subject: person(ID.mgr), cadence: "weekly", periodKey: "2026-W39", to: { kind: "me" } };
 
@@ -188,7 +231,7 @@ describe("sendTest — safety", () => {
   it.each([
     ["a malformed subject id", { ...ok, subject: person("1; drop table") }],
     ["a missing subject", { ...ok, subject: undefined }],
-    ["an unknown subject kind", { ...ok, subject: { kind: "company" } }],
+    ["an unknown subject kind", { ...ok, subject: { kind: "everyone" } }],
     ["a non-string department", { ...ok, subject: { kind: "team", department: 7 } }],
     ["an unknown cadence", { ...ok, cadence: "hourly" }],
     ["a non-string period", { ...ok, periodKey: 3 }],

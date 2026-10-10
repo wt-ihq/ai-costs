@@ -6,8 +6,8 @@ import { addRecipients, addTeamRecipients, removeRecipient, setPersonFixedCosts,
 import type { RecipientRow } from "@/lib/notify/admin-store";
 import { CADENCES, type Cadence } from "@/lib/notify/types";
 
-const LABEL: Record<Cadence, string> = { daily: "Daily", weekly: "Weekly", monthly: "Monthly" };
-const SLACK: Record<RecipientRow["slack"], { text: string; cls: string }> = {
+export const CADENCE_LABEL: Record<Cadence, string> = { daily: "Daily", weekly: "Weekly", monthly: "Monthly" };
+export const SLACK_STATUS: Record<RecipientRow["slack"], { text: string; cls: string }> = {
   found: { text: "✓", cls: "text-emerald-400" },
   not_found: { text: "✗ not found", cls: "text-pink-400" },
   unknown: { text: "not looked up", cls: "text-muted" },
@@ -64,20 +64,20 @@ export function RecipientsTable({ rows, people, departments, previewing }: {
         {CADENCES.map((c) => (
           <label key={c} className="flex items-center gap-1 text-muted">
             <input type="checkbox" checked={defaults.includes(c)} onChange={(e) => setDefaults((d) => (e.target.checked ? [...d, c] : d.filter((x) => x !== c)))} />
-            {LABEL[c]}
+            {CADENCE_LABEL[c]}
           </label>
         ))}
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-sm text-muted">Nobody is enrolled yet. Only people listed here get anything.</p>
+        <p className="text-sm text-muted">Nobody is enrolled yet. Only people listed here get a personal digest.</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
                 <th className="px-3 py-2 font-medium">Person</th>
-                {CADENCES.map((c) => <th key={c} className="px-2 py-2 text-center font-medium">{LABEL[c]}</th>)}
+                {CADENCES.map((c) => <th key={c} className="px-2 py-2 text-center font-medium">{CADENCE_LABEL[c]}</th>)}
                 <th className="px-3 py-2 font-medium">Fixed costs</th>
                 <th className="px-3 py-2 font-medium">Reports</th>
                 <th className="px-3 py-2 font-medium">Slack</th>
@@ -98,7 +98,7 @@ export function RecipientsTable({ rows, people, departments, previewing }: {
                       <input
                         type="checkbox" disabled={pending} checked={r.cadences.includes(c)}
                         onChange={(e) => run(() => setRecipientCadence(r.employeeId, c, e.target.checked))}
-                        aria-label={`${LABEL[c]} for ${r.name}`}
+                        aria-label={`${CADENCE_LABEL[c]} for ${r.name}`}
                       />
                     </td>
                   ))}
@@ -118,7 +118,7 @@ export function RecipientsTable({ rows, people, departments, previewing }: {
                     </select>
                   </td>
                   <td className="px-3 py-2">{r.reports || "—"}</td>
-                  <td className={`px-3 py-2 text-xs ${SLACK[r.slack].cls}`}>{SLACK[r.slack].text}</td>
+                  <td className={`px-3 py-2 text-xs ${SLACK_STATUS[r.slack].cls}`}>{SLACK_STATUS[r.slack].text}</td>
                   <td className="px-3 py-2 text-xs text-muted">{r.lastSent ?? "never"}</td>
                   <td className="whitespace-nowrap px-3 py-2 text-right text-xs">
                     <Link href={`/data?tab=notifications&preview=${r.employeeId}&cadence=${r.cadences[0] ?? "weekly"}`} className="mr-3 text-accent">Preview</Link>

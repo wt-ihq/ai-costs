@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Panel } from "@/components/ui";
 import { BlockKitPreview } from "@/components/notifications/block-kit-preview";
+import { CompanyRecipients } from "@/components/notifications/company-recipients";
 import { FixedCostsPanel } from "@/components/notifications/fixed-costs-panel";
 import { RecipientsTable } from "@/components/notifications/recipients-table";
 import { PreviewPicker } from "@/components/notifications/preview-picker";
@@ -9,37 +10,38 @@ import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { loadNotificationsAdmin, OPEN_RATE_DAYS } from "@/lib/notify/admin-store";
 import { renderChartPng } from "@/lib/notify/chart-image";
 import type { ChartLayout } from "@/lib/notify/chart";
-import { digestFor, loadNotifyContext, teamDigestFor } from "@/lib/notify/context";
+import { companyDigestFor, digestFor, loadNotifyContext, teamDigestFor } from "@/lib/notify/context";
 import { fixedCostsFor, fixedCostsForTeam, type FixedCostChoice } from "@/lib/notify/fixed-costs";
-import { chartLayoutsFor, chartLayoutsForTeam } from "@/lib/notify/deliver";
-import { isTeamDigest } from "@/lib/notify/digest";
-import { renderDigest, renderTeamDigest, type SlackBlock } from "@/lib/notify/render";
+import { chartLayoutsFor, chartLayoutsForCompany, chartLayoutsForTeam } from "@/lib/notify/deliver";
+import { isCompanyDigest, isTeamDigest } from "@/lib/notify/digest";
+import { renderCompanyDigest, renderDigest, renderTeamDigest, type SlackBlock } from "@/lib/notify/render";
 import { defaultPreviewKey, periodFor, stepKey } from "@/lib/notify/schedule";
 import { supabaseNotifyStore } from "@/lib/notify/store";
 import { previewHref, type TestSubject } from "@/lib/notify/subject";
 import { activeDepartments, CADENCES, isActiveEmployee, isCadence, isUuid, notifyMode, type Cadence } from "@/lib/notify/types";
 import { appBaseUrl } from "@/lib/notify/wiring";
 
-export interface NotificationsParams { preview?: string; team?: string; cadence?: string; at?: string }
+export interface NotificationsParams { preview?: string; team?: string; company?: string; cadence?: string; at?: string }
 
 interface PreviewState {
   subject: TestSubject;
-  name: string; // the person's name, or the department
+  name: string; // the person's name, the department, or "Company report"
   subjectActive: boolean; // false for a leaver (or an unknown person): they can't be sent a test themself
   cadence: Cadence;
   key: string;
   label: string;
-  fixedCosts: FixedCostChoice; // which setting the digest was built with, and why
+  fixedCosts: FixedCostChoice | null; // which setting the digest was built with, and why; null = the company report (its own section)
   prevKey: string | null;
   nextKey: string | null;
   blocks: SlackBlock[] | null; // null = nothing to send (daily with no usage)
   images: Record<string, string>;
 }
 
-/** A person (?preview=<uuid>) or a team (?team=<department>, ignored unless it is a real department). */
+/** A person (?preview=<uuid>), a team (?team=<department>, ignored unless it is a real department) or the company report (?company=1). */
 async function loadPreview(p: NotificationsParams): Promise<PreviewState | null> {
   const personId = isUuid(p.preview) ? p.preview : null;
-  if (!personId && !p.team) return null;
+  const wantsCompany = p.company === "1";
+  if (!personId && !p.team && !wantsCompany) return null;
   const cadence: Cadence = isCadence(p.cadence) ? p.cadence : "weekly";
   const now = new Date();
   let key = p.at ?? defaultPreviewKey(cadence, now);
@@ -54,22 +56,28 @@ async function loadPreview(p: NotificationsParams): Promise<PreviewState | null>
   let subject: TestSubject;
   if (personId) subject = { kind: "person", employeeId: personId };
   else if (p.team && activeDepartments(ctx.employees).includes(p.team)) subject = { kind: "team", department: p.team };
+  else if (wantsCompany) subject = { kind: "company" };
   else return null;
 
-  const digest = subject.kind === "person" ? digestFor(ctx, subject.employeeId, period) : teamDigestFor(ctx, subject.department, period);
+  const digest =
+    subject.kind === "person" ? digestFor(ctx, subject.employeeId, period)
+    : subject.kind === "team" ? teamDigestFor(ctx, subject.department, period)
+    : companyDigestFor(ctx, period);
   const person = subject.kind === "person" ? ctx.employeesById.get(subject.employeeId) : undefined;
   const base = {
     subject, cadence, key, label: period.label,
-    name: subject.kind === "person" ? (person?.fullName ?? "Unknown") : subject.department,
-    subjectActive: subject.kind === "team" || (person !== undefined && isActiveEmployee(person)),
+    name: subject.kind === "person" ? (person?.fullName ?? "Unknown") : subject.kind === "team" ? subject.department : "Company report",
+    subjectActive: subject.kind !== "person" || (person !== undefined && isActiveEmployee(person)),
     fixedCosts:
-      subject.kind === "person"
-        ? fixedCostsFor(ctx.fixedCosts, { id: subject.employeeId, department: person?.department ?? null })
-        : fixedCostsForTeam(ctx.fixedCosts, subject.department),
+      subject.kind === "person" ? fixedCostsFor(ctx.fixedCosts, { id: subject.employeeId, department: person?.department ?? null })
+      : subject.kind === "team" ? fixedCostsForTeam(ctx.fixedCosts, subject.department)
+      : null,
     prevKey: stepKey(cadence, key, -1, now), nextKey: stepKey(cadence, key, 1, now),
   };
   if (!digest) return { ...base, blocks: null, images: {} };
-  const layouts: Record<string, ChartLayout | undefined> = isTeamDigest(digest) ? chartLayoutsForTeam(digest) : chartLayoutsFor(digest);
+  const layouts: Record<string, ChartLayout | undefined> = isCompanyDigest(digest)
+    ? chartLayoutsForCompany(digest)
+    : isTeamDigest(digest) ? chartLayoutsForTeam(digest) : chartLayoutsFor(digest);
   const images: Record<string, string> = {};
   const files: Record<string, string> = {};
   for (const [section, layout] of Object.entries(layouts)) {
@@ -82,7 +90,10 @@ async function loadPreview(p: NotificationsParams): Promise<PreviewState | null>
       // Best-effort, like the cron: the section renders without its chart.
     }
   }
-  return { ...base, blocks: (isTeamDigest(digest) ? renderTeamDigest(digest, files) : renderDigest(digest, files)).blocks, images };
+  const rendered = isCompanyDigest(digest)
+    ? renderCompanyDigest(digest, files)
+    : isTeamDigest(digest) ? renderTeamDigest(digest, files) : renderDigest(digest, files);
+  return { ...base, blocks: rendered.blocks, images };
 }
 
 /** A failed preview must not take down the tab: recipients and sends still render. */
@@ -104,9 +115,10 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
     preview && !("error" in preview) ? preview.subject
     : isUuid(params.preview) ? { kind: "person", employeeId: params.preview }
     : params.team && data.departments.includes(params.team) ? { kind: "team", department: params.team }
+    : params.company === "1" ? { kind: "company" }
     : null;
   const cadence: Cadence = isCadence(params.cadence) ? params.cadence : "weekly";
-  const previewKey = current ? (current.kind === "person" ? current.employeeId : `team:${current.department}`) : "none";
+  const previewKey = !current ? "none" : current.kind === "person" ? current.employeeId : current.kind === "team" ? `team:${current.department}` : "company";
   const currentPersonLabel =
     current?.kind === "person" ? (data.activePeople.find((p) => p.id === current.employeeId)?.label ?? (preview && !("error" in preview) ? preview.name : null)) : null;
 
@@ -150,7 +162,7 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
       <div className="grid items-start gap-4 xl:grid-cols-[1.35fr_1fr]">
         <Panel>
           <h2 className="mb-1 text-sm font-medium">Pilot recipients · {data.recipients.length}</h2>
-          <p className="mb-4 text-xs text-muted">Only people listed here get anything. Checkboxes save as you click. Reports come from the Okta manager chain.</p>
+          <p className="mb-4 text-xs text-muted">Only people listed here get a personal digest (the company report has its own list below). Checkboxes save as you click. Reports come from the Okta manager chain.</p>
           <RecipientsTable rows={data.recipients} people={data.people} departments={data.departments} previewing={isUuid(params.preview) ? params.preview : null} />
           <div className="mt-6 border-t border-border pt-4">
             <h2 className="mb-1 text-sm font-medium">Fixed costs</h2>
@@ -159,6 +171,14 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
               A person&apos;s setting (in the table above) beats their team&apos;s, which beats the default.
             </p>
             <FixedCostsPanel settings={data.fixedCosts} departments={data.departments} />
+          </div>
+          <div className="mt-6 border-t border-border pt-4">
+            <h2 className="mb-1 text-sm font-medium">Company report · {data.companyRecipients.length}</h2>
+            <p className="mb-3 text-xs text-muted">
+              A separate Slack message with the whole company&apos;s AI spend: usage by team and person, then seats &amp; subscriptions.
+              Same schedule as personal digests; someone on both lists gets both.
+            </p>
+            <CompanyRecipients rows={data.companyRecipients} people={data.companyPeople} />
           </div>
         </Panel>
 
@@ -169,7 +189,7 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
             current={current} currentPersonLabel={currentPersonLabel}
           />
           {!preview ? (
-            <p className="text-sm text-muted">Pick a person or a team above, or click Preview on a recipient, to see exactly what they&apos;d get.</p>
+            <p className="text-sm text-muted">Pick a person, a team or the company report above, or click Preview on a recipient, to see exactly what they&apos;d get.</p>
           ) : "error" in preview ? (
             <p className="text-sm text-pink-300">Preview failed: {preview.error}</p>
           ) : (
@@ -190,12 +210,20 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
                 <span className="ml-2">
                   {preview.subject.kind === "team"
                     ? "Built from live data. Team digests are for previews and tests only; they are never scheduled."
-                    : "Built from live data, exactly as the cron would send it."}
+                    : preview.subject.kind === "company"
+                      ? "Built from live data, exactly as the cron would send it to every company report recipient."
+                      : "Built from live data, exactly as the cron would send it."}
                 </span>
               </p>
               <p className="mb-3 text-xs text-muted">
-                Seats &amp; subscriptions: <span className="text-foreground">{preview.fixedCosts.include ? "included" : "excluded"}</span>{" "}
-                ({FIXED_SOURCE[preview.fixedCosts.source]})
+                {preview.fixedCosts ? (
+                  <>
+                    Seats &amp; subscriptions: <span className="text-foreground">{preview.fixedCosts.include ? "included" : "excluded"}</span>{" "}
+                    ({FIXED_SOURCE[preview.fixedCosts.source]})
+                  </>
+                ) : (
+                  <>Seats &amp; subscriptions: <span className="text-foreground">their own section</span> (the company report always shows them apart from usage)</>
+                )}
               </p>
               {preview.blocks ? (
                 <>
@@ -209,7 +237,7 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
                 </>
               ) : (
                 <p className="text-sm text-muted">
-                  Nothing to send for this period: no usage by {preview.subject.kind === "team" ? "this team" : "them or their reports"}.
+                  Nothing to send for this period: no usage by {preview.subject.kind === "team" ? "this team" : preview.subject.kind === "company" ? "anyone in the company" : "them or their reports"}.
                 </p>
               )}
             </>
@@ -223,7 +251,7 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
         <p className="mb-4 text-xs text-muted">
           Opened from Slack ({OPEN_RATE_DAYS} days):{" "}
           <span className="text-foreground">
-            {data.opens.sent === 0 ? "no live digests yet" : `${data.opens.opened} of ${data.opens.sent} live digests (${Math.round((data.opens.opened / data.opens.sent) * 100)}%)`}
+            {data.opens.sent === 0 ? "no live digests yet" : `${data.opens.opened} of ${data.opens.sent} live messages, personal and company (${Math.round((data.opens.opened / data.opens.sent) * 100)}%)`}
           </span>
           {" "}— counted when someone clicks a digest&apos;s Open in dashboard button. Test sends aren&apos;t tracked.
         </p>
@@ -232,7 +260,7 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
-                  {["When", "Person", "Cadence", "Period", "Mode", "Status", "Opened", "Detail"].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}
+                  {["When", "Person", "Report", "Cadence", "Period", "Mode", "Status", "Opened", "Detail"].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -240,6 +268,7 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
                   <tr key={i} className="border-b border-border/60 last:border-0">
                     <td className="px-3 py-2 text-xs text-muted">{s.at.slice(0, 16).replace("T", " ")}</td>
                     <td className="px-3 py-2">{s.name}</td>
+                    <td className="px-3 py-2 text-xs">{s.report === "company" ? "Company" : "Personal"}</td>
                     <td className="px-3 py-2">{s.cadence}</td>
                     <td className="px-3 py-2 text-xs">{s.periodKey}</td>
                     <td className="px-3 py-2 text-xs">{s.mode}</td>

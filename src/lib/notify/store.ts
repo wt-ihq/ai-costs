@@ -6,13 +6,14 @@ import type { SnapshotAsOf } from "@/lib/explore/shape";
 import { buildImportCoverage, getImportCoverageScope, type CoverageMonthRow } from "@/lib/queries/import-coverage";
 import { NO_FIXED_COST_SETTINGS, type FixedCostSettings } from "./fixed-costs";
 import type { SyncRunRow } from "./freshness";
-import { NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence, type NotifyEmployee, type SendMode } from "./types";
+import { NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence, type NotifyEmployee, type ReportKind, type SendMode } from "./types";
 
 export interface SendKey {
   employeeId: string;
   cadence: Cadence;
   periodKey: string;
   mode: SendMode;
+  report: ReportKind;
 }
 
 export interface SendResult {
@@ -24,6 +25,8 @@ export interface SendResult {
 /** Everything runNotify / the admin preview need from the database — injectable for tests (memory-store.ts). */
 export interface NotifyStore {
   subscriptions(cadences: Cadence[]): Promise<{ employeeId: string; cadence: Cadence }[]>;
+  /** notification_company_recipients: who gets the whole-company report, on which cadences. */
+  companyRecipients(cadences: Cadence[]): Promise<{ employeeId: string; cadence: Cadence }[]>;
   employees(): Promise<NotifyEmployee[]>;
   facts(from: string, toExclusive: string): Promise<ShapeFact[]>;
   sourceHorizons(): Promise<Record<string, string>>;
@@ -37,8 +40,8 @@ export interface NotifyStore {
   sendStates(periodKeys: string[], mode: SendMode): Promise<(SendKey & { status: string; attempts: number })[]>;
   /** Insert a pending row; its id = this run owns the send (the id carries the DM's tracked open link), null = it doesn't. */
   claimSend(key: SendKey): Promise<string | null>;
-  /** Stamp a send's first open (the digest's "Open in dashboard" click); its recipient, or null for an unknown id. */
-  markOpened(sendId: string): Promise<{ employeeId: string; department: string | null } | null>;
+  /** Stamp a send's first open (the digest's "Open in dashboard" click); its recipient and report kind, or null for an unknown id. */
+  markOpened(sendId: string): Promise<{ employeeId: string; department: string | null; report: ReportKind } | null>;
   finishSend(key: SendKey, r: SendResult): Promise<void>;
   /** Pending rows older than the cutoff → failed "interrupted", never retried. Returns how many. */
   expireStalePending(olderThanIso: string): Promise<number>;
@@ -84,17 +87,21 @@ export function toFixedCostSettings(rows: { scope: string; scope_key: string; in
   return out;
 }
 
-const keyMatch = (k: SendKey) => ({ employee_id: k.employeeId, cadence: k.cadence, period_key: k.periodKey, mode: k.mode });
+const keyMatch = (k: SendKey) => ({ employee_id: k.employeeId, cadence: k.cadence, period_key: k.periodKey, mode: k.mode, report: k.report });
+
+/** A recipients table (person × cadence) for some cadences, paginated (gotcha #1). */
+async function cadenceRows(supabase: SupabaseClient, table: string, cadences: Cadence[]): Promise<{ employeeId: string; cadence: Cadence }[]> {
+  const rows = await pageAll<{ employee_id: string; cadence: Cadence }>(
+    (a, b) => supabase.from(table).select("employee_id, cadence").in("cadence", cadences).order("employee_id").order("cadence").range(a, b),
+    table,
+  );
+  return rows.map((r) => ({ employeeId: r.employee_id, cadence: r.cadence }));
+}
 
 export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
   return {
-    async subscriptions(cadences) {
-      const rows = await pageAll<{ employee_id: string; cadence: Cadence }>(
-        (a, b) => supabase.from("notification_subscriptions").select("employee_id, cadence").in("cadence", cadences).order("employee_id").order("cadence").range(a, b),
-        "subscriptions",
-      );
-      return rows.map((r) => ({ employeeId: r.employee_id, cadence: r.cadence }));
-    },
+    subscriptions: (cadences) => cadenceRows(supabase, "notification_subscriptions", cadences),
+    companyRecipients: (cadences) => cadenceRows(supabase, "notification_company_recipients", cadences),
     async employees() {
       return (await fetchEmployeesAll(supabase, NOTIFY_EMPLOYEE_COLUMNS)).map(toNotifyEmployee);
     },
@@ -117,18 +124,18 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
     },
     async sendStates(periodKeys, mode) {
       if (!periodKeys.length) return [];
-      const rows = await pageAll<{ employee_id: string; cadence: Cadence; period_key: string; status: string; attempts: number }>(
+      const rows = await pageAll<{ employee_id: string; cadence: Cadence; period_key: string; report: ReportKind; status: string; attempts: number }>(
         (a, b) =>
           supabase
             .from("notification_sends")
-            .select("employee_id, cadence, period_key, status, attempts")
+            .select("employee_id, cadence, period_key, report, status, attempts")
             .in("period_key", periodKeys)
             .eq("mode", mode)
             .order("id")
             .range(a, b),
         "sendStates",
       );
-      return rows.map((r) => ({ employeeId: r.employee_id, cadence: r.cadence, periodKey: r.period_key, mode, status: r.status, attempts: r.attempts }));
+      return rows.map((r) => ({ employeeId: r.employee_id, cadence: r.cadence, periodKey: r.period_key, mode, report: r.report, status: r.status, attempts: r.attempts }));
     },
     async fixedCostSettings() {
       const rows = await pageAll<{ scope: string; scope_key: string; include_fixed: boolean }>(
@@ -154,7 +161,7 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
       return taken?.length === 1 ? (taken[0].id as string) : null;
     },
     async markOpened(sendId) {
-      const { data: send, error } = await supabase.from("notification_sends").select("employee_id, opened_at").eq("id", sendId).maybeSingle();
+      const { data: send, error } = await supabase.from("notification_sends").select("employee_id, opened_at, report").eq("id", sendId).maybeSingle();
       if (error) throw new Error(`markOpened: ${error.message}`);
       if (!send) return null;
       if (!send.opened_at) {
@@ -163,7 +170,7 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
         if (upErr) throw new Error(`markOpened(update): ${upErr.message}`);
       }
       const { data: emp } = await supabase.from("employees").select("department").eq("id", send.employee_id).maybeSingle();
-      return { employeeId: send.employee_id as string, department: (emp?.department as string | null) ?? null };
+      return { employeeId: send.employee_id as string, department: (emp?.department as string | null) ?? null, report: send.report as ReportKind };
     },
     async finishSend(key, r) {
       const { error } = await supabase

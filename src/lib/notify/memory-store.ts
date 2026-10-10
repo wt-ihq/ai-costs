@@ -3,7 +3,7 @@ import type { CoverageMonthRow } from "@/lib/queries/import-coverage";
 import { NO_FIXED_COST_SETTINGS, type FixedCostSettings } from "./fixed-costs";
 import type { SyncRunRow } from "./freshness";
 import { canRetakeClaim, MAX_SEND_ATTEMPTS, type NotifyStore, type SendKey } from "./store";
-import type { Cadence, NotifyEmployee } from "./types";
+import type { Cadence, NotifyEmployee, ReportKind } from "./types";
 
 /** In-memory NotifyStore for unit tests. Claim semantics share canRetakeClaim with the Supabase store. */
 export interface SendRow extends SendKey {
@@ -16,6 +16,9 @@ export interface SendRow extends SendKey {
   openedAt?: string | null;
 }
 
+/** A seeded send row; `report` defaults to "personal" (rows written before the company report existed). */
+export type SeedSendRow = Omit<SendRow, "report"> & { report?: ReportKind };
+
 export interface MemorySeed {
   employees?: NotifyEmployee[];
   facts?: ShapeFact[];
@@ -23,18 +26,19 @@ export interface MemorySeed {
   syncRuns?: SyncRunRow[];
   coverage?: CoverageMonthRow[];
   sourceHorizons?: Record<string, string>;
-  sends?: SendRow[];
+  companyRecipients?: { employeeId: string; cadence: Cadence }[];
+  sends?: SeedSendRow[];
   fixedCosts?: FixedCostSettings;
   snapshotAsOf?: Record<string, string>;
 }
 
 const same = (a: SendKey, b: SendKey) =>
-  a.employeeId === b.employeeId && a.cadence === b.cadence && a.periodKey === b.periodKey && a.mode === b.mode;
+  a.employeeId === b.employeeId && a.cadence === b.cadence && a.periodKey === b.periodKey && a.mode === b.mode && a.report === b.report;
 
 export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.now) {
   let nextId = 0;
   const newId = () => `00000000-0000-4000-8000-${String(++nextId).padStart(12, "0")}`;
-  const sends: SendRow[] = (seed.sends ?? []).map((s) => ({ ...s, id: s.id ?? newId(), openedAt: s.openedAt ?? null }));
+  const sends: SendRow[] = (seed.sends ?? []).map((s) => ({ ...s, id: s.id ?? newId(), report: s.report ?? "personal", openedAt: s.openedAt ?? null }));
   const slackUserCache = new Map<string, { slackUserId: string | null; tz: string | null; lookedUpAt: string }>();
   const factCalls: [string, string][] = [];
   const coverageCalls: string[] = [];
@@ -54,6 +58,9 @@ export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.no
     failNextFinish: false,
     async subscriptions(cadences) {
       return (seed.subscriptions ?? []).filter((s) => cadences.includes(s.cadence));
+    },
+    async companyRecipients(cadences) {
+      return (seed.companyRecipients ?? []).filter((s) => cadences.includes(s.cadence));
     },
     async employees() {
       return seed.employees ?? [];
@@ -90,7 +97,7 @@ export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.no
       if (!row) return null;
       row.openedAt ??= nowIso();
       const e = (seed.employees ?? []).find((x) => x.id === row.employeeId);
-      return { employeeId: row.employeeId, department: e?.department ?? null };
+      return { employeeId: row.employeeId, department: e?.department ?? null, report: row.report };
     },
     async finishSend(key, r) {
       if (store.failNextFinish) {

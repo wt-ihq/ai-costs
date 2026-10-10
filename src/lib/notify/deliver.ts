@@ -1,7 +1,7 @@
 import { chartLayout, type ChartLayout } from "./chart";
-import type { Digest, TeamDigest } from "./digest";
+import type { CompanyDigest, Digest, TeamDigest } from "./digest";
 import { DEFAULT_TZ } from "./schedule";
-import { chartHeadline, chartSpan, chartTitle, renderDigest, renderTeamDigest, teamChartTitle, type RenderedDigest } from "./render";
+import { chartHeadline, chartSpan, chartTitle, companyChartTitle, renderCompanyDigest, renderDigest, renderTeamDigest, teamChartTitle, type RenderedDigest } from "./render";
 import { SlackApiError, type SlackClient } from "./slack-client";
 import type { NotifyStore } from "./store";
 import type { NotifyEmployee } from "./types";
@@ -24,6 +24,12 @@ export function chartLayoutsFor(d: Digest): { you: ChartLayout; reports?: ChartL
 export function chartLayoutsForTeam(d: TeamDigest): { team: ChartLayout } {
   const headline = chartHeadline(d.team, d.period.compareTo);
   return { team: chartLayout(teamChartTitle(d), d.team.chart, d.team.chartTools, d.team.byTool, { headline, caption: chartSpan(d.period.cadence) }) };
+}
+
+/** The company report has one chart, of its usage (seats & subscriptions are text only). */
+export function chartLayoutsForCompany(d: CompanyDigest): { company: ChartLayout } {
+  const headline = chartHeadline(d.usage, d.period.compareTo);
+  return { company: chartLayout(companyChartTitle(d), d.usage.chart, d.usage.chartTools, d.usage.byTool, { headline, caption: chartSpan(d.period.cadence) }) };
 }
 
 const failureCode = (err: unknown): string =>
@@ -177,4 +183,10 @@ export function deliverDigest(args: DeliverArgs & { digest: Digest; previewFor?:
 export function deliverTeamDigest(args: DeliverArgs & { digest: TeamDigest }): Promise<string> {
   const { digest, banner } = args;
   return deliverRendered({ ...args, layouts: chartLayoutsForTeam(digest), render: (files) => renderTeamDigest(digest, files, { banner }) });
+}
+
+/** The whole-company report (the cron's company sends and admin test sends). */
+export function deliverCompanyDigest(args: DeliverArgs & { digest: CompanyDigest; previewFor?: string }): Promise<string> {
+  const { digest, previewFor, banner, openUrl } = args;
+  return deliverRendered({ ...args, layouts: chartLayoutsForCompany(digest), render: (files) => renderCompanyDigest(digest, files, { previewFor, banner, openUrl }) });
 }

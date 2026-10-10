@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ShapeFact } from "@/lib/explore/shape";
-import type { CostType, Vendor } from "@/lib/types";
-import { buildDigest, buildTeamDigest, isTeamDigest, type DigestInput, type TeamDigestInput } from "./digest";
+import { VENDOR_LABEL, type CostType, type Vendor } from "@/lib/types";
+import { buildCompanyDigest, buildDigest, buildTeamDigest, isCompanyDigest, isTeamDigest, round2, type DigestInput, type SectionInput, type TeamDigestInput } from "./digest";
 import { periodFor } from "./schedule";
 import type { NotifyEmployee } from "./types";
 
@@ -304,6 +304,13 @@ describe("isTeamDigest", () => {
     expect(isTeamDigest(buildTeamDigest(teamInput())!)).toBe(true);
     expect(isTeamDigest(buildDigest(input())!)).toBe(false);
   });
+
+  it("tells the company report apart from both", () => {
+    const company = buildCompanyDigest(input())!;
+    expect(isCompanyDigest(company)).toBe(true);
+    expect(isTeamDigest(company)).toBe(false);
+    expect(isCompanyDigest(buildDigest(input())!)).toBe(false);
+  });
 });
 
 describe("buildTeamDigest — edge cases", () => {
@@ -375,5 +382,112 @@ describe("buildTeamDigest — edge cases", () => {
   it("an unknown or empty team still yields a valid $0 digest on a non-daily cadence", () => {
     const d = buildTeamDigest(teamInput({ department: "Nobody Here" }))!;
     expect(d.team).toMatchObject({ headlineUsd: 0, headcount: 0, top: [], othersCount: 0, othersUsd: 0 });
+  });
+});
+
+describe("buildCompanyDigest", () => {
+  const nowOct = new Date("2026-10-08T07:00:00Z");
+  const f = (day: string, source: Vendor, costType: CostType, costUsd: number, employeeId: string | null, department: string | null, model = ""): ShapeFact => ({
+    day, source, costType, costUsd, employeeId, department, fullName: null, entityKey: employeeId ?? "org", model,
+  });
+  const coFacts: ShapeFact[] = [
+    f("2026-09-22", "cursor", "overage", 30, "m", "Engineering"),
+    f("2026-09-24", "cursor", "overage", 140, "a", "Engineering"),
+    f("2026-09-25", "anthropic", "metered", 96, "s", "Data Science"),
+    f("2026-09-21", "openrouter", "metered", 42, "l", "Engineering"), // a leaver's spend counts
+    f("2026-09-23", "anthropic", "metered", 20, null, null), // unkeyed: no person, no team
+    f("2026-09-23", "openrouter", "metered", 12, null, "Data Science"), // a workspace key: a team, no person
+    f("2026-09-15", "cursor", "overage", 100, "m", "Engineering"), // previous week
+    f("2026-09-01", "claude_team", "overage", 500, "a", "Engineering"), // Claude Team's monthly lump
+    f("2026-08-01", "cursor", "seat", 310, "m", "Engineering"),
+    f("2026-08-01", "other", "subscription", 90, null, "Engineering", "Figma AI"),
+    f("2026-09-01", "cursor", "seat", 300, "m", "Engineering"),
+    f("2026-09-01", "other", "subscription", 90, null, "Engineering", "Figma AI"),
+  ];
+  const coInput = (over: Partial<SectionInput> = {}): SectionInput => ({
+    employeesById: byId, facts: coFacts, period: periodFor("weekly", "2026-W39", nowOct), now: nowOct, sourceHorizons: {}, toolColors: {},
+    freshness: [], missingImports: [], baseUrl: "https://x.test", includeFixed: false, ...over,
+  });
+  const sum = (xs: number[]) => xs.reduce((s, x) => s + x, 0);
+  const d = buildCompanyDigest(coInput())!;
+
+  it("is usage only, company-wide: everyone's usage and usage tied to no one, against the previous week", () => {
+    expect(d).toMatchObject({ kind: "company", dashboardUrl: "https://x.test/explore", totalUsd: null });
+    expect(d.usage).toMatchObject({ basis: "usage", headlineUsd: 340, prevUsd: 100, headcount: 4 }); // 4 active; the leaver isn't headcount
+  });
+
+  it("ignores the fixed-costs setting: usage and seats & subscriptions are always apart", () => {
+    expect(buildCompanyDigest(coInput({ includeFixed: true }))!.usage).toMatchObject({ basis: "usage", headlineUsd: 340 });
+  });
+
+  it("ranks teams as Explore does (the fact's department, else the person's), with no-team usage apart", () => {
+    expect(d.usage.teams).toEqual([
+      { department: "Engineering", usd: 212, href: "https://x.test/explore/Engineering" },
+      { department: "Data Science", usd: 108, href: "https://x.test/explore/Data%20Science" },
+    ]);
+    expect(d.usage).toMatchObject({ otherTeamsCount: 0, otherTeamsUsd: 0, unattributedUsd: 20 });
+  });
+
+  it("ranks people company-wide; usage tied to no person stays out of the people", () => {
+    expect(d.usage.top.map((p) => [p.name, p.usd])).toEqual([["Alex Kim", 140], ["Sam Lee", 96], ["Former Person", 42], ["Priya Nair", 30]]);
+    expect(d.usage.top[1].href).toBe("https://x.test/explore/Data%20Science/s");
+    expect(d.usage).toMatchObject({ othersCount: 0, othersUsd: 32, teamLevelUsd: 32 }); // $20 unkeyed + $12 workspace key
+  });
+
+  it("beyond the top five: +N teams and +N others, and every part adds up to the headline to the cent", () => {
+    const many = Array.from({ length: 7 }, (_, i) => emp(`p${i}`, `Person ${i}`, { department: `T${i}` }));
+    const facts7 = [...many.map((e, i) => f("2026-09-22", "cursor", "overage", 70.333 - i * 10, e.id, e.department)), f("2026-09-22", "anthropic", "metered", 5, null, null)];
+    const u = buildCompanyDigest(coInput({ employeesById: new Map(many.map((e) => [e.id, e])), facts: facts7 }))!.usage;
+    expect(u).toMatchObject({ otherTeamsCount: 2, othersCount: 2, unattributedUsd: 5, teamLevelUsd: 5 });
+    expect(u.teams.map((t) => t.department)).toEqual(["T0", "T1", "T2", "T3", "T4"]);
+    expect(round2(sum(u.teams.map((t) => t.usd)) + u.otherTeamsUsd + u.unattributedUsd)).toBe(u.headlineUsd);
+    expect(round2(sum(u.top.map((p) => p.usd)) + u.othersUsd)).toBe(u.headlineUsd);
+  });
+
+  it("seats & subscriptions: a weekly is the week's share of the monthly bill, compared month on month", () => {
+    // September's bill $390 ($300 seat + $90 subscription) over 30 days = $13/day; August's was $400
+    expect(d.fixed).toMatchObject({ basis: "total", headlineUsd: 91, month: null, monthTotal: { label: "September", usd: 390, prevLabel: "August", prevUsd: 400, deltaPct: -2.5 } });
+    expect(d.fixed.byTool.map((t) => [t.key, t.usd])).toEqual([["cursor", 70], ["other:Figma AI", 21]]);
+  });
+
+  it("a week spanning two months takes each month's share; the month line is the month the week ends in", () => {
+    const oct = [...coFacts, f("2026-10-01", "cursor", "seat", 310, "m", "Engineering")];
+    const w40 = buildCompanyDigest(coInput({ facts: oct, period: periodFor("weekly", "2026-W40", nowOct) }))!;
+    expect(w40.fixed.headlineUsd).toBe(79); // Sep 28–30: 3 × $13; Oct 1–4: 4 × ($310 / 31)
+    expect(w40.fixed.monthTotal).toEqual({ label: "October", usd: 310, prevLabel: "September", prevUsd: 390, deltaPct: -20.5 });
+    expect(w40.usage.headlineUsd).toBe(0); // a weekly still goes out with no usage
+  });
+
+  it("the first month with fixed costs has nothing to compare with", () => {
+    const first = buildCompanyDigest(coInput({ facts: coFacts.filter((x) => !x.day.startsWith("2026-08")) }))!;
+    expect(first.fixed.monthTotal).toMatchObject({ usd: 390, prevUsd: 0, deltaPct: null });
+  });
+
+  it("a daily carries the day's share, and a day with no usage is no report, whatever the bill", () => {
+    const fri = buildCompanyDigest(coInput({ period: periodFor("daily", "2026-09-25", nowOct) }))!;
+    expect(fri.usage.headlineUsd).toBe(96);
+    expect(fri.fixed.headlineUsd).toBe(13);
+    expect(buildCompanyDigest(coInput({ period: periodFor("daily", "2026-09-28", nowOct) }))).toBeNull();
+  });
+
+  it("monthly: usage includes Claude Team's lump, the bill as posted vs last month, and a total of every fact in the month", () => {
+    const sep = buildCompanyDigest(coInput({ period: periodFor("monthly", "2026-09", nowOct) }))!;
+    expect(sep.usage.headlineUsd).toBe(940);
+    expect(sep.fixed).toMatchObject({ headlineUsd: 390, prevUsd: 400, deltaPct: -2.5, monthTotal: null });
+    expect(sep.totalUsd).toBe(1330);
+    expect(sep.totalUsd).toBe(round2(sep.usage.headlineUsd + sep.fixed.headlineUsd));
+  });
+
+  it("caveats cover the sources used and the seats' sources, never a subscription's", () => {
+    const stale = (source: Vendor) => ({ source, lastSyncFailed: true, lastSuccessDay: "2026-09-20" });
+    const facts3 = [
+      f("2026-09-23", "anthropic", "metered", 20, "m", "Engineering"),
+      f("2026-09-01", "cursor", "seat", 300, "m", "Engineering"),
+      f("2026-09-01", "openrouter", "subscription", 50, null, "Engineering", "platform fee"),
+    ];
+    const caveats = buildCompanyDigest(coInput({ facts: facts3, freshness: (["anthropic", "cursor", "openrouter", "openai"] as Vendor[]).map(stale) }))!.caveats;
+    expect(caveats).toHaveLength(2);
+    expect(caveats.join("\n")).toContain(VENDOR_LABEL.anthropic);
+    expect(caveats.join("\n")).toContain(VENDOR_LABEL.cursor);
   });
 });

@@ -1,13 +1,14 @@
 import { formatUsd } from "@/lib/utils";
 import type { ChartHeadline } from "./chart";
-import { round2, type Digest, type DigestSection, type ReportsSection, type TeamDigest, type ToolAmount } from "./digest";
-import { CADENCE_UNIT, CHART_SPAN } from "./schedule";
+import { round2, type CompanyDigest, type CompanyUsageSection, type Digest, type DigestSection, type FixedCostsSection, type MonthTotal, type ReportsSection, type TeamDigest, type ToolAmount } from "./digest";
+import { CADENCE_UNIT, CHART_SPAN, type DigestPeriod } from "./schedule";
 import type { Cadence } from "./types";
 
 export type SlackBlock = Record<string, unknown>;
 /** Slack file ids of the uploaded charts (absent = send without that image). */
 export interface ChartFileIds { you?: string; reports?: string }
 export interface TeamChartFileIds { team?: string }
+export interface CompanyChartFileIds { company?: string }
 export interface RenderedDigest { blocks: SlackBlock[]; text: string }
 /**
  * previewFor: the cron's preview mode ("would send to X"). banner: a context line above everything
@@ -61,6 +62,10 @@ export function teamChartTitle(d: TeamDigest): string {
   return `${d.department.toUpperCase()} (${people(d.team.headcount)}) · ${d.team.basis.toUpperCase()}, ${d.period.label.toUpperCase()}`;
 }
 
+export function companyChartTitle(d: CompanyDigest): string {
+  return `COMPANY (${people(d.usage.headcount)}) · ${d.usage.basis.toUpperCase()}, ${d.period.label.toUpperCase()}`;
+}
+
 /** The bars' span, captioned just above them. */
 export function chartSpan(c: Cadence): string {
   return `LAST ${CHART_SPAN[c]} ${CADENCE_UNIT[c].toUpperCase()}S`;
@@ -94,15 +99,31 @@ function topLine(r: ReportsSection, unit: string): string {
 }
 
 /**
- * The team's top people. "Others" counts people only; spend that belongs to no member (department
- * costs) is its own item, so neither is hidden inside the other. Rounding cents alone show nothing.
+ * A group's top people. "Others" counts people only; spend that belongs to no member (`teamLevelUsd`)
+ * is its own item, named by `restLabel`, so neither is hidden inside the other. Rounding cents alone
+ * show nothing. Null when there is nothing to list.
  */
-function teamTopLine(r: ReportsSection, unit: string): string {
+function peopleLine(r: ReportsSection, restLabel: string): string | null {
   const parts = r.top.map((p) => `<${p.href}|${escapeMrkdwn(p.name)}> ${formatUsd(p.usd)}`);
-  const teamLevel = r.teamLevelUsd ?? 0;
-  if (r.othersCount) parts.push(`+${r.othersCount} others ${formatUsd(Math.max(0, round2(r.othersUsd - teamLevel)))}`);
-  if (teamLevel > 0) parts.push(`team-level costs ${formatUsd(teamLevel)}`);
-  return parts.length ? parts.join(" · ") : `No usage from this team this ${unit}`;
+  const rest = r.teamLevelUsd ?? 0;
+  if (r.othersCount) parts.push(`+${r.othersCount} others ${formatUsd(Math.max(0, round2(r.othersUsd - rest)))}`);
+  if (rest > 0) parts.push(`${restLabel} ${formatUsd(rest)}`);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+const teamTopLine = (r: ReportsSection, unit: string): string => peopleLine(r, "team-level costs") ?? `No usage from this team this ${unit}`;
+
+/** The company's top teams (linked), the rest, then usage with no team (Explore's "Unattributed") apart. */
+function teamsLine(u: CompanyUsageSection): string | null {
+  const parts = u.teams.map((t) => `<${t.href}|${escapeMrkdwn(t.department)}> ${formatUsd(t.usd)}`);
+  if (u.otherTeamsCount) parts.push(`+${u.otherTeamsCount} ${u.otherTeamsCount === 1 ? "team" : "teams"} ${formatUsd(u.otherTeamsUsd)}`);
+  if (u.unattributedUsd > 0) parts.push(`unattributed ${formatUsd(u.unattributedUsd)}`);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+function companyLines(u: CompanyUsageSection, unit: string): string {
+  const lines = [teamsLine(u), peopleLine(u, "not tied to a person")].filter((l): l is string => l !== null);
+  return lines.length ? lines.join("\n") : `No usage this ${unit}`;
 }
 
 /** With a chart, the headline is drawn big into the image, so the text is just the label; without one it stays as text. */
@@ -116,6 +137,30 @@ function sectionBlocks(label: string, s: DigestSection, fileId: string | undefin
   const lines = [toolsLine(s.byTool), monthLine(s)].filter((l): l is string => l !== null);
   if (lines.length) out.push(context(lines));
   return out;
+}
+
+const FIXED_LABEL = "SEATS & SUBSCRIPTIONS";
+const SHARE_OF_MONTH: Record<Cadence, string> = { daily: "a day's share of the monthly bill", weekly: "a week's share of the monthly bill", monthly: "" };
+
+/** "October $18,277 · ▼ 1% vs September": the bill's real movement. Nothing before it → the figure alone. */
+function monthTotalLine(m: MonthTotal): string {
+  if (m.deltaPct === null) return `${m.label} ${formatUsd(m.usd)}`;
+  const change = Math.abs(m.deltaPct) < 0.5 ? "no change" : `${m.deltaPct > 0 ? "▲" : "▼"} ${Math.round(Math.abs(m.deltaPct)).toLocaleString("en-US")}%`;
+  return `${m.label} ${formatUsd(m.usd)} · ${change} vs ${m.prevLabel}`;
+}
+
+/**
+ * The company's seats & subscriptions, text only (a day's share is flat across a month, so a chart
+ * would say nothing). A daily/weekly figure is a share of the bill (its change vs the day/week before
+ * would only be the month's length), so it says so, and the month line compares whole months instead.
+ */
+function fixedBlocks(s: FixedCostsSection, period: DigestPeriod): SlackBlock[] {
+  const change = s.monthTotal ? SHARE_OF_MONTH[period.cadence] : deltaText(s, period.compareTo);
+  const lines = [toolsLine(s.byTool), s.monthTotal ? monthTotalLine(s.monthTotal) : null].filter((l): l is string => l !== null);
+  return [
+    { type: "section", text: { type: "mrkdwn", text: `*${escapeMrkdwn(FIXED_LABEL)}*\n*${formatUsd(s.headlineUsd)}* ${s.basis} · ${change}` } },
+    ...(lines.length ? [context(lines)] : []),
+  ];
 }
 
 /** Banner and/or cron preview line above the digest; the text fallback gets the same context (escaped: Slack parses it as mrkdwn). */
@@ -170,5 +215,25 @@ export function renderTeamDigest(d: TeamDigest, files: TeamChartFileIds, opts: R
 
   // Slack parses `text` as mrkdwn as well, so the department is escaped here (the header block is plain_text and is not).
   const text = `AI spend · ${escapeMrkdwn(d.department)} · ${d.period.label}: team ${formatUsd(d.team.headlineUsd)} ${d.team.basis}`;
+  return withLead({ blocks, text }, opts);
+}
+
+/** The whole-company report → Block Kit (the cron's company DMs, the admin preview and test sends). */
+export function renderCompanyDigest(d: CompanyDigest, files: CompanyChartFileIds, opts: RenderOpts = {}): RenderedDigest {
+  const unit = CADENCE_UNIT[d.period.cadence];
+  const blocks: SlackBlock[] = [
+    { type: "header", text: { type: "plain_text", text: `📊 Company AI spend · ${d.period.label}`, emoji: true } },
+    ...sectionBlocks(`COMPANY · ${people(d.usage.headcount)}`, d.usage, files.company, companyChartTitle(d), d.period.compareTo, companyLines(d.usage, unit)),
+    { type: "divider" },
+    ...fixedBlocks(d.fixed, d.period),
+  ];
+  // Monthly: both sections together, which is the Company page's total for the month.
+  if (d.totalUsd !== null) {
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: `*${d.period.label} total ${formatUsd(d.totalUsd)}* · usage + ${escapeMrkdwn("seats & subscriptions")}` } });
+  }
+  if (d.caveats.length) blocks.push(context(d.caveats.map(escapeMrkdwn)));
+  blocks.push(dashboardButton(opts.openUrl ?? d.dashboardUrl));
+
+  const text = `Company AI spend · ${d.period.label}: usage ${formatUsd(d.usage.headlineUsd)} · ${escapeMrkdwn("seats & subscriptions")} ${formatUsd(d.fixed.headlineUsd)}`;
   return withLead({ blocks, text }, opts);
 }

@@ -20,6 +20,11 @@ function cadencesOrThrow(input: unknown): Cadence[] {
   return [...new Set(input)];
 }
 
+function idsOrThrow(input: unknown): string[] {
+  if (!Array.isArray(input) || !input.length || input.length > MAX_BATCH || !input.every(isUuid)) throw new Error("Invalid people selection");
+  return input;
+}
+
 /** The signed-in admin's email (dev bypass has no session: fall back to SLACK_PREVIEW_EMAIL in development only). */
 async function actorEmail(): Promise<string> {
   const session = await auth().catch(() => null);
@@ -31,10 +36,7 @@ async function actorEmail(): Promise<string> {
 
 export async function addRecipients(employeeIds: string[], cadences: string[]): Promise<{ added: number }> {
   await requireAdmin();
-  if (!Array.isArray(employeeIds) || !employeeIds.length || employeeIds.length > MAX_BATCH || !employeeIds.every(isUuid)) {
-    throw new Error("Invalid people selection");
-  }
-  const added = await addSubscriptions(getSupabaseAdminClient(), employeeIds, cadencesOrThrow(cadences), await actorEmail());
+  const added = await addSubscriptions(getSupabaseAdminClient(), idsOrThrow(employeeIds), cadencesOrThrow(cadences), await actorEmail());
   revalidatePath("/data");
   return { added };
 }
@@ -63,6 +65,28 @@ export async function removeRecipient(employeeId: string): Promise<void> {
   await requireAdmin();
   if (!isUuid(employeeId)) throw new Error("Invalid input");
   await removeSubscriptions(getSupabaseAdminClient(), employeeId);
+  revalidatePath("/data");
+}
+
+/** Adds people to the company report on these cadences (the report is its own DM, apart from personal digests). */
+export async function addCompanyRecipients(employeeIds: string[], cadences: string[]): Promise<{ added: number }> {
+  await requireAdmin();
+  const added = await addSubscriptions(getSupabaseAdminClient(), idsOrThrow(employeeIds), cadencesOrThrow(cadences), await actorEmail(), "company");
+  revalidatePath("/data");
+  return { added };
+}
+
+export async function setCompanyRecipientCadence(employeeId: string, cadence: string, enabled: boolean): Promise<void> {
+  await requireAdmin();
+  if (!isUuid(employeeId) || !isCadence(cadence) || typeof enabled !== "boolean") throw new Error("Invalid input");
+  await setSubscription(getSupabaseAdminClient(), employeeId, cadence, enabled, await actorEmail(), "company");
+  revalidatePath("/data");
+}
+
+export async function removeCompanyRecipient(employeeId: string): Promise<void> {
+  await requireAdmin();
+  if (!isUuid(employeeId)) throw new Error("Invalid input");
+  await removeSubscriptions(getSupabaseAdminClient(), employeeId, "company");
   revalidatePath("/data");
 }
 

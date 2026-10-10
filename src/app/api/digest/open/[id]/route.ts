@@ -8,9 +8,10 @@ export const dynamic = "force-dynamic";
 
 /**
  * A Slack digest's "Open in dashboard" button: stamp the send's first open, then
- * redirect to the recipient's Explore page. Behind the sign-in proxy like any
- * page, and it checks the session itself too (defence in depth). The send id is
- * in the PATH because sign-in returns to the path only. Recording never blocks the click.
+ * redirect to the recipient's Explore page (the Company page for the company
+ * report). Behind the sign-in proxy like any page, and it checks the session
+ * itself too (defence in depth). The send id is in the PATH because sign-in
+ * returns to the path only. Recording never blocks the click.
  */
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!(await getRole())) {

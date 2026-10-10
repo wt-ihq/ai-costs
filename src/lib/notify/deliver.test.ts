@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { ShapeFact } from "@/lib/explore/shape";
-import { chartLayoutsFor, chartLayoutsForTeam, deliverDigest, deliverTeamDigest, PostOutcomeUnknownError, resolveSlackUser, SLACK_USER_TTL_MS } from "./deliver";
+import { chartLayoutsFor, chartLayoutsForCompany, chartLayoutsForTeam, deliverCompanyDigest, deliverDigest, deliverTeamDigest, PostOutcomeUnknownError, resolveSlackUser, SLACK_USER_TTL_MS } from "./deliver";
 import { memoryStore } from "./memory-store";
-import { buildDigest, buildTeamDigest } from "./digest";
+import { buildCompanyDigest, buildDigest, buildTeamDigest } from "./digest";
 import { chartHeadline } from "./render";
 import { periodFor } from "./schedule";
 import { SlackApiError, type SlackClient } from "./slack-client";
@@ -23,6 +23,7 @@ const base = {
 };
 const teamDigest = buildTeamDigest({ ...base, department: "R&D" })!;
 const personDigest = buildDigest({ ...base, recipient: people[0], reportIds: ["b"] })!;
+const companyDigest = buildCompanyDigest(base)!;
 
 function fakeSlack(over: Partial<SlackClient> = {}) {
   const posts: { channel: string; blocks: unknown[]; text: string }[] = [];
@@ -203,5 +204,26 @@ describe("resolveSlackUser", () => {
     expect(await resolveSlackUser(store, slack, people[0], new Date(t0))).toBeNull();
     expect(await resolveSlackUser(store, slack, people[0], new Date(t0 + 86_400_000))).toBeNull();
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe("chartLayoutsForCompany", () => {
+  it("is one chart, of the company's usage", () => {
+    const l = chartLayoutsForCompany(companyDigest);
+    expect(Object.keys(l)).toEqual(["company"]);
+    expect(l.company.title).toBe("COMPANY (2 PEOPLE) · USAGE, 21–27 SEP 2026");
+    expect(l.company.headline).toEqual(chartHeadline(companyDigest.usage, "previous week"));
+    expect(l.company.bars).toHaveLength(8);
+  });
+});
+
+describe("deliverCompanyDigest", () => {
+  it("uploads the company chart and DMs the report with its tracked link", async () => {
+    const s = fakeSlack();
+    const ts = await deliverCompanyDigest({ ...args(s.client), digest: companyDigest, openUrl: "https://x.test/api/digest/open/abc" });
+    expect(ts).toBe("ts1");
+    expect(s.uploads).toEqual([{ name: "ai-spend-company.png", title: "COMPANY (2 PEOPLE) · USAGE, 21–27 SEP 2026" }]);
+    expect(JSON.stringify(s.posts[0].blocks[0])).toContain("Company AI spend");
+    expect(JSON.stringify(s.posts[0].blocks.at(-1))).toContain("https://x.test/api/digest/open/abc");
   });
 });
