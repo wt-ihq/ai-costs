@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeOkta, type OktaUsersResponse } from "./okta";
+import { isSkippedOktaUser, normalizeOkta, type OktaUser, type OktaUsersResponse } from "./okta";
 import { oktaUsersFixture } from "@/lib/ingest/fixtures/okta";
 import { parseNextLink } from "@/lib/ingest/sources/okta";
 import { SchemaDriftError } from "@/lib/ingest/types";
@@ -46,12 +46,30 @@ describe("normalizeOkta", () => {
     expect(tom.employee_number).toBeNull();
   });
 
+  it("leaves out bot accounts by Okta Title, whatever their case or spacing", () => {
+    const user = (id: string, title?: string): OktaUser => ({
+      id, status: "ACTIVE", profile: { displayName: `User ${id}`, email: `${id}@intenthq.com`, managerId: "1001", ...(title !== undefined ? { title } : {}) },
+    });
+    const rows = normalizeOkta({ users: [user("bot1", "AI Orchestration Bot"), user("bot2", "  ai orchestration BOT "), user("eng", "Engineer"), user("none")] });
+    expect(rows.map((r) => r.okta_id)).toEqual(["eng", "none"]);
+  });
+
   it("throws on schema drift (missing users array)", () => {
     expect(() => normalizeOkta({} as OktaUsersResponse)).toThrow(SchemaDriftError);
   });
 
   it("throws when no usable users are present", () => {
     expect(() => normalizeOkta({ users: [{ id: "x", profile: {} }] })).toThrow(SchemaDriftError);
+  });
+});
+
+describe("isSkippedOktaUser", () => {
+  it("matches only the listed titles", () => {
+    expect(isSkippedOktaUser({ id: "x", profile: { title: "AI Orchestration Bot" } })).toBe(true);
+    expect(isSkippedOktaUser({ id: "x", profile: { title: "AI Orchestration Bots" } })).toBe(false);
+    expect(isSkippedOktaUser({ id: "x", profile: { title: "Head of AI Orchestration" } })).toBe(false);
+    expect(isSkippedOktaUser({ id: "x", profile: {} })).toBe(false);
+    expect(isSkippedOktaUser({ id: "x" })).toBe(false);
   });
 });
 

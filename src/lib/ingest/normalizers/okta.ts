@@ -25,6 +25,7 @@ export interface OktaUser {
     department?: string;
     managerId?: string;
     employeeNumber?: string;
+    title?: string;
     [k: string]: unknown;
   };
 }
@@ -52,6 +53,21 @@ export interface EmployeeUpsert {
 // and stamp leave_date so historical spend stays attributed (never deleted).
 const LEAVER_STATUSES = new Set(["DEPROVISIONED", "SUSPENDED"]);
 
+/**
+ * Okta Titles of non-person accounts (bots) that the sync leaves out entirely. They have real
+ * company emails, so the no-email skip below misses them, and as "employees" they counted as
+ * people: a manager's reports (a bot with a manager set gave that manager an empty "1 report"
+ * digest section), team and company headcounts, Explore rosters. Compared trimmed,
+ * case-insensitively. run-okta.ts also removes rows already stored for these accounts.
+ */
+export const SKIPPED_OKTA_TITLES: readonly string[] = ["AI Orchestration Bot"];
+const SKIPPED_TITLES = new Set(SKIPPED_OKTA_TITLES.map((t) => t.toLowerCase()));
+
+export function isSkippedOktaUser(u: OktaUser): boolean {
+  const title = u.profile?.title;
+  return typeof title === "string" && SKIPPED_TITLES.has(title.trim().toLowerCase());
+}
+
 const dateOnly = (ts: string | null | undefined): string | null =>
   typeof ts === "string" && ts.length >= 10 ? ts.slice(0, 10) : null;
 
@@ -62,6 +78,7 @@ export function normalizeOkta(raw: OktaUsersResponse): EmployeeUpsert[] {
   const seen = new Set<string>();
   const out: EmployeeUpsert[] = [];
   for (const u of raw.users) {
+    if (isSkippedOktaUser(u)) continue;
     const p = u.profile ?? {};
     const email = (p.email ?? p.login ?? "").toString().toLowerCase();
     if (!u.id || !email) continue; // service/system accounts without an identity — skip, don't fail
