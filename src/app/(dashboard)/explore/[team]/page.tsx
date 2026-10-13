@@ -1,3 +1,4 @@
+import { requireDashboardAccess } from "@/lib/auth-guard";
 import { getTeamScopeCached } from "@/lib/queries/cached";
 import { ExploreView } from "@/components/explore/explore-view";
 import { PageHeader } from "@/components/ui";
@@ -7,6 +8,7 @@ import type { Dim } from "@/lib/explore/types";
 export const dynamic = "force-dynamic";
 
 export default async function TeamPage({ params, searchParams }: { params: Promise<{ team: string }>; searchParams: Promise<{ period?: string; dim?: string; vendor?: string }> }) {
+  await requireDashboardAccess();
   const { team } = await params;
   const sp = await searchParams;
   const teamName = safeDecodeURIComponent(team);

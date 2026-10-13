@@ -4,6 +4,7 @@ import { fetchEmployeesAll, fetchFactsInRange } from "@/lib/queries/common";
 import { getSnapshotAsOf, getSourceHorizons, getToolColors } from "@/lib/queries/explore";
 import type { SnapshotAsOf } from "@/lib/explore/shape";
 import { buildImportCoverage, getImportCoverageScope, type CoverageMonthRow } from "@/lib/queries/import-coverage";
+import { fetchAccessList } from "@/lib/queries/dashboard-access";
 import { NO_FIXED_COST_SETTINGS, type FixedCostSettings } from "./fixed-costs";
 import type { SyncRunRow } from "./freshness";
 import { NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence, type NotifyEmployee, type ReportKind, type SendMode } from "./types";
@@ -20,6 +21,8 @@ export interface SendResult {
   status: "sent" | "skipped" | "failed";
   slackTs?: string;
   detail?: string; // never names or amounts
+  /** A sent digest's "Open in dashboard" button was there (the recipient can get in); the open rate counts only these. */
+  dashboardLink?: boolean;
 }
 
 /** Everything runNotify / the admin preview need from the database — injectable for tests (memory-store.ts). */
@@ -36,6 +39,8 @@ export interface NotifyStore {
   importCoverage(nowMonth: string): Promise<CoverageMonthRow[]>;
   /** notification_settings: the organisation default and per-team / per-person overrides. */
   fixedCostSettings(): Promise<FixedCostSettings>;
+  /** dashboard_access: the emails (lowercased) besides ADMIN_EMAILS who can open the dashboard. */
+  dashboardAccess(): Promise<ReadonlySet<string>>;
   /** Existing send rows for these period keys in one mode — lets a run skip the heavy data load when nothing is left to send. */
   sendStates(periodKeys: string[], mode: SendMode): Promise<(SendKey & { status: string; attempts: number })[]>;
   /** Insert a pending row; its id = this run owns the send (the id carries the DM's tracked open link), null = it doesn't. */
@@ -144,6 +149,9 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
       );
       return toFixedCostSettings(rows);
     },
+    async dashboardAccess() {
+      return new Set((await fetchAccessList(supabase)).map((r) => r.email));
+    },
     async claimSend(key) {
       const { data: inserted, error } = await supabase.from("notification_sends").insert({ ...keyMatch(key), status: "pending" }).select("id").single();
       if (!error) return inserted.id as string;
@@ -175,7 +183,10 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
     async finishSend(key, r) {
       const { error } = await supabase
         .from("notification_sends")
-        .update({ status: r.status, slack_ts: r.slackTs ?? null, detail: r.detail ?? null, updated_at: new Date().toISOString() })
+        .update({
+          status: r.status, slack_ts: r.slackTs ?? null, detail: r.detail ?? null, updated_at: new Date().toISOString(),
+          ...(r.dashboardLink !== undefined ? { dashboard_link: r.dashboardLink } : {}),
+        })
         .match(keyMatch(key));
       if (error) throw new Error(`finishSend: ${error.message}`);
     },

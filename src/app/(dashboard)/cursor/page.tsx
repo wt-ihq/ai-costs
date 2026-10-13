@@ -1,3 +1,4 @@
+import { requireDashboardAccess } from "@/lib/auth-guard";
 import { getModelUsageScopeCached, getCursorTopModelScopeCached, getCursorSpendScopeCached } from "@/lib/queries/cached";
 import { CursorModelsView } from "@/components/cursor-models/cursor-models-view";
 import { TeamsModelView } from "@/components/cursor-models/teams-model-view";
@@ -8,6 +9,7 @@ import { PageHeader } from "@/components/ui";
 export const dynamic = "force-dynamic";
 
 export default async function CursorModelsPage({ searchParams }: { searchParams: Promise<{ period?: string }> }) {
+  await requireDashboardAccess();
   const sp = await searchParams;
   const header = (
     <PageHeader title="Cursor usage & spend" subtitle="Cursor model adoption and spend by model, team, and person." />

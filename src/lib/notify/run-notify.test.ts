@@ -49,10 +49,11 @@ function fakeSlack(over: Partial<SlackClient> = {}) {
 }
 const png = async () => new Uint8Array([1]) as Uint8Array<ArrayBuffer>;
 const deps = (store: ReturnType<typeof memoryStore>, slack: SlackClient, over: Partial<RunNotifyDeps> = {}): RunNotifyDeps => ({
-  store, slack, renderChart: png, mode: "live", previewEmail: "gareth@x.com", now: MONDAY, baseUrl: "https://x.test",
+  store, slack, renderChart: png, mode: "live", previewEmail: "gareth@x.com", now: MONDAY, baseUrl: "https://x.test", adminEmails: [],
   clock: () => MONDAY.getTime(), log: () => {}, sleep: async () => {}, ...over,
 });
 const hasImage = (blocks: unknown[]) => blocks.some((b) => (b as { type: string }).type === "image");
+const hasButton = (blocks: unknown[]) => blocks.some((b) => (b as { type: string }).type === "actions");
 
 describe("runNotify", () => {
   it("sends each due digest once; a second run sends nothing", async () => {
@@ -69,14 +70,53 @@ describe("runNotify", () => {
   });
 
   it("each DM's dashboard button opens through its own send's tracked link", async () => {
-    const store = memoryStore(seed(), () => MONDAY.getTime());
+    const store = memoryStore(seed({ dashboardAccess: ["a@x.com", "m@x.com"] }), () => MONDAY.getTime());
     const slack = fakeSlack();
     await runNotify(deps(store, slack.client));
+    expect(slack.posts).toHaveLength(2);
     for (const post of slack.posts) {
       const button = (post.blocks.at(-1) as { elements: { url: string }[] }).elements[0];
       const row = store.sends.find((s) => `D-U-${s.employeeId}` === post.channel)!;
       expect(button.url).toBe(`https://x.test/api/digest/open/${row.id}`);
     }
+  });
+
+  it("only people who can open the dashboard get its button and links; each send records which", async () => {
+    const store = memoryStore(seed({ dashboardAccess: ["a@x.com"] }), () => MONDAY.getTime());
+    const slack = fakeSlack();
+    await runNotify(deps(store, slack.client));
+    const to = (id: string) => slack.posts.find((p) => p.channel === `D-U-${id}`)!;
+    expect(hasButton(to("a").blocks)).toBe(true);
+    expect(hasButton(to("m").blocks)).toBe(false);
+    expect(JSON.stringify(to("m").blocks)).not.toContain("https://");
+    expect(store.sends.find((s) => s.employeeId === "a")!.dashboardLink).toBe(true);
+    expect(store.sends.find((s) => s.employeeId === "m")!.dashboardLink).toBe(false);
+  });
+
+  it("admins always get the button", async () => {
+    const store = memoryStore(seed(), () => MONDAY.getTime());
+    const slack = fakeSlack();
+    await runNotify(deps(store, slack.client, { adminEmails: ["M@x.com"] }));
+    expect(hasButton(slack.posts.find((p) => p.channel === "D-U-m")!.blocks)).toBe(true);
+    expect(hasButton(slack.posts.find((p) => p.channel === "D-U-a")!.blocks)).toBe(false);
+  });
+
+  it("an unreadable access list still sends, with dashboard links for admins only", async () => {
+    const store = memoryStore(seed({ dashboardAccess: ["a@x.com"], dashboardAccessFails: true }), () => MONDAY.getTime());
+    const slack = fakeSlack();
+    const r = await runNotify(deps(store, slack.client, { adminEmails: ["m@x.com"] }));
+    expect(r).toMatchObject({ sent: 2, failed: 0 });
+    expect(hasButton(slack.posts.find((p) => p.channel === "D-U-m")!.blocks)).toBe(true);
+    expect(hasButton(slack.posts.find((p) => p.channel === "D-U-a")!.blocks)).toBe(false);
+  });
+
+  it("preview mode shows links as the intended recipient would get them, not the previewer", async () => {
+    const store = memoryStore(seed({ dashboardAccess: ["a@x.com"] }), () => MONDAY.getTime());
+    const slack = fakeSlack();
+    await runNotify(deps(store, slack.client, { mode: "preview", adminEmails: ["gareth@x.com"] }));
+    const forWhom = (name: string) => slack.posts.find((p) => JSON.stringify(p.blocks[0]).includes(name))!;
+    expect(hasButton(forWhom("Person a").blocks)).toBe(true);
+    expect(hasButton(forWhom("Person m").blocks)).toBe(false);
   });
 
   it("never sends to leavers", async () => {
@@ -422,7 +462,7 @@ describe("runNotify: company report", () => {
   it("its tracked button opens the Company page", async () => {
     const store = memoryStore(withCompany(), () => MONDAY.getTime());
     const slack = fakeSlack();
-    await runNotify(deps(store, slack.client));
+    await runNotify(deps(store, slack.client, { adminEmails: ["gareth@x.com"] }));
     const post = slack.posts.find((p) => p.channel === "D-U-gareth")!;
     const row = store.sends.find((s) => s.employeeId === "gareth" && s.report === "company")!;
     expect((post.blocks.at(-1) as { elements: { url: string }[] }).elements[0].url).toBe(`https://x.test/api/digest/open/${row.id}`);

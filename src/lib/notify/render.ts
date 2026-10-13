@@ -17,6 +17,11 @@ export interface RenderedDigest { blocks: SlackBlock[]; text: string }
 export interface RenderOpts {
   previewFor?: string;
   banner?: string;
+  /**
+   * Whether the recipient can open the dashboard (dashboard-access.ts). Off by default: no "Open in
+   * dashboard" button, and names/teams as plain text, for anyone who'd only hit "no access".
+   */
+  links?: boolean;
   /** The send's tracked "Open in dashboard" link (/api/digest/open/<send id>); absent = link straight to the dashboard. */
   openUrl?: string;
 }
@@ -91,9 +96,12 @@ const context = (lines: string[]): SlackBlock => ({
   elements: lines.slice(0, CONTEXT_MAX).map((text) => ({ type: "mrkdwn", text })),
 });
 
-function topLine(r: ReportsSection, unit: string): string {
+/** A name linked to its dashboard page, or plain for a recipient without access. */
+const named = (href: string, name: string, links: boolean) => (links ? `<${href}|${escapeMrkdwn(name)}>` : escapeMrkdwn(name));
+
+function topLine(r: ReportsSection, unit: string, links: boolean): string {
   if (!r.top.length) return `No usage from your reports this ${unit}`;
-  const names = r.top.map((p) => `<${p.href}|${escapeMrkdwn(p.name)}> ${formatUsd(p.usd)}`);
+  const names = r.top.map((p) => `${named(p.href, p.name, links)} ${formatUsd(p.usd)}`);
   if (r.othersCount) names.push(`+${r.othersCount} others ${formatUsd(r.othersUsd)}`);
   return names.join(" · ");
 }
@@ -103,26 +111,26 @@ function topLine(r: ReportsSection, unit: string): string {
  * is its own item, named by `restLabel`, so neither is hidden inside the other. Rounding cents alone
  * show nothing. Null when there is nothing to list.
  */
-function peopleLine(r: ReportsSection, restLabel: string): string | null {
-  const parts = r.top.map((p) => `<${p.href}|${escapeMrkdwn(p.name)}> ${formatUsd(p.usd)}`);
+function peopleLine(r: ReportsSection, restLabel: string, links: boolean): string | null {
+  const parts = r.top.map((p) => `${named(p.href, p.name, links)} ${formatUsd(p.usd)}`);
   const rest = r.teamLevelUsd ?? 0;
   if (r.othersCount) parts.push(`+${r.othersCount} others ${formatUsd(Math.max(0, round2(r.othersUsd - rest)))}`);
   if (rest > 0) parts.push(`${restLabel} ${formatUsd(rest)}`);
   return parts.length ? parts.join(" · ") : null;
 }
 
-const teamTopLine = (r: ReportsSection, unit: string): string => peopleLine(r, "team-level costs") ?? `No usage from this team this ${unit}`;
+const teamTopLine = (r: ReportsSection, unit: string, links: boolean): string => peopleLine(r, "team-level costs", links) ?? `No usage from this team this ${unit}`;
 
-/** The company's top teams (linked), the rest, then usage with no team (Explore's "Unattributed") apart. */
-function teamsLine(u: CompanyUsageSection): string | null {
-  const parts = u.teams.map((t) => `<${t.href}|${escapeMrkdwn(t.department)}> ${formatUsd(t.usd)}`);
+/** The company's top teams (linked when the recipient can follow them), the rest, then usage with no team (Explore's "Unattributed") apart. */
+function teamsLine(u: CompanyUsageSection, links: boolean): string | null {
+  const parts = u.teams.map((t) => `${named(t.href, t.department, links)} ${formatUsd(t.usd)}`);
   if (u.otherTeamsCount) parts.push(`+${u.otherTeamsCount} ${u.otherTeamsCount === 1 ? "team" : "teams"} ${formatUsd(u.otherTeamsUsd)}`);
   if (u.unattributedUsd > 0) parts.push(`unattributed ${formatUsd(u.unattributedUsd)}`);
   return parts.length ? parts.join(" · ") : null;
 }
 
-function companyLines(u: CompanyUsageSection, unit: string): string {
-  const lines = [teamsLine(u), peopleLine(u, "not tied to a person")].filter((l): l is string => l !== null);
+function companyLines(u: CompanyUsageSection, unit: string, links: boolean): string {
+  const lines = [teamsLine(u, links), peopleLine(u, "not tied to a person", links)].filter((l): l is string => l !== null);
   return lines.length ? lines.join("\n") : `No usage this ${unit}`;
 }
 
@@ -178,10 +186,11 @@ function withLead(r: RenderedDigest, opts: RenderOpts): RenderedDigest {
   return lead.length ? { blocks: [...lead, ...r.blocks], text: prefix + r.text } : r;
 }
 
-const dashboardButton = (url: string): SlackBlock => ({
-  type: "actions",
-  elements: [{ type: "button", text: { type: "plain_text", text: "Open in dashboard" }, url, action_id: "open_dashboard" }],
-});
+/** "Open in dashboard", only for a recipient who can get in (none otherwise). */
+const dashboardButton = (opts: RenderOpts, dashboardUrl: string): SlackBlock[] =>
+  opts.links
+    ? [{ type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "Open in dashboard" }, url: opts.openUrl ?? dashboardUrl, action_id: "open_dashboard" }] }]
+    : [];
 
 /** Digest → Block Kit. The admin preview renders these same blocks (block-kit-preview.tsx). */
 export function renderDigest(d: Digest, files: ChartFileIds, opts: RenderOpts = {}): RenderedDigest {
@@ -191,10 +200,10 @@ export function renderDigest(d: Digest, files: ChartFileIds, opts: RenderOpts = 
   blocks.push(...sectionBlocks("YOU", d.you, files.you, chartTitle("you", d), d.period.compareTo));
   if (d.reports) {
     blocks.push({ type: "divider" });
-    blocks.push(...sectionBlocks(`YOUR REPORTS · ${people(d.reports.headcount)}`, d.reports, files.reports, chartTitle("reports", d), d.period.compareTo, topLine(d.reports, unit)));
+    blocks.push(...sectionBlocks(`YOUR REPORTS · ${people(d.reports.headcount)}`, d.reports, files.reports, chartTitle("reports", d), d.period.compareTo, topLine(d.reports, unit, !!opts.links)));
   }
   if (d.caveats.length) blocks.push(context(d.caveats.map(escapeMrkdwn)));
-  blocks.push(dashboardButton(opts.openUrl ?? d.dashboardUrl));
+  blocks.push(...dashboardButton(opts, d.dashboardUrl));
 
   const text =
     `Your AI spend · ${d.period.label}: you ${formatUsd(d.you.headlineUsd)} ${d.you.basis}` +
@@ -208,10 +217,10 @@ export function renderTeamDigest(d: TeamDigest, files: TeamChartFileIds, opts: R
   const blocks: SlackBlock[] = [
     { type: "header", text: { type: "plain_text", text: `📊 AI spend · ${d.department} · ${d.period.label}`.slice(0, HEADER_MAX), emoji: true } },
     // Uppercase BEFORE escaping: "&amp;" must not become "&AMP;".
-    ...sectionBlocks(`${escapeMrkdwn(d.department.toUpperCase())} · ${people(d.team.headcount)}`, d.team, files.team, teamChartTitle(d), d.period.compareTo, teamTopLine(d.team, unit)),
+    ...sectionBlocks(`${escapeMrkdwn(d.department.toUpperCase())} · ${people(d.team.headcount)}`, d.team, files.team, teamChartTitle(d), d.period.compareTo, teamTopLine(d.team, unit, !!opts.links)),
   ];
   if (d.caveats.length) blocks.push(context(d.caveats.map(escapeMrkdwn)));
-  blocks.push(dashboardButton(opts.openUrl ?? d.dashboardUrl));
+  blocks.push(...dashboardButton(opts, d.dashboardUrl));
 
   // Slack parses `text` as mrkdwn as well, so the department is escaped here (the header block is plain_text and is not).
   const text = `AI spend · ${escapeMrkdwn(d.department)} · ${d.period.label}: team ${formatUsd(d.team.headlineUsd)} ${d.team.basis}`;
@@ -223,7 +232,7 @@ export function renderCompanyDigest(d: CompanyDigest, files: CompanyChartFileIds
   const unit = CADENCE_UNIT[d.period.cadence];
   const blocks: SlackBlock[] = [
     { type: "header", text: { type: "plain_text", text: `📊 Company AI spend · ${d.period.label}`, emoji: true } },
-    ...sectionBlocks(`COMPANY · ${people(d.usage.headcount)}`, d.usage, files.company, companyChartTitle(d), d.period.compareTo, companyLines(d.usage, unit)),
+    ...sectionBlocks(`COMPANY · ${people(d.usage.headcount)}`, d.usage, files.company, companyChartTitle(d), d.period.compareTo, companyLines(d.usage, unit, !!opts.links)),
     { type: "divider" },
     ...fixedBlocks(d.fixed, d.period),
   ];
@@ -232,7 +241,7 @@ export function renderCompanyDigest(d: CompanyDigest, files: CompanyChartFileIds
     blocks.push({ type: "section", text: { type: "mrkdwn", text: `*${d.period.label} total ${formatUsd(d.totalUsd)}* · usage + ${escapeMrkdwn("seats & subscriptions")}` } });
   }
   if (d.caveats.length) blocks.push(context(d.caveats.map(escapeMrkdwn)));
-  blocks.push(dashboardButton(opts.openUrl ?? d.dashboardUrl));
+  blocks.push(...dashboardButton(opts, d.dashboardUrl));
 
   const text = `Company AI spend · ${d.period.label}: usage ${formatUsd(d.usage.headlineUsd)} · ${escapeMrkdwn("seats & subscriptions")} ${formatUsd(d.fixed.headlineUsd)}`;
   return withLead({ blocks, text }, opts);

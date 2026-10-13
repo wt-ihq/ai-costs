@@ -1,12 +1,8 @@
 import Google from "next-auth/providers/google";
 import type { NextAuthConfig } from "next-auth";
+import { ALLOWED_DOMAIN, parseAdminEmails } from "@/lib/dashboard-access";
 
-const ALLOWED_DOMAIN = "intenthq.com";
-
-const adminEmails = (process.env.ADMIN_EMAILS ?? "")
-  .split(",")
-  .map((e) => e.trim().toLowerCase())
-  .filter(Boolean);
+const adminEmails = parseAdminEmails(process.env.ADMIN_EMAILS);
 
 /**
  * Edge-safe auth config (providers + pure callbacks only) — shared by the full
@@ -15,6 +11,8 @@ const adminEmails = (process.env.ADMIN_EMAILS ?? "")
  * (importing the full `@/auth` into middleware fails the deploy).
  *
  * Google SSO, domain-locked to @intenthq.com; admin vs viewer from ADMIN_EMAILS.
+ * Signing in is not the same as getting in: a viewer also needs to be on the
+ * dashboard access list (auth-guard.ts:requireDashboardAccess).
  */
 export const authConfig = {
   providers: [Google],
