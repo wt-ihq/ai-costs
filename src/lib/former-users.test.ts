@@ -61,10 +61,10 @@ describe("buildFormerUserRow", () => {
 
 describe("ownerOverrideTarget", () => {
   it("anthropic keys -> api_keys", () => {
-    expect(ownerOverrideTarget("anthropic", "apikey_1")).toEqual({ table: "api_keys", column: "external_key_id" });
+    expect(ownerOverrideTarget("anthropic", "apikey_1")).toEqual({ table: "api_keys", column: "external_key_id", conflict: "vendor,external_key_id" });
   });
   it("openai projects -> projects", () => {
-    expect(ownerOverrideTarget("openai", "proj_1")).toEqual({ table: "projects", column: "external_id" });
+    expect(ownerOverrideTarget("openai", "proj_1")).toEqual({ table: "projects", column: "external_id", conflict: "vendor,external_id" });
   });
   it("openai org and other sources -> null", () => {
     expect(ownerOverrideTarget("openai", "org")).toBeNull();

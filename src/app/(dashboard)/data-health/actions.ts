@@ -6,6 +6,7 @@ import { requireAdmin } from "@/lib/auth-guard";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { VENDOR_LABEL, type Vendor } from "@/lib/types";
 import { fetchEmployeesAll } from "@/lib/queries/common";
+import { isPseudoEntity } from "@/lib/pseudo-entities";
 import { buildFormerUserRow, ownerOverrideTarget } from "@/lib/former-users";
 
 /**
@@ -43,10 +44,10 @@ async function applyAssignment(
 
   const target = ownerOverrideTarget(source, entityKey);
   if (target) {
+    // Upsert (vendor-scoped): the key/project row may not exist yet.
     const { error: ovErr } = await supabase
       .from(target.table)
-      .update({ owner_override: employeeId })
-      .eq(target.column, entityKey);
+      .upsert({ vendor: source, [target.column]: entityKey, owner_override: employeeId }, { onConflict: target.conflict });
     if (ovErr) throw new Error(`assignUnmatched owner override: ${ovErr.message}`);
   }
   return data?.length ?? 0;
@@ -63,11 +64,17 @@ export async function assignUnmatched(
   employeeId: string,
 ): Promise<{ updated: number }> {
   await requireAdmin();
+  if (!Object.hasOwn(VENDOR_LABEL, source)) throw new Error("Unknown source");
+  if (!entityKey?.trim() || isPseudoEntity(entityKey)) throw new Error("This entity can't be assigned to a person");
   const supabase = getSupabaseAdminClient();
-  const updated = await applyAssignment(supabase, source, entityKey, employeeId);
-  updateTag(FACTS_TAG);
-  revalidatePath("/data");
-  return { updated };
+  try {
+    const updated = await applyAssignment(supabase, source, entityKey, employeeId);
+    return { updated };
+  } finally {
+    // Bust even when a later step threw: the facts update may already have landed.
+    updateTag(FACTS_TAG);
+    revalidatePath("/data");
+  }
 }
 
 /**
@@ -84,9 +91,11 @@ export async function addFormerUser(input: {
   left: string;
 }): Promise<{ ok: true; assignedRows: number } | { ok: false; error: string }> {
   await requireAdmin();
+  if (!Object.hasOwn(VENDOR_LABEL, input.source)) return { ok: false, error: "Unknown source" };
+  if (!input.entityKey?.trim()) return { ok: false, error: "Missing entity key" };
+  if (isPseudoEntity(input.entityKey)) return { ok: false, error: "This entity can't be assigned to a person" };
+  let wrote = false;
   try {
-    if (!input.source || !(input.source in VENDOR_LABEL)) return { ok: false, error: "Unknown source" };
-    if (!input.entityKey?.trim()) return { ok: false, error: "Missing entity key" };
 
     const supabase = getSupabaseAdminClient();
     const emps = await fetchEmployeesAll(supabase, "email, department");
@@ -102,6 +111,7 @@ export async function addFormerUser(input: {
 
     const { data: created, error } = await supabase.from("employees").insert(built.row).select("id").single();
     if (error || !created) return { ok: false, error: `Could not create the person: ${error?.message ?? "no row"}` };
+    wrote = true;
     const employeeId = created.id as string;
 
     let assignedRows = await applyAssignment(supabase, input.source, input.entityKey, employeeId);
@@ -116,10 +126,14 @@ export async function addFormerUser(input: {
     if (restErr) throw new Error(`addFormerUser: ${restErr.message}`);
     assignedRows += rest?.length ?? 0;
 
-    updateTag(FACTS_TAG);
-    revalidatePath("/data");
     return { ok: true, assignedRows };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  } finally {
+    // Once the person exists the page is stale even if a later step failed.
+    if (wrote) {
+      updateTag(FACTS_TAG);
+      revalidatePath("/data");
+    }
   }
 }

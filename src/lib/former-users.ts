@@ -59,17 +59,18 @@ export function buildFormerUserRow(
   };
 }
 
+export type OwnerOverrideTarget =
+  | { table: "api_keys"; column: "external_key_id"; conflict: "vendor,external_key_id" }
+  | { table: "projects"; column: "external_id"; conflict: "vendor,external_id" };
+
 /**
  * Where a durable owner override lives for a source's entity key, if anywhere.
  * Anthropic keys and OpenAI projects are re-derived from their creator/owner on
  * every sync; the override is what makes a manual assignment survive that.
  * Other sources match by email, so the identities row is enough.
  */
-export function ownerOverrideTarget(
-  source: Vendor,
-  entityKey: string,
-): { table: "api_keys"; column: "external_key_id" } | { table: "projects"; column: "external_id" } | null {
-  if (source === "anthropic") return { table: "api_keys", column: "external_key_id" };
-  if (source === "openai" && entityKey !== "org") return { table: "projects", column: "external_id" };
+export function ownerOverrideTarget(source: Vendor, entityKey: string): OwnerOverrideTarget | null {
+  if (source === "anthropic") return { table: "api_keys", column: "external_key_id", conflict: "vendor,external_key_id" };
+  if (source === "openai" && entityKey !== "org") return { table: "projects", column: "external_id", conflict: "vendor,external_id" };
   return null;
 }

@@ -53,9 +53,13 @@ export function UnmatchedQueue({
       try {
         const res = await addFormerUser({ source: r.source, entityKey: r.entityKey, ...f });
         if (res.ok) router.refresh();
-        else setFormErrors((e) => ({ ...e, [key]: res.error }));
+        else {
+          setFormErrors((e) => ({ ...e, [key]: res.error }));
+          router.refresh(); // the person may have been created before a later step failed
+        }
       } catch (err) {
         setFormErrors((e) => ({ ...e, [key]: err instanceof Error ? err.message : String(err) }));
+        router.refresh();
       } finally {
         setBusy(null);
       }
@@ -74,6 +78,7 @@ export function UnmatchedQueue({
         router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
+        router.refresh();
       } finally {
         // try/finally: a failed action must not leave the button stuck on "…".
         setBusy(null);

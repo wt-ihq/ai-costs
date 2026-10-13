@@ -81,6 +81,14 @@ export async function loadApiKeyOwners(supabase: SupabaseClient): Promise<Map<st
   return new Map(rows.map((k) => [k.external_key_id, k.owner_override ?? k.owner_employee_id]));
 }
 
+/** Admin-set owner overrides only (external key id → employee), paginated. Never written by syncs. */
+export async function loadApiKeyOverrides(supabase: SupabaseClient): Promise<Map<string, string>> {
+  const rows = await selectAllRows<{ external_key_id: string; owner_override: string | null }>(
+    supabase, "api_keys", "id, external_key_id, owner_override", "loadApiKeyOverrides",
+  );
+  return new Map(rows.filter((k) => k.owner_override).map((k) => [k.external_key_id, k.owner_override as string]));
+}
+
 export async function loadProjectOwners(supabase: SupabaseClient): Promise<Map<string, string | null>> {
   const rows = await selectAllRows<{ external_id: string; owner_employee_id: string | null; owner_override: string | null }>(
     supabase, "projects", "id, external_id, owner_employee_id, owner_override", "loadProjectOwners",
