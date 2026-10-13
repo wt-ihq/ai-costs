@@ -12,6 +12,7 @@ import { fetchOpenAICost, type OpenAIFetcher } from "@/lib/ingest/sources/openai
 import {
   attachOwners,
   finishSyncRun,
+  loadApiKeyOverrides,
   loadEmployees,
   loadProjectOwners,
   replaceWindowFacts,
@@ -80,12 +81,16 @@ export async function syncAnthropic(
       if (error) console.warn(`syncAnthropic api_keys upsert: ${error.message}`);
     }
 
+    // An admin's manual assignment (api_keys.owner_override) wins over the creator.
+    // The upsert above never writes that column, so it survives re-syncs.
+    const overrides = await loadApiKeyOverrides(supabase);
+
     // 4. Build facts (entity = api key id, or "unkeyed" for Workbench usage).
     const unmatched = new Set<string>();
     const facts: ResolvedFact[] = estimates
       .filter((e) => e.costUsd > 0)
       .map((e) => {
-        const employeeId = empOf(e.apiKeyId);
+        const employeeId = (e.apiKeyId ? overrides.get(e.apiKeyId) : undefined) ?? empOf(e.apiKeyId);
         const entityKey = e.apiKeyId ?? "unkeyed";
         if (!employeeId) unmatched.add(entityKey);
         return { source: "anthropic", day: e.day, costType: "metered", entityKey, costUsd: e.costUsd, model: e.model, employeeId };

@@ -2,6 +2,7 @@ import React from "react";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { pseudoExplanation, splitSeatUsageCoverage, type SourceHealth } from "@/lib/queries/data-health";
 import { getDataHealthCached } from "@/lib/queries/cached";
+import { fetchEmployeesAll } from "@/lib/queries/common";
 import { getCursorReconciliation } from "@/lib/queries/cursor-reconciliation";
 import { Panel } from "@/components/ui";
 import { UnmatchedQueue } from "@/components/unmatched-queue";
@@ -74,10 +75,13 @@ function LatestData({ s }: { s: SourceHealth }) {
 
 export async function HealthTab() {
   const supabase = getSupabaseAdminClient();
-  const [{ identity, sources, otherTools, unmatched, pseudo, employees, noDepartment }, reconciliation] = await Promise.all([
+  const [{ identity, sources, otherTools, unmatched, pseudo, employees, noDepartment }, reconciliation, deptRows] = await Promise.all([
     getDataHealthCached(),
     getCursorReconciliation(supabase),
+    // Read separately (not in the cached payload) so the cached shape is unchanged.
+    fetchEmployeesAll(supabase, "department"),
   ]);
+  const departments = [...new Set(deptRows.map((e) => e.department as string | null).filter((d): d is string => !!d))].sort();
   const now = new Date();
   // Flag a drift > $1 and > 2% as worth a look; otherwise it reconciles.
   const reconOff =
@@ -209,7 +213,7 @@ export async function HealthTab() {
         <p className="mb-4 text-xs text-muted">
           Spend that didn&rsquo;t resolve to an employee. Assigning records an identity so future imports match automatically.
         </p>
-        <UnmatchedQueue rows={unmatched} employees={employees} />
+        <UnmatchedQueue rows={unmatched} employees={employees} departments={departments} />
       </Panel>
 
       {pseudo.length > 0 && (
