@@ -173,6 +173,30 @@ export function planEmployeeUpserts(
 }
 
 /** Upsert employees from Okta (the identity spine): existing rows by okta_id/email → update by id; new people → insert. */
+/**
+ * Delete the employee rows of Okta accounts the sync now skips (normalizers/okta.ts:SKIPPED_OKTA_TITLES),
+ * so one stored before the skip existed stops counting as a person. One row at a time: every foreign
+ * key to employees from spend, keys, seats and sends is NO ACTION, so a row anything still references
+ * fails to delete and is kept (reported in `kept`) — never losing attributed history. Subscriptions
+ * and Slack lookups cascade with it.
+ */
+export async function removeSkippedEmployees(
+  supabase: SupabaseClient,
+  oktaIds: string[],
+): Promise<{ removed: number; kept: string[] }> {
+  if (oktaIds.length === 0) return { removed: 0, kept: [] };
+  const { data, error } = await supabase.from("employees").select("id, okta_id").in("okta_id", oktaIds);
+  if (error) throw new Error(`removeSkippedEmployees: ${error.message}`);
+  let removed = 0;
+  const kept: string[] = [];
+  for (const row of (data ?? []) as { id: string; okta_id: string }[]) {
+    const { error: delErr } = await supabase.from("employees").delete().eq("id", row.id);
+    if (delErr) kept.push(row.okta_id);
+    else removed++;
+  }
+  return { removed, kept };
+}
+
 export async function upsertEmployees(
   supabase: SupabaseClient,
   rows: Record<string, unknown>[],
