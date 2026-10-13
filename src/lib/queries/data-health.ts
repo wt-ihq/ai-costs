@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { VENDOR_LABEL, type CostType, type Vendor } from "@/lib/types";
 import { fetchEmployeesAll } from "./common";
+import { isPseudoEntity } from "@/lib/pseudo-entities";
 
 interface HealthFact { source: string; day: string; cost_type: CostType; entity_key: string; cost_usd: number; employee_id: string | null; model: string | null; department: string | null }
 
@@ -106,21 +107,8 @@ export interface UnmatchedEntity {
   rows: number;
 }
 
-/**
- * By-design person-less entity keys. They carry real spend but must never be
- * offered for assignment — attributing them to an individual would be wrong.
- */
-export function isPseudoEntity(entityKey: string): boolean {
-  return entityKey.startsWith("unassigned seats") || entityKey === "unkeyed" || entityKey === "org";
-}
-
-/** One-line explanation for a pseudo-entity, shown beside its spend. */
-export function pseudoExplanation(entityKey: string): string {
-  if (entityKey.startsWith("unassigned seats")) return "Seat spend beyond known members — backfilled months without member data";
-  if (entityKey === "unkeyed") return "Anthropic days with cost but no per-key usage rows to allocate";
-  if (entityKey === "org") return "OpenAI org-level costs not tied to a project";
-  return "";
-}
+// Moved to a client-safe module so Explore's label uses the same rule; re-exported for existing importers.
+export { isPseudoEntity, pseudoExplanation } from "@/lib/pseudo-entities";
 
 /** The identity spine (Okta) — has no spend facts, but its own freshness. */
 export interface IdentityHealth {

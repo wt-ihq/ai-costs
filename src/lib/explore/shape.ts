@@ -5,6 +5,7 @@ import type { Dim, TrendPoint, TreemapNode, RankRow, RankSegment, Scorecard } fr
 import { enumerateBuckets, type Period, type Bucket } from "./period";
 import { UNASSIGNED_PREFIX } from "@/lib/ingest/seat-months";
 import { formatPeople } from "@/lib/utils";
+import { isPseudoEntity } from "@/lib/pseudo-entities";
 
 export interface ShapeFact {
   day: string;
@@ -270,14 +271,19 @@ export function rankTeams(rows: ShapeFact[], headcounts: Map<string, number>, to
   if (unattributed.length > 0) {
     // Describe what is actually IN this row (which is period/vendor-filtered),
     // not global roster stats: matched people lacking a department, unassigned
-    // tools/Vercel projects (team-level charges), and unmatched entity keys.
+    // tools/Vercel projects (team-level charges), unmatched entity keys, and
+    // by-design person-less costs (OpenAI org, Anthropic unkeyed) — which Data
+    // files under "Not person-attributable", NOT the unmatched queue.
     const people = new Set(unattributed.filter((r) => r.employeeId).map((r) => r.employeeId)).size;
     const projectish = unattributed.some((r) => !r.employeeId && isPersonLess(r));
-    const unmatched = unattributed.some((r) => !r.employeeId && !isPersonLess(r));
+    const keyless = unattributed.filter((r) => !r.employeeId && !isPersonLess(r));
+    const unmatched = keyless.some((r) => !isPseudoEntity(r.entityKey));
+    const notAPerson = keyless.some((r) => isPseudoEntity(r.entityKey));
     const parts = [
       people ? `${formatPeople(people)} without a department` : "",
       projectish ? "unassigned projects & team-level charges — see Data" : "",
       unmatched ? "unmatched keys — see Data" : "",
+      notAPerson ? "costs not tied to a person — see Data" : "",
     ].filter(Boolean);
     teams.push({
       id: UNATTRIBUTED,

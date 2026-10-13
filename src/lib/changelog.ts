@@ -11,6 +11,13 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-10-13",
+    title: "Clearer \"Unattributed\" row",
+    items: [
+      "Explore's Unattributed row now tells unmatched keys (which you can assign to someone on Data) apart from costs that belong to no one, such as OpenAI's organisation-level charges — those are listed under \"Not person-attributable\" on Data.",
+    ],
+  },
+  {
     date: "2026-10-09",
     title: "A company-wide AI spend report in Slack",
     items: [

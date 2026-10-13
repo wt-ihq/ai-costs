@@ -289,6 +289,20 @@ describe("rankTeams — Shared seats split", () => {
     const un = r.find((x) => x.id === "Unattributed");
     expect(un?.sub).toBe("1 person without a department · unassigned projects & team-level charges — see Data");
   });
+
+  it("Unattributed names by-design person-less costs (OpenAI org, Anthropic unkeyed) apart from unmatched keys", () => {
+    // Data Health files these under "Not person-attributable", never in the
+    // unmatched queue — so the label must not send people looking for them there.
+    const orgFact: ShapeFact = {
+      day: "2026-06-01", source: "openai", costType: "metered", costUsd: 1500,
+      employeeId: null, department: null, fullName: null, entityKey: "org", model: "",
+    };
+    const onlyOrg = rankTeams([...june, orgFact], new Map([["Eng", 2]])).find((x) => x.id === "Unattributed");
+    expect(onlyOrg?.sub).toBe("costs not tied to a person — see Data");
+
+    const both = rankTeams([...june, orgFact, seatFact("ghost@nowhere.com", 10)], new Map([["Eng", 2]])).find((x) => x.id === "Unattributed");
+    expect(both?.sub).toBe("unmatched keys — see Data · costs not tied to a person — see Data");
+  });
 });
 
 describe("tool-aware vendor dimension", () => {
