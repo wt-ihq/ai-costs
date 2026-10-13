@@ -1,6 +1,6 @@
 import { companyDigestFor, digestFor, loadNotifyContext, teamDigestFor } from "./context";
 import { isCompanyDigest, isTeamDigest } from "./digest";
-import { deliverCompanyDigest, deliverDigest, deliverTeamDigest, resolveSlackUser, type RenderChart } from "./deliver";
+import { deliverCompanyDigest, deliverDigest, deliverTeamDigest, loadDashboardAccess, resolveSlackUser, type RenderChart } from "./deliver";
 import { periodFor } from "./schedule";
 import type { SlackClient } from "./slack-client";
 import type { TestSubject, TestTarget } from "./subject";
@@ -16,6 +16,7 @@ export interface TestSendDeps {
   now: Date;
   baseUrl: string;
   actorEmail: string; // the signed-in admin
+  adminEmails: readonly string[]; // ADMIN_EMAILS: with the access list, who gets the dashboard button and links
   log?: (m: string) => void;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -116,7 +117,9 @@ export async function sendTest(deps: TestSendDeps, input: { subject: unknown; ca
       subject.kind === "company"
         ? companyTestBanner(adminName, cadence)
         : testBanner({ adminName, subjectName, cadence, toSubject: subjectId !== null && target.id === subjectId });
-    const send = { slack: deps.slack, renderChart: deps.renderChart, slackUserId, banner, log: deps.log, sleep: deps.sleep };
+    // Links follow whoever receives the test, as a scheduled send's follow its recipient.
+    const links = (await loadDashboardAccess(deps.store, deps.adminEmails, log))(target.email);
+    const send = { slack: deps.slack, renderChart: deps.renderChart, slackUserId, banner, links, log: deps.log, sleep: deps.sleep };
     if (isCompanyDigest(digest)) await deliverCompanyDigest({ ...send, digest });
     else if (isTeamDigest(digest)) await deliverTeamDigest({ ...send, digest });
     else await deliverDigest({ ...send, digest });

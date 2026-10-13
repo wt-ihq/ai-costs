@@ -12,7 +12,8 @@ import { renderChartPng } from "@/lib/notify/chart-image";
 import type { ChartLayout } from "@/lib/notify/chart";
 import { companyDigestFor, digestFor, loadNotifyContext, teamDigestFor } from "@/lib/notify/context";
 import { fixedCostsFor, fixedCostsForTeam, type FixedCostChoice } from "@/lib/notify/fixed-costs";
-import { chartLayoutsFor, chartLayoutsForCompany, chartLayoutsForTeam } from "@/lib/notify/deliver";
+import { chartLayoutsFor, chartLayoutsForCompany, chartLayoutsForTeam, loadDashboardAccess } from "@/lib/notify/deliver";
+import { parseAdminEmails } from "@/lib/dashboard-access";
 import { isCompanyDigest, isTeamDigest } from "@/lib/notify/digest";
 import { renderCompanyDigest, renderDigest, renderTeamDigest, type SlackBlock } from "@/lib/notify/render";
 import { defaultPreviewKey, periodFor, stepKey } from "@/lib/notify/schedule";
@@ -31,6 +32,7 @@ interface PreviewState {
   key: string;
   label: string;
   fixedCosts: FixedCostChoice | null; // which setting the digest was built with, and why; null = the company report (its own section)
+  links: boolean; // a person's preview: whether they get the dashboard button and links (team/company: shown as people with access get it)
   prevKey: string | null;
   nextKey: string | null;
   blocks: SlackBlock[] | null; // null = nothing to send (daily with no usage)
@@ -52,7 +54,11 @@ async function loadPreview(p: NotificationsParams): Promise<PreviewState | null>
     key = defaultPreviewKey(cadence, now);
     period = periodFor(cadence, key, now);
   }
-  const ctx = await loadNotifyContext(supabaseNotifyStore(getSupabaseAdminClient()), now, appBaseUrl(), { earliest: period.buckets[0].from });
+  const store = supabaseNotifyStore(getSupabaseAdminClient());
+  const [ctx, canOpenDashboard] = await Promise.all([
+    loadNotifyContext(store, now, appBaseUrl(), { earliest: period.buckets[0].from }),
+    loadDashboardAccess(store, parseAdminEmails(process.env.ADMIN_EMAILS), console.error),
+  ]);
   let subject: TestSubject;
   if (personId) subject = { kind: "person", employeeId: personId };
   else if (p.team && activeDepartments(ctx.employees).includes(p.team)) subject = { kind: "team", department: p.team };
@@ -73,6 +79,7 @@ async function loadPreview(p: NotificationsParams): Promise<PreviewState | null>
       : subject.kind === "team" ? fixedCostsForTeam(ctx.fixedCosts, subject.department)
       : null,
     prevKey: stepKey(cadence, key, -1, now), nextKey: stepKey(cadence, key, 1, now),
+    links: subject.kind !== "person" || (person !== undefined && canOpenDashboard(person.email)),
   };
   if (!digest) return { ...base, blocks: null, images: {} };
   const layouts: Record<string, ChartLayout | undefined> = isCompanyDigest(digest)
@@ -90,9 +97,10 @@ async function loadPreview(p: NotificationsParams): Promise<PreviewState | null>
       // Best-effort, like the cron: the section renders without its chart.
     }
   }
+  const opts = { links: base.links };
   const rendered = isCompanyDigest(digest)
-    ? renderCompanyDigest(digest, files)
-    : isTeamDigest(digest) ? renderTeamDigest(digest, files) : renderDigest(digest, files);
+    ? renderCompanyDigest(digest, files, opts)
+    : isTeamDigest(digest) ? renderTeamDigest(digest, files, opts) : renderDigest(digest, files, opts);
   return { ...base, blocks: rendered.blocks, images };
 }
 
@@ -224,6 +232,15 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
                 ) : (
                   <>Seats &amp; subscriptions: <span className="text-foreground">their own section</span> (the company report always shows them apart from usage)</>
                 )}
+                <br />
+                Dashboard button &amp; links:{" "}
+                {preview.subject.kind !== "person" ? (
+                  <><span className="text-foreground">shown</span> (people without dashboard access get it without them)</>
+                ) : preview.links ? (
+                  <span className="text-foreground">shown</span>
+                ) : (
+                  <><span className="text-foreground">hidden</span> ({preview.name} can&apos;t open the dashboard; see the Access tab)</>
+                )}
               </p>
               {preview.blocks ? (
                 <>
@@ -251,9 +268,9 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
         <p className="mb-4 text-xs text-muted">
           Opened from Slack ({OPEN_RATE_DAYS} days):{" "}
           <span className="text-foreground">
-            {data.opens.sent === 0 ? "no live digests yet" : `${data.opens.opened} of ${data.opens.sent} live messages, personal and company (${Math.round((data.opens.opened / data.opens.sent) * 100)}%)`}
+            {data.opens.sent === 0 ? "no live digests with the button yet" : `${data.opens.opened} of ${data.opens.sent} live messages with the button, personal and company (${Math.round((data.opens.opened / data.opens.sent) * 100)}%)`}
           </span>
-          {" "}— counted when someone clicks a digest&apos;s Open in dashboard button. Test sends aren&apos;t tracked.
+          {" "}— counted when someone clicks a digest&apos;s Open in dashboard button, which only people with dashboard access get. Test sends aren&apos;t tracked.
         </p>
         {data.sends.length === 0 ? <p className="text-sm text-muted">Nothing yet.</p> : (
           <div className="overflow-x-auto rounded-lg border border-border">

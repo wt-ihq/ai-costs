@@ -220,10 +220,17 @@ describe("chartLayoutsForCompany", () => {
 describe("deliverCompanyDigest", () => {
   it("uploads the company chart and DMs the report with its tracked link", async () => {
     const s = fakeSlack();
-    const ts = await deliverCompanyDigest({ ...args(s.client), digest: companyDigest, openUrl: "https://x.test/api/digest/open/abc" });
+    const ts = await deliverCompanyDigest({ ...args(s.client), digest: companyDigest, openUrl: "https://x.test/api/digest/open/abc", links: true });
     expect(ts).toBe("ts1");
     expect(s.uploads).toEqual([{ name: "ai-spend-company.png", title: "COMPANY (2 PEOPLE) · USAGE, 21–27 SEP 2026" }]);
     expect(JSON.stringify(s.posts[0].blocks[0])).toContain("Company AI spend");
     expect(JSON.stringify(s.posts[0].blocks.at(-1))).toContain("https://x.test/api/digest/open/abc");
+  });
+
+  it("without dashboard access the report carries no button and no links", async () => {
+    const s = fakeSlack();
+    await deliverCompanyDigest({ ...args(s.client), digest: companyDigest, openUrl: "https://x.test/api/digest/open/abc" });
+    expect(s.posts[0].blocks.some((b) => (b as { type: string }).type === "actions")).toBe(false);
+    expect(JSON.stringify(s.posts[0].blocks)).not.toContain("https://x.test");
   });
 });

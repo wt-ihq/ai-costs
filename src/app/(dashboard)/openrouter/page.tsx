@@ -1,3 +1,4 @@
+import { requireDashboardAccess } from "@/lib/auth-guard";
 import { getOpenRouterScopeCached } from "@/lib/queries/cached";
 import { OpenRouterView } from "@/components/openrouter/openrouter-view";
 import { PageHeader } from "@/components/ui";
@@ -5,6 +6,7 @@ import { PageHeader } from "@/components/ui";
 export const dynamic = "force-dynamic";
 
 export default async function OpenRouterPage({ searchParams }: { searchParams: Promise<{ period?: string }> }) {
+  await requireDashboardAccess();
   const sp = await searchParams;
   const scope = await getOpenRouterScopeCached();
   return (

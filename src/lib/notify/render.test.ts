@@ -29,7 +29,7 @@ const digest = (over: Partial<Digest> = {}): Digest => ({
 const mrk = (b: Record<string, unknown>) => (b.text as { text: string }).text;
 
 describe("renderDigest", () => {
-  const { blocks, text } = renderDigest(digest(), { you: "F1", reports: "F2" });
+  const { blocks, text } = renderDigest(digest(), { you: "F1", reports: "F2" }, { links: true });
 
   it("leads with a header naming the period", () => {
     expect(blocks[0]).toEqual({ type: "header", text: { type: "plain_text", text: "📊 Your AI spend · 21–27 Sep 2026", emoji: true } });
@@ -110,9 +110,20 @@ describe("renderDigest", () => {
   });
 
   it("points the dashboard button at the tracked open link when one is given", () => {
-    const tracked = renderDigest(digest(), {}, { openUrl: "https://x.test/api/digest/open/abc" }).blocks.at(-1);
+    const tracked = renderDigest(digest(), {}, { links: true, openUrl: "https://x.test/api/digest/open/abc" }).blocks.at(-1);
     expect(tracked).toMatchObject({ type: "actions", elements: [{ url: "https://x.test/api/digest/open/abc" }] });
-    expect(renderDigest(digest(), {}).blocks.at(-1)).toMatchObject({ elements: [{ url: "https://x.test/explore/Engineering/m" }] });
+    expect(renderDigest(digest(), {}, { links: true }).blocks.at(-1)).toMatchObject({ elements: [{ url: "https://x.test/explore/Engineering/m" }] });
+  });
+
+  it("without dashboard access (the default): no button, no links, names as plain escaped text, same figures", () => {
+    const off = renderDigest(digest(), { you: "F1", reports: "F2" });
+    expect(off.blocks.some((b) => b.type === "actions")).toBe(false);
+    expect(JSON.stringify(off.blocks)).not.toContain("https://");
+    expect(off.blocks.some((b) => b.type === "section" && mrk(b) === "Alex Kim $140 · Tom &amp; &lt;Jerry&gt; $96.00 · +9 others $175")).toBe(true);
+    expect(off.text).toBe(text);
+    // Everything else is identical, less the button.
+    const others = (bs: Record<string, unknown>[]) => bs.filter((b) => !(b.type === "section" && mrk(b).includes("Alex Kim")));
+    expect(others(off.blocks)).toEqual(others(blocks).slice(0, -1));
   });
 
   it("people without reports get no reports section", () => {
@@ -140,7 +151,7 @@ const teamDigest = (over: Partial<TeamDigest> = {}): TeamDigest => ({
 });
 
 describe("renderTeamDigest", () => {
-  const { blocks, text } = renderTeamDigest(teamDigest(), { team: "F1" });
+  const { blocks, text } = renderTeamDigest(teamDigest(), { team: "F1" }, { links: true });
 
   it("leads with a header naming the department and period (plain text: not escaped)", () => {
     expect(blocks[0]).toEqual({ type: "header", text: { type: "plain_text", text: "📊 AI spend · R&D <Ops> · 21–27 Sep 2026", emoji: true } });
@@ -173,6 +184,13 @@ describe("renderTeamDigest", () => {
     });
   });
 
+  it("without dashboard access (the default): no button and plain names", () => {
+    const off = renderTeamDigest(teamDigest(), { team: "F1" }).blocks;
+    expect(off.some((b) => b.type === "actions")).toBe(false);
+    expect(JSON.stringify(off)).not.toContain("https://");
+    expect(mrk(off[3])).toBe("Alex Kim $140 · Tom &amp; &lt;Jerry&gt; $96.00 · +9 others $175");
+  });
+
   it("has a plain-text fallback carrying the headline figure", () => {
     expect(text).toBe("AI spend · R&amp;D &lt;Ops&gt; · 21–27 Sep 2026: team $612 usage"); // `text` is parsed as mrkdwn by Slack
   });
@@ -183,7 +201,7 @@ describe("renderTeamDigest", () => {
 
   describe("top-people line", () => {
     const line = (over: Partial<TeamDigest["team"]>, period?: TeamDigest["period"]) =>
-      mrk(renderTeamDigest(teamDigest({ ...(period ? { period } : {}), team: { ...teamDigest().team, ...over } }), {}).blocks[2]);
+      mrk(renderTeamDigest(teamDigest({ ...(period ? { period } : {}), team: { ...teamDigest().team, ...over } }), {}, { links: true }).blocks[2]);
     const alex = "<https://x.test/explore/R%26D/a|Alex Kim> $140";
     const tom = "<https://x.test/explore/R%26D/t|Tom &amp; &lt;Jerry&gt;> $96.00";
 
@@ -310,7 +328,7 @@ const companyDigest = (over: Partial<CompanyDigest> = {}): CompanyDigest => ({
 });
 
 describe("renderCompanyDigest", () => {
-  const { blocks, text } = renderCompanyDigest(companyDigest(), { company: "F1" });
+  const { blocks, text } = renderCompanyDigest(companyDigest(), { company: "F1" }, { links: true });
   const fixedAt = (b: Record<string, unknown>[]) => b.findIndex((x) => x.type === "section" && mrk(x).startsWith("*SEATS"));
 
   it("leads with the company header", () => {
@@ -383,8 +401,18 @@ describe("renderCompanyDigest", () => {
   it("ends with caveats and a button to the Company page, or the send's tracked link", () => {
     expect(blocks.at(-2)).toEqual({ type: "context", elements: [{ type: "mrkdwn", text: "⚠ Cursor data may be incomplete (last synced 26 Sep)" }] });
     expect(blocks.at(-1)).toMatchObject({ type: "actions", elements: [{ type: "button", url: "https://x.test/explore" }] });
-    const tracked = renderCompanyDigest(companyDigest(), {}, { openUrl: "https://x.test/api/digest/open/abc" }).blocks.at(-1);
+    const tracked = renderCompanyDigest(companyDigest(), {}, { links: true, openUrl: "https://x.test/api/digest/open/abc" }).blocks.at(-1);
     expect(tracked).toMatchObject({ elements: [{ url: "https://x.test/api/digest/open/abc" }] });
+  });
+
+  it("without dashboard access (the default): no button, plain team and people names", () => {
+    const off = renderCompanyDigest(companyDigest(), { company: "F1" }).blocks;
+    expect(off.some((b) => b.type === "actions")).toBe(false);
+    expect(JSON.stringify(off)).not.toContain("https://");
+    expect(mrk(off[3])).toBe(
+      "Engineering $212 · R&amp;D &lt;Ops&gt; $108 · unattributed $20.00\n" +
+        "Alex Kim $140 · +3 others $168 · not tied to a person $32.00",
+    );
   });
 
   it("has an escaped plain-text fallback with both figures, and takes the preview line", () => {

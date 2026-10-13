@@ -49,7 +49,7 @@ export interface NotificationsAdminData {
   activePeople: PersonOption[]; // every active employee — the preview and test-send pickers
   departments: string[];
   fixedCosts: FixedCostSettings;
-  /** Live digests sent in the last OPEN_RATE_DAYS, and how many were opened from the "Open in dashboard" button. */
+  /** Live digests with the "Open in dashboard" button sent in the last OPEN_RATE_DAYS, and how many were opened from it. */
   opens: { sent: number; opened: number };
 }
 
@@ -140,7 +140,8 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
     supabase.from("notification_sends").select("employee_id, cadence, period_key, mode, report, status, detail, updated_at, opened_at").order("updated_at", { ascending: false }).order("id").limit(200),
     supabaseNotifyStore(supabase).fixedCostSettings(),
     pageAll<{ mode: string; status: string; opened_at: string | null }>(
-      (a, b) => supabase.from("notification_sends").select("mode, status, opened_at").eq("mode", "live").eq("status", "sent").gte("updated_at", opensSince).order("id").range(a, b),
+      // Only messages that had the button: people without dashboard access get none, so can't open one.
+      (a, b) => supabase.from("notification_sends").select("mode, status, opened_at").eq("mode", "live").eq("status", "sent").eq("dashboard_link", true).gte("updated_at", opensSince).order("id").range(a, b),
       "notification_sends(opens)",
     ),
   ]);

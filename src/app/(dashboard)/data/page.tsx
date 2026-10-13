@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/ui";
-import { getRole } from "@/lib/auth-guard";
+import { requireDashboardAccess } from "@/lib/auth-guard";
 import { cn } from "@/lib/utils";
 import { HealthTab } from "./health-tab";
 import { ImportsTab } from "./imports-tab";
 import { ToolsTab } from "./tools-tab";
 import { SyncTab } from "./sync-tab";
 import { NotificationsTab } from "./notifications-tab";
+import { AccessTab } from "./access-tab";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ const TABS = [
   { key: "tools", label: "Tools & projects", admin: true, subtitle: "Recurring tool costs and Vercel project → department mapping." },
   { key: "sync", label: "Sync", admin: true, subtitle: "Manual sync trigger and backfill controls." },
   { key: "notifications", label: "Notifications", admin: true, subtitle: "Slack spend digests: pilot recipients, cadences, previews and the send log." },
+  { key: "access", label: "Access", admin: true, subtitle: "Who can open the dashboard: admins always, everyone else only when listed here." },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
@@ -25,7 +27,7 @@ type TabKey = (typeof TABS)[number]["key"];
  * own data — the old single Imports page fetched every section at once.
  */
 export default async function DataPage({ searchParams }: { searchParams: Promise<{ tab?: string; preview?: string; team?: string; company?: string; cadence?: string; at?: string }> }) {
-  const isAdmin = (await getRole()) === "admin";
+  const isAdmin = (await requireDashboardAccess()) === "admin";
   const sp = await searchParams;
   const requested = sp.tab as TabKey | undefined;
   const visible = TABS.filter((t) => !t.admin || isAdmin);
@@ -56,6 +58,7 @@ export default async function DataPage({ searchParams }: { searchParams: Promise
       {active.key === "imports" && <ImportsTab />}
       {active.key === "tools" && <ToolsTab />}
       {active.key === "sync" && <SyncTab />}
+      {active.key === "access" && <AccessTab />}
       {active.key === "notifications" && <NotificationsTab params={{ preview: sp.preview, team: sp.team, company: sp.company, cadence: sp.cadence, at: sp.at }} />}
     </>
   );

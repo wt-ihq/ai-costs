@@ -12,6 +12,14 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-10-13",
+    title: "Dashboard access by invitation",
+    items: [
+      "The dashboard is now open only to admins and to people an admin adds on the new Data → Access tab. Anyone else who signs in is asked to contact Workplace Tech.",
+      "Slack spend summaries show the Open in dashboard button and links to names only to people who can open the dashboard. Everyone else gets the same figures without them.",
+    ],
+  },
+  {
+    date: "2026-10-13",
     title: "Former users in Unmatched identities",
     items: [
       "On Data → Health you can now mark unmatched spend as a former user's: give their name, email, old team and (optionally) the month they left, and the spend moves out of the queue and shows under that team on Explore.",

@@ -30,8 +30,8 @@ const employees = [
 ];
 const facts = [fact("2026-09-22", 30, ID.mgr), fact("2026-09-23", 50, ID.rep), fact("2026-09-24", 96.5, ID.ds, "Data Science")];
 
-function setup(over: { employees?: NotifyEmployee[]; slack?: Partial<SlackClient> } = {}) {
-  const inner = memoryStore({ employees: over.employees ?? employees, facts }, () => NOW.getTime());
+function setup(over: { employees?: NotifyEmployee[]; slack?: Partial<SlackClient>; access?: string[] } = {}) {
+  const inner = memoryStore({ employees: over.employees ?? employees, facts, dashboardAccess: over.access }, () => NOW.getTime());
   const calls: string[] = [];
   // Any write to the send log is a bug: a test must neither block nor duplicate the scheduled send.
   const store = {
@@ -53,7 +53,7 @@ function setup(over: { employees?: NotifyEmployee[]; slack?: Partial<SlackClient
   const logs: string[] = [];
   const deps: TestSendDeps = {
     store, slack, renderChart: async () => new Uint8Array([1]) as Uint8Array<ArrayBuffer>, now: NOW, baseUrl: "https://x.test",
-    actorEmail: "gareth@x.com", log: (m) => logs.push(m), sleep: async () => {},
+    actorEmail: "gareth@x.com", adminEmails: ["gareth@x.com"], log: (m) => logs.push(m), sleep: async () => {},
   };
   return { deps, posts, calls, logs, inner };
 }
@@ -128,7 +128,7 @@ describe("sendTest — a person's digest", () => {
 
 describe("sendTest — a team's digest", () => {
   it("sends the department's digest to the chosen employee, marked with the department", async () => {
-    const t = setup();
+    const t = setup({ access: ["sam@x.com"] });
     const r = await sendTest(t.deps, { subject: team("Eng"), cadence: "weekly", periodKey: "2026-W39", to: { kind: "employee", employeeId: ID.ds } });
     expect(r).toEqual({ ok: true, sentTo: "Sam Lee" });
     const blocks = t.posts[0].blocks;
@@ -145,6 +145,13 @@ describe("sendTest — a team's digest", () => {
     expect(r).toEqual({ ok: true, sentTo: "Gareth Admin" });
     expect(t.posts[0].channel).toBe("D-U-gareth");
     expect(JSON.stringify(t.posts[0].blocks)).toContain("https://x.test/explore/Data%20Science");
+  });
+
+  it("links only for a receiver who can open the dashboard", async () => {
+    const t = setup();
+    await sendTest(t.deps, { subject: team("Eng"), cadence: "weekly", periodKey: "2026-W39", to: { kind: "employee", employeeId: ID.ds } });
+    expect(t.posts[0].blocks.some((b) => (b as { type: string }).type === "actions")).toBe(false);
+    expect(JSON.stringify(t.posts[0].blocks)).not.toContain("https://");
   });
 
   it("'this person' makes no sense for a team", async () => {

@@ -1,5 +1,5 @@
 import { companyDigestFor, digestFor, loadNotifyContext, syncRunsSince, type NotifyContext } from "./context";
-import { deliverCompanyDigest, deliverDigest, PostOutcomeUnknownError, resolveSlackUser, type RenderChart, type SlackRecipient } from "./deliver";
+import { deliverCompanyDigest, deliverDigest, loadDashboardAccess, PostOutcomeUnknownError, resolveSlackUser, type RenderChart, type SlackRecipient } from "./deliver";
 import type { CompanyDigest } from "./digest";
 import { monthlyReadiness, syncSucceededSince } from "./freshness";
 import { dueDigests, latestCompleteKey, MONTHLY_WINDOW, monthlyLastDay, sendDay, type DigestPeriod, type DueDigest } from "./schedule";
@@ -17,6 +17,8 @@ export interface RunNotifyDeps {
   /** A ?date= replay: everyone's day is that date and nobody waits for 10:30. */
   replay?: boolean;
   baseUrl: string;
+  /** ADMIN_EMAILS: with the access list, who gets the dashboard button and links. */
+  adminEmails: readonly string[];
   budgetMs?: number;
   clock?: () => number; // real elapsed time (budget, stale cutoff)
   log?: (m: string) => void;
@@ -158,13 +160,14 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
   if (!sendable.length) return done();
 
   const ctx = await loadNotifyContext(store, now, deps.baseUrl, { coverage, syncRuns, employees });
+  const canOpenDashboard = await loadDashboardAccess(store, deps.adminEmails, log);
   const companyDigests = new Map<string, CompanyDigest | null>(); // by period key: built once per period per run
   for (const w of sendable) {
     if (clock() - start > budget) {
       result.notReached++;
       continue;
     }
-    await sendOne(deps, w, ctx, result, { log, previewTarget, companyDigests });
+    await sendOne(deps, w, ctx, result, { log, previewTarget, companyDigests, canOpenDashboard });
   }
   return done();
 }
@@ -203,7 +206,12 @@ async function sendOne(
   w: { recipient: NotifyEmployee; cadence: Cadence; report: ReportKind; slackUser: SlackRecipient; period: DigestPeriod },
   ctx: NotifyContext,
   result: RunNotifyResult,
-  { log, previewTarget, companyDigests }: { log: (m: string) => void; previewTarget: NotifyEmployee | undefined; companyDigests: Map<string, CompanyDigest | null> },
+  { log, previewTarget, companyDigests, canOpenDashboard }: {
+    log: (m: string) => void;
+    previewTarget: NotifyEmployee | undefined;
+    companyDigests: Map<string, CompanyDigest | null>;
+    canOpenDashboard: (email: string) => boolean;
+  },
 ): Promise<void> {
   const { store, slack } = deps;
   const { recipient, cadence, period } = w;
@@ -215,10 +223,13 @@ async function sendOne(
     await store.finishSend(key, { status: "skipped", detail: "no usage" });
     result.skipped++;
   };
+  // Decided by the person it's for — in preview too, so the preview shows what they would get.
+  const links = canOpenDashboard(recipient.email);
   const common = {
     slack,
     renderChart: deps.renderChart,
     slackUserId: w.slackUser.slackUserId,
+    links,
     openUrl: `${deps.baseUrl}/api/digest/open/${sendId}`,
     log,
     sleep: deps.sleep,
@@ -241,7 +252,7 @@ async function sendOne(
       ts = await deliverDigest({ ...common, digest, previewFor: previewTarget ? `${recipient.fullName} (${cadence})` : undefined });
     }
     posted = true;
-    await store.finishSend(key, { status: "sent", slackTs: ts });
+    await store.finishSend(key, { status: "sent", slackTs: ts, dashboardLink: links });
     result.sent++;
   } catch (err) {
     if (posted) {

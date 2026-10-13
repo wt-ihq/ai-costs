@@ -6,7 +6,7 @@ import { SidebarShell } from "@/components/sidebar-shell";
 import { SearchBox } from "@/components/explore/search-box";
 import { WhatsNew } from "@/components/whats-new";
 import { getSearchIndexCached } from "@/lib/queries/cached";
-import { requireRole } from "@/lib/auth-guard";
+import { requireDashboardAccess } from "@/lib/auth-guard";
 import { SIDEBAR_COOKIE, isSidebarCollapsed } from "@/lib/sidebar";
 
 export default async function DashboardLayout({
@@ -14,7 +14,8 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const role = await requireRole();
+  // Before anything loads (the search index lists every employee). Each page checks again: see requireDashboardAccess.
+  const role = await requireDashboardAccess();
   const isAdmin = role === "admin";
   const searchIndex = await getSearchIndexCached();
   const sidebarCollapsed = isSidebarCollapsed((await cookies()).get(SIDEBAR_COOKIE)?.value);

@@ -1,8 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/auth";
-import { requireAdmin } from "@/lib/auth-guard";
+import { actorEmail, requireAdmin } from "@/lib/auth-guard";
+import { parseAdminEmails } from "@/lib/dashboard-access";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchEmployeesAll } from "@/lib/queries/common";
 import { addSubscriptions, removeSubscriptions, setFixedCostSetting, setSubscription } from "@/lib/notify/admin-store";
@@ -23,15 +23,6 @@ function cadencesOrThrow(input: unknown): Cadence[] {
 function idsOrThrow(input: unknown): string[] {
   if (!Array.isArray(input) || !input.length || input.length > MAX_BATCH || !input.every(isUuid)) throw new Error("Invalid people selection");
   return input;
-}
-
-/** The signed-in admin's email (dev bypass has no session: fall back to SLACK_PREVIEW_EMAIL in development only). */
-async function actorEmail(): Promise<string> {
-  const session = await auth().catch(() => null);
-  const email = session?.user?.email?.toLowerCase();
-  if (email) return email;
-  if (process.env.NODE_ENV === "development" && process.env.SLACK_PREVIEW_EMAIL) return process.env.SLACK_PREVIEW_EMAIL.toLowerCase();
-  throw new Error("No signed-in email");
 }
 
 export async function addRecipients(employeeIds: string[], cadences: string[]): Promise<{ added: number }> {
@@ -133,6 +124,7 @@ export async function sendTestDigest(subject: TestSubject, cadence: string, peri
         now: new Date(),
         baseUrl: appBaseUrl(),
         actorEmail: await actorEmail(),
+        adminEmails: parseAdminEmails(process.env.ADMIN_EMAILS),
       },
       { subject, cadence, periodKey, to },
     );

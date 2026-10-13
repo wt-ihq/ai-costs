@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isCronAuthorized } from "@/lib/cron-auth";
+import { parseAdminEmails } from "@/lib/dashboard-access";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { renderChartPng } from "@/lib/notify/chart-image";
 import { runNotify } from "@/lib/notify/run-notify";
@@ -39,6 +40,7 @@ export async function GET(req: Request) {
       now: runDate.now,
       replay: runDate.replay,
       baseUrl: appBaseUrl(),
+      adminEmails: parseAdminEmails(process.env.ADMIN_EMAILS),
     });
     return NextResponse.json({ ranAt: new Date().toISOString(), mode, ...result });
   } catch (err) {

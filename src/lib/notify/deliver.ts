@@ -1,3 +1,4 @@
+import { dashboardAccessFor } from "@/lib/dashboard-access";
 import { chartLayout, type ChartLayout } from "./chart";
 import type { CompanyDigest, Digest, TeamDigest } from "./digest";
 import { DEFAULT_TZ } from "./schedule";
@@ -51,6 +52,24 @@ async function uploadCharts(
     }
   }
   return files;
+}
+
+/**
+ * Who can open the dashboard, for showing its button and links (dashboard-access.ts). An unreadable
+ * list is logged and fails closed — admins only — rather than holding up the send.
+ */
+export async function loadDashboardAccess(
+  store: Pick<NotifyStore, "dashboardAccess">,
+  adminEmails: readonly string[],
+  log: (m: string) => void,
+): Promise<(email: string) => boolean> {
+  let allowlist: ReadonlySet<string> | null = null;
+  try {
+    allowlist = await store.dashboardAccess();
+  } catch (err) {
+    log(`[notify] dashboard access list unreadable, links for admins only: ${failureCode(err)}`);
+  }
+  return dashboardAccessFor(adminEmails, allowlist);
 }
 
 /** Ask Slack about a person again after a week: a not-found may have joined, a found one may have changed time zone. */
@@ -169,24 +188,25 @@ interface DeliverArgs {
   slackUserId: string;
   banner?: string; // admin test sends: a context line above the digest
   openUrl?: string; // scheduled sends: the tracked "Open in dashboard" link
+  links?: boolean; // the recipient can open the dashboard: show its button and links (RenderOpts.links)
   log?: (m: string) => void;
   sleep?: (ms: number) => Promise<void>;
 }
 
 /** A person's digest (the cron's send, the preview redirect, and admin test sends). */
 export function deliverDigest(args: DeliverArgs & { digest: Digest; previewFor?: string }): Promise<string> {
-  const { digest, previewFor, banner, openUrl } = args;
-  return deliverRendered({ ...args, layouts: chartLayoutsFor(digest), render: (files) => renderDigest(digest, files, { previewFor, banner, openUrl }) });
+  const { digest, previewFor, banner, openUrl, links } = args;
+  return deliverRendered({ ...args, layouts: chartLayoutsFor(digest), render: (files) => renderDigest(digest, files, { previewFor, banner, openUrl, links }) });
 }
 
 /** A whole team's digest (admin test sends only). */
 export function deliverTeamDigest(args: DeliverArgs & { digest: TeamDigest }): Promise<string> {
-  const { digest, banner } = args;
-  return deliverRendered({ ...args, layouts: chartLayoutsForTeam(digest), render: (files) => renderTeamDigest(digest, files, { banner }) });
+  const { digest, banner, links } = args;
+  return deliverRendered({ ...args, layouts: chartLayoutsForTeam(digest), render: (files) => renderTeamDigest(digest, files, { banner, links }) });
 }
 
 /** The whole-company report (the cron's company sends and admin test sends). */
 export function deliverCompanyDigest(args: DeliverArgs & { digest: CompanyDigest; previewFor?: string }): Promise<string> {
-  const { digest, previewFor, banner, openUrl } = args;
-  return deliverRendered({ ...args, layouts: chartLayoutsForCompany(digest), render: (files) => renderCompanyDigest(digest, files, { previewFor, banner, openUrl }) });
+  const { digest, previewFor, banner, openUrl, links } = args;
+  return deliverRendered({ ...args, layouts: chartLayoutsForCompany(digest), render: (files) => renderCompanyDigest(digest, files, { previewFor, banner, openUrl, links }) });
 }

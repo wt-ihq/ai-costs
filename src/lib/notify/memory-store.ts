@@ -14,6 +14,7 @@ export interface SendRow extends SendKey {
   detail: string | null;
   updatedAt: string;
   openedAt?: string | null;
+  dashboardLink?: boolean;
 }
 
 /** A seeded send row; `report` defaults to "personal" (rows written before the company report existed). */
@@ -30,6 +31,10 @@ export interface MemorySeed {
   sends?: SeedSendRow[];
   fixedCosts?: FixedCostSettings;
   snapshotAsOf?: Record<string, string>;
+  /** dashboard_access emails. */
+  dashboardAccess?: string[];
+  /** Make dashboardAccess() throw (the table unreadable). */
+  dashboardAccessFails?: boolean;
 }
 
 const same = (a: SendKey, b: SendKey) =>
@@ -74,6 +79,10 @@ export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.no
     toolColors: async () => ({}),
     recentSyncRuns: async (since) => (seed.syncRuns ?? []).filter((r) => r.startedAt >= since),
     fixedCostSettings: async () => seed.fixedCosts ?? NO_FIXED_COST_SETTINGS,
+    async dashboardAccess() {
+      if (seed.dashboardAccessFails) throw new Error("dashboard_access: simulated outage");
+      return new Set(seed.dashboardAccess ?? []);
+    },
     async importCoverage(nowMonth) {
       coverageCalls.push(nowMonth);
       return seed.coverage ?? [];
@@ -105,7 +114,7 @@ export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.no
         throw new Error("finishSend: simulated DB outage");
       }
       const row = sends.find((s) => same(s, key));
-      if (row) Object.assign(row, { status: r.status, slackTs: r.slackTs ?? null, detail: r.detail ?? null, updatedAt: nowIso() });
+      if (row) Object.assign(row, { status: r.status, slackTs: r.slackTs ?? null, detail: r.detail ?? null, updatedAt: nowIso(), ...(r.dashboardLink !== undefined ? { dashboardLink: r.dashboardLink } : {}) });
     },
     async expireStalePending(olderThan) {
       let n = 0;
