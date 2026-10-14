@@ -55,6 +55,7 @@ async function getPage<T>(url: string, token: string, label: string): Promise<{ 
 
 export interface OktaGroupMember {
   email: string; // lowercased profile.email (login fallback)
+  oktaId?: string; // the user's Okta id, when Okta sends it (run-okta.ts scopes the employee sync by it)
 }
 
 export type OktaGroupFetcher = (groupName: string) => Promise<OktaGroupMember[]>;
@@ -95,7 +96,7 @@ export const fetchOktaGroupMembers: OktaGroupFetcher = async (groupName) => {
     const { page, next }: { page: OktaUser[]; next: string | null } = await getPage<OktaUser>(url, token, "group users");
     for (const u of page) {
       const email = (u.profile?.email ?? u.profile?.login ?? "").trim().toLowerCase();
-      if (email) members.push({ email });
+      if (email) members.push({ email, ...(u.id ? { oktaId: u.id } : {}) });
     }
     url = next;
   }

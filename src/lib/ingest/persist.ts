@@ -173,23 +173,44 @@ export function planEmployeeUpserts(
 }
 
 /** Upsert employees from Okta (the identity spine): existing rows by okta_id/email → update by id; new people → insert. */
+/** Okta ids of every stored employee row that came from Okta (manual former users have none). */
+export async function fetchStoredOktaIds(supabase: SupabaseClient): Promise<Set<string>> {
+  const rows = await selectAllRows<{ okta_id: string | null }>(supabase, "employees", "id, okta_id", "fetchStoredOktaIds");
+  return new Set(rows.flatMap((r) => (r.okta_id ? [r.okta_id] : [])));
+}
+
 /**
- * Delete the employee rows of Okta accounts the sync now skips (normalizers/okta.ts:SKIPPED_OKTA_TITLES),
- * so one stored before the skip existed stops counting as a person. One row at a time: every foreign
- * key to employees from spend, keys, seats and sends is NO ACTION, so a row anything still references
- * fails to delete and is kept (reported in `kept`) — never losing attributed history. Subscriptions
- * and Slack lookups cascade with it.
+ * Delete the employee rows of Okta accounts the sync no longer includes (outside the people groups,
+ * or a bot by title — run-okta.ts), so they stop counting as people. One row at a time, and never
+ * a row with history:
+ * - every foreign key to employees from spend, keys, seats, identities and sends is NO ACTION, so a
+ *   row anything references fails to delete and is kept;
+ * - digest subscriptions and company-report places would CASCADE away silently, so a row on either
+ *   list is kept without trying.
+ * Kept rows are returned by Okta id. `oktaIds` is bounded by planOktaRemovals (at most half the
+ * stored accounts), which keeps each .in() read well under PostgREST's 1000-row cap.
  */
-export async function removeSkippedEmployees(
+export async function removeOktaEmployees(
   supabase: SupabaseClient,
   oktaIds: string[],
 ): Promise<{ removed: number; kept: string[] }> {
   if (oktaIds.length === 0) return { removed: 0, kept: [] };
   const { data, error } = await supabase.from("employees").select("id, okta_id").in("okta_id", oktaIds);
-  if (error) throw new Error(`removeSkippedEmployees: ${error.message}`);
+  if (error) throw new Error(`removeOktaEmployees: ${error.message}`);
+  const rows = (data ?? []) as { id: string; okta_id: string }[];
+  const onDigestLists = new Set<string>();
+  for (const table of ["notification_subscriptions", "notification_company_recipients"]) {
+    const { data: listed, error: listErr } = await supabase.from(table).select("employee_id").in("employee_id", rows.map((r) => r.id));
+    if (listErr) throw new Error(`removeOktaEmployees(${table}): ${listErr.message}`);
+    for (const r of (listed ?? []) as { employee_id: string }[]) onDigestLists.add(r.employee_id);
+  }
   let removed = 0;
   const kept: string[] = [];
-  for (const row of (data ?? []) as { id: string; okta_id: string }[]) {
+  for (const row of rows) {
+    if (onDigestLists.has(row.id)) {
+      kept.push(row.okta_id);
+      continue;
+    }
     const { error: delErr } = await supabase.from("employees").delete().eq("id", row.id);
     if (delErr) kept.push(row.okta_id);
     else removed++;

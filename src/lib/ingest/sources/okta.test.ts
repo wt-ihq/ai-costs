@@ -55,6 +55,16 @@ describe("fetchOktaGroupMembers", () => {
     expect(calls.some((u) => u.includes("/groups/g1/"))).toBe(false); // look-alike never fetched
   });
 
+  it("carries each member's Okta id when Okta sends one", async () => {
+    stubEnv();
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.includes("/api/v1/groups?")) return jsonRes([{ id: "g1", profile: { name: "Staff" } }]);
+      if (url.includes("/groups/g1/users")) return jsonRes([{ id: "00u1", profile: { email: "a@intenthq.com" } }, { profile: { email: "b@intenthq.com" } }]);
+      throw new Error(`unexpected url ${url}`);
+    }));
+    expect(await fetchOktaGroupMembers("Staff")).toEqual([{ email: "a@intenthq.com", oktaId: "00u1" }, { email: "b@intenthq.com" }]);
+  });
+
   it("follows pagination on the groups listing before filtering by exact name", async () => {
     stubEnv();
     const calls: string[] = [];
