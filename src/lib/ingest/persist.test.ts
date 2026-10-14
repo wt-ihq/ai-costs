@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { attachEmployees, planEmployeeUpserts, removeSkippedEmployees, upsertEmployees, upsertSpendFacts, replaceWindowFacts, type ResolvedFact } from "./persist";
+import { attachEmployees, planEmployeeUpserts, removeOktaEmployees, upsertEmployees, upsertSpendFacts, replaceWindowFacts, type ResolvedFact } from "./persist";
 import { normalizeCursor } from "./normalizers/cursor";
 import { cursorUsageFixture } from "./fixtures/cursor-usage";
 
@@ -194,17 +194,27 @@ describe("upsertEmployees", () => {
   });
 });
 
-/** employees table for removeSkippedEmployees: select by okta_id, delete by id; `referenced` ids fail like a NO ACTION foreign key. */
-function fakeSkippedEmployeesDb(rows: { id: string; okta_id: string | null }[], referenced: string[] = []) {
+/**
+ * employees + the digest lists for removeOktaEmployees: select by okta_id / employee_id, delete by id;
+ * `referenced` ids fail to delete like a NO ACTION foreign key.
+ */
+function fakeOktaRemovalDb(rows: { id: string; okta_id: string | null }[], opts: { referenced?: string[]; subscribed?: string[]; companyRecipients?: string[] } = {}) {
   const deleted: string[] = [];
+  const lists: Record<string, string[]> = { notification_subscriptions: opts.subscribed ?? [], notification_company_recipients: opts.companyRecipients ?? [] };
   const client = {
-    from: () => ({
+    from: (table: string) => ({
       select: () => ({
-        in: (_col: string, ids: string[]) => Promise.resolve({ data: rows.filter((r) => r.okta_id !== null && ids.includes(r.okta_id)), error: null }),
+        in: (_col: string, ids: string[]) =>
+          Promise.resolve({
+            data: table === "employees"
+              ? rows.filter((r) => r.okta_id !== null && ids.includes(r.okta_id))
+              : lists[table].filter((id) => ids.includes(id)).map((employee_id) => ({ employee_id })),
+            error: null,
+          }),
       }),
       delete: () => ({
         eq: (_col: string, id: string) => {
-          if (referenced.includes(id)) return Promise.resolve({ error: { message: "violates foreign key constraint" } });
+          if (opts.referenced?.includes(id)) return Promise.resolve({ error: { message: "violates foreign key constraint" } });
           deleted.push(id);
           return Promise.resolve({ error: null });
         },
@@ -214,22 +224,31 @@ function fakeSkippedEmployeesDb(rows: { id: string; okta_id: string | null }[], 
   return { client, deleted };
 }
 
-describe("removeSkippedEmployees", () => {
-  it("removes the rows of skipped Okta accounts and nothing else", async () => {
-    const db = fakeSkippedEmployeesDb([{ id: "bot", okta_id: "00ubot" }, { id: "g", okta_id: "00u1" }]);
-    expect(await removeSkippedEmployees(db.client, ["00ubot", "00unever-synced"])).toEqual({ removed: 1, kept: [] });
+describe("removeOktaEmployees", () => {
+  it("removes the rows of those Okta accounts and nothing else", async () => {
+    const db = fakeOktaRemovalDb([{ id: "bot", okta_id: "00ubot" }, { id: "g", okta_id: "00u1" }]);
+    expect(await removeOktaEmployees(db.client, ["00ubot", "00unever-synced"])).toEqual({ removed: 1, kept: [] });
     expect(db.deleted).toEqual(["bot"]);
   });
 
   it("keeps a row something still references (spend, keys, seats), and carries on with the rest", async () => {
-    const db = fakeSkippedEmployeesDb([{ id: "b1", okta_id: "00ub1" }, { id: "b2", okta_id: "00ub2" }], ["b1"]);
-    expect(await removeSkippedEmployees(db.client, ["00ub1", "00ub2"])).toEqual({ removed: 1, kept: ["00ub1"] });
+    const db = fakeOktaRemovalDb([{ id: "b1", okta_id: "00ub1" }, { id: "b2", okta_id: "00ub2" }], { referenced: ["b1"] });
+    expect(await removeOktaEmployees(db.client, ["00ub1", "00ub2"])).toEqual({ removed: 1, kept: ["00ub1"] });
     expect(db.deleted).toEqual(["b2"]);
   });
 
-  it("does nothing when no account was skipped", async () => {
-    const db = fakeSkippedEmployeesDb([{ id: "g", okta_id: "00u1" }]);
-    expect(await removeSkippedEmployees(db.client, [])).toEqual({ removed: 0, kept: [] });
+  it("keeps anyone on a digest list: deleting would silently drop their subscription", async () => {
+    const db = fakeOktaRemovalDb(
+      [{ id: "s", okta_id: "00us" }, { id: "c", okta_id: "00uc" }, { id: "x", okta_id: "00ux" }],
+      { subscribed: ["s"], companyRecipients: ["c"] },
+    );
+    expect(await removeOktaEmployees(db.client, ["00us", "00uc", "00ux"])).toEqual({ removed: 1, kept: ["00us", "00uc"] });
+    expect(db.deleted).toEqual(["x"]);
+  });
+
+  it("does nothing when there is nothing to remove", async () => {
+    const db = fakeOktaRemovalDb([{ id: "g", okta_id: "00u1" }]);
+    expect(await removeOktaEmployees(db.client, [])).toEqual({ removed: 0, kept: [] });
     expect(db.deleted).toEqual([]);
   });
 });

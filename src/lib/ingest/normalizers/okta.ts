@@ -53,6 +53,8 @@ export interface EmployeeUpsert {
 // and stamp leave_date so historical spend stays attributed (never deleted).
 const LEAVER_STATUSES = new Set(["DEPROVISIONED", "SUSPENDED"]);
 
+export const isOktaLeaverStatus = (status: string | undefined): boolean => LEAVER_STATUSES.has((status ?? "").toUpperCase());
+
 /**
  * Okta Titles of non-person accounts (bots) that the sync leaves out entirely. They have real
  * company emails, so the no-email skip below misses them, and as "employees" they counted as
