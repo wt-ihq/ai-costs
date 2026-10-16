@@ -137,9 +137,11 @@ export async function syncCursor(
 
     const employees = await loadEmployees(supabase);
     const { facts: resolved, unmatched: seatUnmatched } = attachEmployees([...seatFacts, ...memberSeatFacts], employees);
+    // Seats first: they don't depend on the usage events, so an events failure (e.g. a new event kind) can't hold them back.
+    const seatRows = await upsertSpendFacts(supabase, resolved);
     const events = await syncCursorEvents(supabase, runId, eventsWindow(window, opts.eventsDays), eventsFetcher, employees);
 
-    const rowsWritten = (await upsertSpendFacts(supabase, resolved)) + events.rowsWritten;
+    const rowsWritten = seatRows + events.rowsWritten;
     const unmatched = [...new Set([...seatUnmatched, ...events.unmatched])];
 
     // Teams-plan model signal: capture each user's daily most-used model from
