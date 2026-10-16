@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 const TABS = [
   { key: "health", label: "Health", admin: false, subtitle: "Identity spine, per-source freshness, and the unmatched-identity queue." },
-  { key: "imports", label: "Imports", admin: true, subtitle: "The monthly manual-import workflow: coverage and per-vendor import cards." },
+  { key: "imports", label: "Imports", admin: true, subtitle: "Monthly manual imports: what's due, then each vendor's imports and the coverage history." },
   { key: "tools", label: "Tools & projects", admin: true, subtitle: "Recurring tool costs and Vercel project → department mapping." },
   { key: "sync", label: "Sync", admin: true, subtitle: "Manual sync trigger and backfill controls." },
   { key: "notifications", label: "Notifications", admin: true, subtitle: "Slack spend digests: pilot recipients, cadences, previews and the send log." },

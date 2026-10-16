@@ -8,12 +8,14 @@ import {
   type ImportCommitResult,
 } from "@/app/(dashboard)/imports/actions";
 import { formatUsd, cn, localDateISO } from "@/lib/utils";
+import { useFxRate } from "@/components/imports/fx-rate";
 
 const gbp = (n: number) => `£${n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+/** The month-to-date spend paste. Its £ → $ rate is the Claude column's shared one (FxRateProvider). */
 export function ClaudeSpendImport() {
   const [text, setText] = useState("");
-  const [rate, setRate] = useState("1.27");
+  const rate = useFxRate()?.rate ?? "";
   const [asOf, setAsOf] = useState(() => localDateISO());
   const [preview, setPreview] = useState<ClaudePreview | null>(null);
   const [result, setResult] = useState<ImportCommitResult | null>(null);
@@ -49,15 +51,12 @@ export function ClaudeSpendImport() {
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
-        rows={6}
-        placeholder="Paste the Claude 'MTD spend' table here (Name / email / – £x.xx per member)…"
+        rows={4}
+        aria-label="Claude month-to-date spend table"
+        placeholder="Paste the MTD spend table (name, email, £ per member)…"
         className="w-full rounded-md border border-border bg-surface-2 p-3 font-mono text-xs outline-none focus:border-accent"
       />
       <div className="flex flex-wrap items-center gap-3 text-sm">
-        <label className="flex items-center gap-2 text-muted">
-          GBP → USD
-          <input value={rate} onChange={(e) => setRate(e.target.value)} className="w-24 rounded-md border border-border bg-surface-2 px-2 py-1 text-foreground outline-none focus:border-accent" />
-        </label>
         <label className="flex items-center gap-2 text-muted">
           Data as of
           {/* Default is the client's local date; the server-rendered value can differ by a day. */}
@@ -65,7 +64,7 @@ export function ClaudeSpendImport() {
         </label>
         <button
           onClick={onPreview}
-          disabled={pending || !text.trim()}
+          disabled={pending || !text.trim() || !(Number(rate) > 0)}
           className="rounded-md border border-accent bg-accent/15 px-3 py-1.5 text-accent disabled:opacity-40"
         >
           {pending ? "Parsing…" : "Preview"}
