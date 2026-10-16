@@ -12,6 +12,15 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-10-16",
+    title: "A clearer Imports tab",
+    items: [
+      "Data → Imports now opens with what's due this month: ChatGPT credits, Claude spend and both vendors' seat counts, each marked done or still needed, plus anything last month is missing.",
+      "Each vendor has its own column, regular imports first; seat-tier uploads are tucked away until someone's tier changes. Claude's £ → $ rate is entered once for both spend and seats.",
+      "Seat history and coverage show the last six months (with Show all), coverage marks which seat figures are estimates, and removing a seat entry now asks first.",
+    ],
+  },
+  {
+    date: "2026-10-16",
     title: "Add admins on the Access tab",
     items: [
       "Admins can now make anyone on Data → Access an admin as well as a viewer, and change it later. Admins added there can do everything, including managing access; the change applies on their next page load.",
