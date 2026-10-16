@@ -11,6 +11,13 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-10-16",
+    title: "Add admins on the Access tab",
+    items: [
+      "Admins can now make anyone on Data → Access an admin as well as a viewer, and change it later. Admins added there can do everything, including managing access; the change applies on their next page load.",
+    ],
+  },
+  {
     date: "2026-10-13",
     title: "Dashboard access by invitation",
     items: [

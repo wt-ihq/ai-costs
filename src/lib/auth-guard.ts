@@ -2,8 +2,8 @@ import "server-only";
 import { cache } from "react";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { canAccessDashboard } from "@/lib/dashboard-access";
-import { isOnAccessList } from "@/lib/queries/dashboard-access";
+import { resolveDashboardAccess, type AccessRole } from "@/lib/dashboard-access";
+import { accessRoleOf } from "@/lib/queries/dashboard-access";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 
 /**
@@ -15,36 +15,33 @@ function devBypass(): boolean {
   return process.env.AUTH_DISABLED === "true" && process.env.NODE_ENV === "development";
 }
 
-/** Current role, or null when signed out. */
+/** Current role, or null when signed out: admin from ADMIN_EMAILS or the access list, else viewer. */
 export async function getRole(): Promise<string | null> {
-  if (devBypass()) return "admin";
-  const session = await auth().catch(() => null);
-  if (!session?.user) return null;
-  return (session.user as { role?: string }).role ?? "viewer";
+  return (await getDashboardAccess())?.role ?? null;
 }
 
 /**
- * Whether the signed-in person may open the dashboard (null = signed out):
- * admins always, anyone else only when on the access list. An unreadable list
- * fails closed — admins only. Once per request (React cache): the layout and
- * the page both ask.
+ * The signed-in person's role and whether they may open the dashboard (null = signed out).
+ * ADMIN_EMAILS admins (the session's role, set at sign-in) are admins always, without a database
+ * read; anyone else gets their access-list role, read on every request so a change applies on the
+ * next page load. An unreadable list fails closed — ADMIN_EMAILS admins only. Once per request
+ * (React cache): the layout, the page and requireAdmin all ask.
  */
-export const getDashboardAccess = cache(async (): Promise<{ role: string; email: string | null; allowed: boolean } | null> => {
+export const getDashboardAccess = cache(async (): Promise<{ role: AccessRole; email: string | null; allowed: boolean } | null> => {
   if (devBypass()) return { role: "admin", email: null, allowed: true };
   const session = await auth().catch(() => null);
   if (!session?.user) return null;
-  const role = (session.user as { role?: string }).role ?? "viewer";
   const email = session.user.email?.toLowerCase() ?? null;
-  if (role === "admin") return { role, email, allowed: true };
-  let allowlist: ReadonlySet<string> | null = null;
+  if ((session.user as { role?: string }).role === "admin") return { role: "admin", email, allowed: true };
+  let listed: AccessRole | null = null;
   if (email) {
     try {
-      allowlist = (await isOnAccessList(getSupabaseAdminClient(), email)) ? new Set([email]) : new Set();
+      listed = await accessRoleOf(getSupabaseAdminClient(), email);
     } catch (err) {
-      console.error(`[access] list unreadable, admins only: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`[access] list unreadable, ADMIN_EMAILS admins only: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
-  return { role, email, allowed: canAccessDashboard({ isAdmin: false, email, allowlist }) };
+  return { ...resolveDashboardAccess({ envAdmin: false, listed }), email };
 });
 
 /**

@@ -27,11 +27,12 @@ export async function AccessTab() {
       <Panel>
         <h2 className="mb-1 text-sm font-medium">Dashboard access</h2>
         <p className="mb-4 text-xs text-muted">
-          Anyone else who signs in sees &ldquo;You don&apos;t have access&rdquo;. Changes apply on their next page load. Slack digests show the
-          Open in dashboard button and links only to people who can get in.
+          Anyone else who signs in sees &ldquo;You don&apos;t have access&rdquo;. Viewers see the dashboard; admins also get every Data tab,
+          including this one. Changes apply on their next page load. Slack digests show the Open in dashboard button and links only to
+          people who can get in.
         </p>
         <AccessList
-          rows={list.map((r) => ({ ...person(r.email), addedBy: r.addedBy, addedAt: r.addedAt }))}
+          rows={list.map((r) => ({ ...person(r.email), role: r.role, addedBy: r.addedBy, addedAt: r.addedAt }))}
           admins={admins.map(person)}
           options={options}
         />
