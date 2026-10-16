@@ -671,6 +671,54 @@ export async function assignOpenRouterWorkspaceDepartment(
   return { factsUpdated: count ?? 0 };
 }
 
+/**
+ * Give a workspace's shared-key spend to a person (or back to its department with null). The sync
+ * reads the owner every run; history moves in place now: every workspace-keyed fact of it takes the
+ * owner, with no department so it follows the owner's own team (cleared: back to the workspace's).
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export async function assignOpenRouterWorkspaceOwner(
+  workspaceId: unknown,
+  employeeId: unknown,
+): Promise<{ factsUpdated: number }> {
+  await requireAdmin();
+  if (typeof workspaceId !== "string" || !workspaceId) throw new Error("Invalid workspace");
+  if (employeeId !== null && (typeof employeeId !== "string" || !UUID_RE.test(employeeId))) throw new Error("Invalid person");
+  const supabase = getSupabaseAdminClient();
+
+  const { data: rows, error: readErr } = await supabase
+    .from("openrouter_workspaces").select("name, department").eq("workspace_id", workspaceId).limit(1);
+  if (readErr) throw new Error(`assignOpenRouterWorkspaceOwner: ${readErr.message}`);
+  const ws = rows?.[0] as { name: string; department: string | null } | undefined;
+  if (!ws) throw new Error("Workspace not found.");
+  if (employeeId) {
+    const { data: emp, error: empErr } = await supabase.from("employees").select("id").eq("id", employeeId).maybeSingle();
+    if (empErr) throw new Error(`assignOpenRouterWorkspaceOwner: ${empErr.message}`);
+    if (!emp) throw new Error("Person not found.");
+  }
+
+  const { error: updErr } = await supabase
+    .from("openrouter_workspaces")
+    .update({ owner_employee_id: employeeId, updated_at: new Date().toISOString() })
+    .eq("workspace_id", workspaceId);
+  if (updErr) throw new Error(`assignOpenRouterWorkspaceOwner: ${updErr.message}`);
+
+  // Workspace-keyed facts are exactly this workspace's shared-key spend: members' own usage is keyed by email.
+  const { error: factErr, count } = await supabase
+    .from("spend_facts")
+    .update({ employee_id: employeeId, department: employeeId ? null : ws.department }, { count: "exact" })
+    .eq("source", "openrouter")
+    .eq("cost_type", "metered")
+    .eq("entity_key", ws.name);
+  if (factErr) throw new Error(`assignOpenRouterWorkspaceOwner facts: ${factErr.message}`);
+
+  updateTag(FACTS_TAG);
+  revalidatePath("/data");
+  revalidatePath("/");
+  return { factsUpdated: count ?? 0 };
+}
+
 // ---- Automated sync: manual trigger + backfill ------------------------------
 
 /** Run all sources now (the cron pipeline, on demand). */

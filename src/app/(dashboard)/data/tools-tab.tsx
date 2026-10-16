@@ -6,13 +6,14 @@ import { OpenRouterWorkspaces, type OpenRouterWorkspaceRow } from "@/components/
 import { fetchRecurringEntries, monthsBetween } from "@/lib/ingest/recurring";
 import { OTHER_TOOL_PALETTE } from "@/lib/colors";
 import { fetchEmployeesAll } from "@/lib/queries/common";
+import { isActiveEmployee, NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee } from "@/lib/notify/types";
 
 /** Department-attributed tool costs (admin): recurring subscriptions + Vercel project mapping. */
 export async function ToolsTab() {
   const supabase = getSupabaseAdminClient();
   const [recurringRaw, emps, { data: vercelRows }, { data: workspaceRows }] = await Promise.all([
     fetchRecurringEntries(supabase),
-    fetchEmployeesAll(supabase, "department"),
+    fetchEmployeesAll(supabase, NOTIFY_EMPLOYEE_COLUMNS),
     supabase
       .from("vercel_projects")
       .select("project_id, project_name, department")
@@ -20,7 +21,7 @@ export async function ToolsTab() {
       .limit(200), // bounded: grows by projects, not rows-per-day
     supabase
       .from("openrouter_workspaces")
-      .select("workspace_id, name, department")
+      .select("workspace_id, name, department, owner_employee_id")
       .order("name")
       .limit(200), // bounded: grows by workspaces
   ]);
@@ -35,6 +36,13 @@ export async function ToolsTab() {
     };
   });
   const departments = [...new Set(emps.map((e) => e.department as string | null).filter(Boolean))].sort() as string[];
+  const people = emps.map(toNotifyEmployee);
+  // Owner choices: active people, plus any current owner who has since left (so the picker still shows them).
+  const owners = new Set((workspaceRows ?? []).map((r) => r.owner_employee_id as string | null).filter(Boolean));
+  const ownerOptions = people
+    .filter((e) => isActiveEmployee(e) || owners.has(e.id))
+    .sort((a, b) => a.fullName.localeCompare(b.fullName))
+    .map((e) => ({ id: e.id, label: `${e.fullName}${e.department ? ` — ${e.department}` : ""}${isActiveEmployee(e) ? "" : " (left)"}` }));
   const vercelProjects: VercelProjectRow[] = (vercelRows ?? []).map((r) => ({
     projectId: r.project_id as string,
     projectName: r.project_name as string,
@@ -44,6 +52,7 @@ export async function ToolsTab() {
     workspaceId: r.workspace_id as string,
     name: r.name as string,
     department: (r.department as string) ?? null,
+    ownerId: (r.owner_employee_id as string) ?? null,
   }));
 
   return (
@@ -62,10 +71,11 @@ export async function ToolsTab() {
         <h2 className="mb-1 text-sm font-medium">OpenRouter workspaces</h2>
         <p className="mb-4 text-xs text-muted">
           Usage from workspace-owned API keys (no member attached) attributes to the workspace&rsquo;s
-          department. New workspaces default to their own name — correct any that don&rsquo;t match an
-          actual department. Member usage always follows the member&rsquo;s own department.
+          department, or to its owner when one is set (then it follows the owner&rsquo;s own team). New
+          workspaces default to their own name — correct any that don&rsquo;t match an actual department.
+          Member usage always follows the member&rsquo;s own department.
         </p>
-        <OpenRouterWorkspaces workspaces={openRouterWorkspaces} departments={departments} />
+        <OpenRouterWorkspaces workspaces={openRouterWorkspaces} departments={departments} people={ownerOptions} />
       </Panel>
 
       <Panel>
