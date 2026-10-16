@@ -22,6 +22,8 @@ export async function runAllSyncs(
   supabase: SupabaseClient,
   window: DateWindow,
   only?: string[],
+  /** cursorEventsDays: re-read only the window's last N days of Cursor usage events (the nightly run). */
+  opts: { cursorEventsDays?: number } = {},
 ): Promise<Record<string, SyncOutcome>> {
   const results: Record<string, SyncOutcome> = {};
   const wants = only && only.length ? new Set(only) : null;
@@ -41,7 +43,7 @@ export async function runAllSyncs(
 
   await run("okta", () => syncOkta(supabase));
   await Promise.all([
-    run("cursor", () => syncCursor(supabase, window)),
+    run("cursor", () => syncCursor(supabase, { ...window, eventsDays: opts.cursorEventsDays })),
     run("cursor_models", () => syncCursorModels(supabase, window)),
     run("anthropic", () => syncAnthropic(supabase, window)),
     run("openai", () => syncOpenAI(supabase, window)),

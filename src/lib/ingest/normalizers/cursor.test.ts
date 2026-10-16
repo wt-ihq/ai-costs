@@ -27,9 +27,9 @@ describe("normalizeCursor", () => {
 describe("normalizeCursorEvents", () => {
   it("aggregates chargeable events into per-(email,day,model) overage facts", () => {
     const facts = normalizeCursorEvents(cursorEventsFixture);
-    // gareth sonnet 6/1 (250+150), gareth gpt5 6/2, tom opus 6/1, contractor 6/3
-    // — the $0 "Included in Business" event is dropped.
-    expect(facts).toHaveLength(4);
+    // gareth sonnet 6/1 (250+150), gareth gpt5 6/2, tom opus 6/1, contractor 6/3, the service
+    // account 6/2 — the "Included in Business" and "Free" events are dropped.
+    expect(facts).toHaveLength(5);
 
     const garethSonnet = facts.find((f) => f.entityKey === "gareth.jones@intenthq.com" && f.model === "claude-sonnet-4-6")!;
     expect(garethSonnet).toMatchObject({
@@ -44,9 +44,37 @@ describe("normalizeCursorEvents", () => {
     expect(tom).toMatchObject({ day: "2026-06-01", costType: "overage", costUsd: 10, model: "claude-opus-4-1" });
   });
 
-  it("excludes zero-charge (seat-included) usage so seats are never double-counted", () => {
+  it("excludes plan-included usage even when Cursor prices it, so the seat fee is never paid twice", () => {
     const facts = normalizeCursorEvents(cursorEventsFixture);
     expect(facts.some((f) => f.model === "auto")).toBe(false);
+    // The priced "Included in Business" event (356c) must not join gareth's on-demand 400c.
+    expect(facts.find((f) => f.entityKey === "gareth.jones@intenthq.com" && f.model === "claude-sonnet-4-6")!.costUsd).toBe(4);
+    expect(facts.some((f) => f.model === "composer-1")).toBe(false);
+  });
+
+  it("keeps service-account on-demand spend (no email) under the account, not dropped", () => {
+    const sa = normalizeCursorEvents(cursorEventsFixture).filter((f) => f.entityKey.startsWith("cursor service account"));
+    expect(sa).toEqual([
+      { source: "cursor", day: "2026-06-02", costType: "overage", entityKey: "cursor service account sa_608abc", costUsd: 5, model: "claude-sonnet-4-6" },
+    ]);
+  });
+
+  it("files on-demand spend with neither an email nor an account under an unknown service account", () => {
+    const facts = normalizeCursorEvents({ usageEvents: [{ timestamp: Date.UTC(2026, 5, 4, 12).toString(), model: "gpt-5", kind: "Usage-based", isChargeable: true, chargedCents: 70, serviceAccountId: "null" }] });
+    expect(facts).toEqual([{ source: "cursor", day: "2026-06-04", costType: "overage", entityKey: "cursor service account (unknown)", costUsd: 0.7, model: "gpt-5" }]);
+  });
+
+  it("fails loudly on a charged event of a kind it doesn't know, rather than guessing whether it's billed", () => {
+    const odd = { usageEvents: [{ timestamp: Date.UTC(2026, 5, 4, 12).toString(), userEmail: "a@intenthq.com", model: "x", kind: "Something New", isChargeable: true, chargedCents: 5 }] };
+    expect(() => normalizeCursorEvents(odd)).toThrow(SchemaDriftError);
+    // Unknown kinds that cost nothing are harmless.
+    expect(normalizeCursorEvents({ usageEvents: [{ ...odd.usageEvents[0], chargedCents: 0 }] })).toEqual([]);
+  });
+
+  it("recognises Cursor's enum-style kind names too", () => {
+    const ev = (kind: string) => ({ timestamp: Date.UTC(2026, 5, 4, 12).toString(), userEmail: "a@intenthq.com", model: "x", kind, isChargeable: true, chargedCents: 100 });
+    expect(normalizeCursorEvents({ usageEvents: [ev("USAGE_EVENT_KIND_USAGE_BASED")] })).toHaveLength(1);
+    expect(normalizeCursorEvents({ usageEvents: [ev("USAGE_EVENT_KIND_INCLUDED_IN_BUSINESS")] })).toHaveLength(0);
   });
 
   it("fails loudly on schema drift rather than writing garbage", () => {

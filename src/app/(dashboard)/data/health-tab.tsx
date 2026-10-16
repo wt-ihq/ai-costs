@@ -193,8 +193,8 @@ export async function HealthTab() {
             </span>
           </div>
           <p className="mt-2 text-sm text-muted">
-            Cursor reports <span className="tabular-nums text-foreground">{formatUsd(reconciliation.cursorSpendUsd)}</span>
-            {" · "}we derived <span className="tabular-nums text-foreground">{formatUsd(reconciliation.ourOverageUsd)}</span>
+            Cursor on-demand <span className="tabular-nums text-foreground">{formatUsd(reconciliation.cursorSpendUsd)}</span>
+            {" · "}ours <span className="tabular-nums text-foreground">{formatUsd(reconciliation.ourOverageUsd)}</span>
             {" · "}Δ{" "}
             <span className={`tabular-nums ${reconOff ? "text-amber-300" : "text-foreground"}`}>
               {formatUsd(reconciliation.deltaUsd)}
@@ -202,8 +202,10 @@ export async function HealthTab() {
             </span>
           </p>
           <p className="mt-1 text-xs text-muted">
-            Our overage is summed from per-event <code>chargedCents</code>; Cursor&rsquo;s total is the authoritative
-            <code> /teams/spend</code>. A persistent gap means events are being missed or double-counted.
+            People&rsquo;s on-demand spend (usage-based events&rsquo; <code>chargedCents</code>) against Cursor&rsquo;s{" "}
+            <code>/teams/spend</code> on-demand total, which excludes plan-included usage.
+            {reconciliation.serviceAccountUsd > 0 && <> Service accounts add <span className="tabular-nums text-foreground">{formatUsd(reconciliation.serviceAccountUsd)}</span> on top (not in Cursor&rsquo;s per-member figures).</>}
+            {reconciliation.cursorOverallUsd !== null && <> Including plan-included usage, Cursor&rsquo;s overall figure is <span className="tabular-nums">{formatUsd(reconciliation.cursorOverallUsd)}</span>; that part is covered by the seats.</>}
           </p>
         </Panel>
       )}

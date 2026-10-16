@@ -294,10 +294,15 @@ export async function replaceWindowFacts(
   source: string,
   window: { startDate: string; endDate: string },
   facts: ResolvedFact[],
-  opts?: { costType?: CostType },
+  /**
+   * pruneWhenEmpty: the vendor DID answer for the whole window, but nothing in it qualifies (e.g. a
+   * day of Cursor usage that was all plan-included), so the window's rows are pruned even with an
+   * empty snapshot. Only for a complete, non-empty vendor response — never for an empty one.
+   */
+  opts?: { costType?: CostType; pruneWhenEmpty?: boolean },
 ): Promise<number> {
-  if (facts.length === 0) return 0;
-  const written = await upsertSpendFacts(supabase, facts);
+  if (facts.length === 0 && !opts?.pruneWhenEmpty) return 0;
+  const written = facts.length ? await upsertSpendFacts(supabase, facts) : 0;
 
   const keep = new Set(facts.map((f) => `${f.day}|${f.costType}|${f.entityKey}|${f.model ?? ""}`));
   const stale: string[] = [];

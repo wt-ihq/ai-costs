@@ -10,6 +10,8 @@ import { NotificationsTab } from "./notifications-tab";
 import { AccessTab } from "./access-tab";
 
 export const dynamic = "force-dynamic";
+// The Sync tab's actions (a full sync, a Cursor month rebuild) can take minutes.
+export const maxDuration = 300;
 
 const TABS = [
   { key: "health", label: "Health", admin: false, subtitle: "Identity spine, per-source freshness, and the unmatched-identity queue." },
