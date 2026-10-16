@@ -5,7 +5,7 @@ import { FACTS_TAG } from "@/lib/queries/cached";
 import { requireAdmin } from "@/lib/auth-guard";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { recentWindow, runAllSyncs, type SyncOutcome } from "@/lib/ingest/run-all";
-import { syncCursor } from "@/lib/ingest/run-cursor";
+import { rebuildCursorOverage, syncCursor } from "@/lib/ingest/run-cursor";
 import { syncAnthropic, syncOpenAI } from "@/lib/ingest/run-platforms";
 import { syncVercel } from "@/lib/ingest/run-vercel";
 import { parseClaudeSpend } from "@/lib/ingest/parsers/claude-spend";
@@ -691,6 +691,27 @@ export interface BackfillResult {
 }
 
 /** Backfill the metered API sources over the past N monthly windows. */
+export interface CursorRebuildResult { month: string; written: number; notPeople: number }
+
+/**
+ * Re-import one calendar month of Cursor on-demand spend from the usage-events API, replacing that
+ * month's Cursor overage rows (run-cursor.ts:rebuildCursorOverage). For correcting history after a
+ * change to how Cursor spend is counted; seats are untouched.
+ */
+export async function rebuildCursorMonth(month: unknown): Promise<CursorRebuildResult> {
+  await requireAdmin();
+  if (typeof month !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error("Pick a month");
+  const [y, m] = month.split("-").map(Number);
+  const startDate = `${month}-01`;
+  const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+  if (startDate >= tomorrow) throw new Error("That month hasn't started");
+  const monthEnd = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
+  const r = await rebuildCursorOverage(getSupabaseAdminClient(), { startDate, endDate: monthEnd < tomorrow ? monthEnd : tomorrow });
+  updateTag(FACTS_TAG);
+  revalidatePath("/data");
+  return { month, written: r.rowsWritten, notPeople: r.unmatched.filter((k) => k.startsWith("cursor service account")).length };
+}
+
 export async function backfillSync(months: number): Promise<BackfillResult> {
   await requireAdmin();
   const supabase = getSupabaseAdminClient();

@@ -12,6 +12,14 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-10-16",
+    title: "Cursor spend corrected",
+    items: [
+      "Cursor usage spend now counts only what Cursor bills on top of seats. Usage the plan already includes was being counted as extra spend as well, so people's Cursor figures were too high.",
+      "Cursor usage by service accounts (background agents and API use) is now counted, shown as not tied to a person, instead of being left out.",
+    ],
+  },
+  {
+    date: "2026-10-16",
     title: "A clearer Imports tab",
     items: [
       "Data → Imports now opens with what's due this month: ChatGPT credits, Claude spend and both vendors' seat counts, each marked done or still needed, plus anything last month is missing.",

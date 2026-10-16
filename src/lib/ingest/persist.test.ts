@@ -115,6 +115,25 @@ describe("replaceWindowFacts with a cost-type scope", () => {
     expect(keys).toContain("chatgpt_business|overage|alex.morgan@intenthq.com"); // new fact
     expect(keys).not.toContain("chatgpt_business|overage|alex morgan");          // pruned
   });
+
+  const included = () => fakeSpendFactsDb([
+    // an old overage row made purely of plan-included usage, and a seat sharing the window
+    { source: "cursor", day: "2026-10-12", cost_type: "overage", entity_key: "a@intenthq.com", model: "auto", cost_usd: 12 },
+    { source: "cursor", day: "2026-10-01", cost_type: "seat", entity_key: "a@intenthq.com", model: "", cost_usd: 40 },
+  ]);
+  const window = { startDate: "2026-10-11", endDate: "2026-10-14" };
+
+  it("treats an empty snapshot as no update by default (gotcha #4)", async () => {
+    const { client, rows } = included();
+    expect(await replaceWindowFacts(client, "cursor", window, [], { costType: "overage" })).toBe(0);
+    expect(rows).toHaveLength(2);
+  });
+
+  it("prunes the scoped window when told the vendor answered but nothing qualifies", async () => {
+    const { client, rows } = included();
+    expect(await replaceWindowFacts(client, "cursor", window, [], { costType: "overage", pruneWhenEmpty: true })).toBe(0);
+    expect(rows.map((r) => `${r.cost_type}|${r.day}`)).toEqual(["seat|2026-10-01"]);
+  });
 });
 
 /**

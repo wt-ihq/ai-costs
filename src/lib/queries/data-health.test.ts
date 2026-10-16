@@ -78,6 +78,8 @@ describe("isPseudoEntity", () => {
     ["unassigned seats (premium)", true],
     ["unkeyed", true], // Anthropic: days with cost but no usage rows
     ["org", true], // OpenAI: org-level costs not tied to a project
+    ["cursor service account sa_608abc", true], // Cursor: background agents / API, no person
+    ["cursor service account (unknown)", true],
     // genuine identities — assignable
     ["tom.grist@intenthq.com", false],
     ["reddy.horcrux@gmail.com", false],
@@ -95,5 +97,6 @@ describe("pseudoExplanation", () => {
     expect(pseudoExplanation("unassigned seats (premium)")).toContain("member");
     expect(pseudoExplanation("unkeyed")).toContain("Anthropic");
     expect(pseudoExplanation("org")).toContain("org-level");
+    expect(pseudoExplanation("cursor service account sa_608abc")).toContain("service account");
   });
 });

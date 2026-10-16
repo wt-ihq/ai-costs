@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
+import { NIGHTLY_EVENT_DAYS } from "@/lib/ingest/run-cursor";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isCronAuthorized } from "@/lib/cron-auth";
 import { monthToDate, runAllSyncs } from "@/lib/ingest/run-all";
@@ -33,7 +34,9 @@ export async function GET(req: Request) {
   const only = url.searchParams.get("source")?.split(",").map((s) => s.trim()).filter(Boolean);
 
   const supabase = getSupabaseAdminClient();
-  const results = await runAllSyncs(supabase, window, only);
+  // The default (nightly) run re-reads only the last few days of Cursor usage events: a whole
+  // month of them overran the 300 s limit. An explicit ?from=&to= backfill reads its whole window.
+  const results = await runAllSyncs(supabase, window, only, from && to ? {} : { cursorEventsDays: NIGHTLY_EVENT_DAYS });
 
   // After syncing the roster + spend, re-resolve any still-unmatched facts
   // against the current employees (clears facts ingested before a person

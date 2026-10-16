@@ -1,4 +1,5 @@
 import type { SpendFact } from "@/lib/types";
+import { CURSOR_SERVICE_ACCOUNT } from "@/lib/pseudo-entities";
 import { SchemaDriftError, type Normalizer } from "@/lib/ingest/types";
 
 /**
@@ -50,20 +51,29 @@ export const normalizeCursor: Normalizer<CursorUsageResponse> = (raw) => {
 };
 
 /**
- * Cursor Admin API — filtered-usage-events. One row per billed usage event with
- * the actually-charged amount. We keep only chargeable events (chargedCents > 0
- * — seat-included usage is $0, so this never double-counts the seat fee) and
- * aggregate to one OVERAGE fact per (email, day, model). Each event self-dates
- * via its epoch-ms `timestamp`, so window boundaries never distort monthly
- * totals. Cents are summed as integers, then divided, to avoid float drift.
+ * Cursor Admin API — filtered-usage-events → OVERAGE facts: on-demand spend only.
+ *
+ * Every event carries `chargedCents`, including usage the plan already includes ("Included in
+ * Business", often `isChargeable: true` with a real charge): that is the token cost of included
+ * usage, covered by the $40 seat, and `/teams/spend` reports `spendCents` as on-demand spend that
+ * "excludes included usage". Counting it double-billed the seat (Jul–Oct 2026: thousands a month).
+ * So only Usage-based events count; known non-billed kinds are skipped; a charged event of any
+ * other kind throws (SchemaDriftError) rather than guess whether Cursor bills it.
+ *
+ * Aggregated to one fact per (entity, day, model). The entity is the user's email; service-account
+ * usage (background agents, API) has no email — human events carry the string "null" as their
+ * account id — so it lands under "cursor service account <id>" (a person-less key, see
+ * pseudo-entities.ts) instead of being dropped. Each event self-dates via its epoch-ms `timestamp`,
+ * so window boundaries never distort monthly totals. Cents are summed as integers, then divided.
  */
 export interface CursorUsageEvent {
   timestamp?: string; // epoch ms, as a string
   userEmail?: string;
+  serviceAccountId?: string | null; // "null" (a string) on human events
   model?: string;
   kind?: string;
   isChargeable?: boolean;
-  chargedCents?: number; // total charge (model cost + Cursor Token Rate)
+  chargedCents?: number; // model cost + Cursor Token Rate (priced even when included)
 }
 export interface CursorEventsResponse {
   usageEvents?: CursorUsageEvent[];
@@ -77,26 +87,43 @@ const epochMsToDay = (ms: string | number | undefined): string => {
   return new Date(n).toISOString().slice(0, 10);
 };
 
+
+/** Kinds Cursor bills on top of the seat ("Usage-based", or USAGE_EVENT_KIND_USAGE_BASED). */
+const isOnDemand = (kind: string) => /usage.?based/i.test(kind);
+/** Kinds the plan covers, or Cursor doesn't bill: included usage, free models, the user's own API key. */
+const isNotBilled = (kind: string) => /included|free|api.?key/i.test(kind);
+
+const serviceAccountOf = (e: CursorUsageEvent): string | null => {
+  const id = (e.serviceAccountId ?? "").toString().trim();
+  return id && id.toLowerCase() !== "null" ? id : null;
+};
+
 export const normalizeCursorEvents: Normalizer<CursorEventsResponse> = (raw) => {
   if (!raw || !Array.isArray(raw.usageEvents)) {
     throw new SchemaDriftError("cursor", "missing `usageEvents` array");
   }
   const cents = new Map<string, number>();
-  const meta = new Map<string, { email: string; day: string; model: string }>();
+  const meta = new Map<string, { entity: string; day: string; model: string }>();
   for (const e of raw.usageEvents) {
     const c = Math.round(Number(e.chargedCents ?? 0));
-    if (!Number.isFinite(c) || c <= 0) continue; // skip included/zero-charge usage
-    const email = (e.userEmail ?? "").toString().toLowerCase();
+    if (!Number.isFinite(c) || c <= 0) continue; // nothing charged
+    const kind = (e.kind ?? "").toString();
+    if (!isOnDemand(kind)) {
+      if (isNotBilled(kind)) continue;
+      throw new SchemaDriftError("cursor", `charged usage event of unknown kind "${kind}"`);
+    }
     const day = epochMsToDay(e.timestamp);
-    if (!email || !day) continue;
+    if (!day) continue;
+    const email = (e.userEmail ?? "").toString().trim().toLowerCase();
+    const entity = email || `${CURSOR_SERVICE_ACCOUNT} ${serviceAccountOf(e) ?? "(unknown)"}`;
     const model = (e.model ?? "").toString() || "(unknown)";
-    const key = `${email}|${day}|${model}`;
+    const key = `${entity}|${day}|${model}`;
     cents.set(key, (cents.get(key) ?? 0) + c);
-    if (!meta.has(key)) meta.set(key, { email, day, model });
+    if (!meta.has(key)) meta.set(key, { entity, day, model });
   }
   return [...cents.entries()].map(([key, c]) => {
     const m = meta.get(key)!;
-    return { source: "cursor", day: m.day, costType: "overage", entityKey: m.email, costUsd: c / 100, model: m.model };
+    return { source: "cursor", day: m.day, costType: "overage", entityKey: m.entity, costUsd: c / 100, model: m.model };
   });
 };
 
