@@ -2,8 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { actorEmail, requireAdmin } from "@/lib/auth-guard";
-import { normalizeAccessEmail } from "@/lib/dashboard-access";
-import { grantAccess, revokeAccess } from "@/lib/queries/dashboard-access";
+import { isAccessRole, normalizeAccessEmail, type AccessRole } from "@/lib/dashboard-access";
+import { grantAccess, revokeAccess, setAccessRole } from "@/lib/queries/dashboard-access";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 
 const emailOrThrow = (input: unknown): string => {
@@ -12,10 +12,26 @@ const emailOrThrow = (input: unknown): string => {
   return email;
 };
 
-/** Let someone open the dashboard. Takes effect on their next page load. */
-export async function grantDashboardAccess(email: unknown): Promise<void> {
+const roleOrThrow = (input: unknown): AccessRole => {
+  if (!isAccessRole(input)) throw new Error("Pick Viewer or Admin");
+  return input;
+};
+
+/** Let someone open the dashboard, as a viewer or an admin. Takes effect on their next page load. */
+export async function grantDashboardAccess(email: unknown, role: unknown): Promise<void> {
   await requireAdmin();
-  await grantAccess(getSupabaseAdminClient(), emailOrThrow(email), await actorEmail());
+  await grantAccess(getSupabaseAdminClient(), emailOrThrow(email), roleOrThrow(role), await actorEmail());
+  revalidatePath("/data");
+}
+
+/**
+ * Make a listed person a viewer or an admin. An admin made here can do everything (including this);
+ * ADMIN_EMAILS admins aren't on the list, so they can't be demoted from the page.
+ */
+export async function setDashboardAccessRole(email: unknown, role: unknown): Promise<void> {
+  await requireAdmin();
+  if (typeof email !== "string" || !email.trim()) throw new Error("Invalid email");
+  await setAccessRole(getSupabaseAdminClient(), email.trim().toLowerCase(), roleOrThrow(role));
   revalidatePath("/data");
 }
 

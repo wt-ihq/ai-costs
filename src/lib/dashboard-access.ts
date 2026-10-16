@@ -1,6 +1,7 @@
 /**
  * Who may open the dashboard: admins (ADMIN_EMAILS) always; anyone else only
- * when an admin has put them on the dashboard_access list (Data → Access).
+ * when an admin has put them on the dashboard_access list (Data → Access), as a
+ * viewer or as an admin.
  * Shared by the page gate (auth-guard.ts) and the Slack digests, which show
  * dashboard links only to people who can follow them. Pure — safe for the
  * Edge auth config and client code.
@@ -14,6 +15,25 @@ export function parseAdminEmails(raw: string | undefined): string[] {
     .split(",")
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
+}
+
+/** A role on the access list (migration 0021). ADMIN_EMAILS admins aren't on it: they're admins regardless. */
+export type AccessRole = "viewer" | "admin";
+export const ACCESS_ROLES: readonly AccessRole[] = ["viewer", "admin"];
+
+export function isAccessRole(v: unknown): v is AccessRole {
+  return typeof v === "string" && (ACCESS_ROLES as readonly string[]).includes(v);
+}
+
+/**
+ * A signed-in person's standing. `envAdmin`: in ADMIN_EMAILS (the session's role, set at sign-in).
+ * `listed`: their access-list role — null when not listed OR the list couldn't be read, so an outage
+ * fails closed to the ADMIN_EMAILS admins only.
+ */
+export function resolveDashboardAccess(v: { envAdmin: boolean; listed: AccessRole | null }): { role: AccessRole; allowed: boolean } {
+  if (v.envAdmin) return { role: "admin", allowed: true };
+  if (v.listed) return { role: v.listed, allowed: true };
+  return { role: "viewer", allowed: false };
 }
 
 /** `allowlist` null = it couldn't be read: fail closed, admins only. */

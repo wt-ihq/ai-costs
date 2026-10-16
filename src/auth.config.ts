@@ -21,6 +21,8 @@ export const authConfig = {
       const email = profile?.email?.toLowerCase() ?? "";
       return profile?.email_verified === true && email.endsWith(`@${ALLOWED_DOMAIN}`);
     },
+    // The session's role is ADMIN_EMAILS only. Admins added on Data → Access are resolved on every
+    // request instead (auth-guard.ts:getDashboardAccess), so a change applies without signing in again.
     jwt({ token }) {
       const email = (token.email ?? "").toLowerCase();
       token.role = adminEmails.includes(email) ? "admin" : "viewer";
