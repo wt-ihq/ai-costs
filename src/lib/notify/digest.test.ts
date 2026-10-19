@@ -491,3 +491,65 @@ describe("buildCompanyDigest", () => {
     expect(caveats.join("\n")).toContain(VENDOR_LABEL.cursor);
   });
 });
+
+describe("buildDigest — by-team breakdown for a manager of managers", () => {
+  const team = [
+    emp("boss", "Dana Boss", { department: "Leadership" }),
+    emp("l1", "Alex Kim", { department: "Data Science" }),
+    emp("l1a", "Ana One", { department: "Data Science" }),
+    emp("l1b", "Ben Two", { department: "Data Science", employmentStatus: "deprovisioned", leaveDate: "2026-09-01" }),
+    emp("l2", "Sam Lee", { department: "Engineering" }),
+    emp("l2a", "Cal Three", { department: "Engineering" }),
+    emp("ic", "Priya Shah", { department: null }),
+    emp("quiet", "Quinn Quiet", { department: "Product" }),
+  ];
+  const map = new Map(team.map((p) => [p.id, p]));
+  const f = [
+    fact("2026-09-22", "cursor", "overage", 10, "l1"),
+    fact("2026-09-22", "cursor", "overage", 20, "l1a"),
+    fact("2026-09-23", "anthropic", "metered", 5, "l1b"), // a leaver's spend counts
+    fact("2026-09-24", "cursor", "overage", 50, "l2a"),
+    fact("2026-09-24", "cursor", "overage", 3, "ic"),
+    fact("2026-09-10", "cursor", "overage", 999, "l2"), // outside the week
+  ];
+  const branches = [
+    { leadId: "l1", memberIds: ["l1", "l1a", "l1b"] },
+    { leadId: "l2", memberIds: ["l2", "l2a"] },
+    { leadId: "ic", memberIds: ["ic"] },
+    { leadId: "quiet", memberIds: ["quiet"] },
+  ];
+  const d = buildDigest(input({
+    recipient: map.get("boss")!, employeesById: map, facts: f,
+    reportIds: ["l1", "l1a", "l1b", "l2", "l2a", "ic", "quiet"], branches,
+  }))!;
+
+  it("lists each direct report's team, largest first, with active headcount; no spend, no line", () => {
+    expect(d.reports!.branches!.map((b) => [b.team, b.name, b.headcount, b.usd])).toEqual([
+      ["Engineering", "Sam Lee", 2, 50],
+      ["Data Science", "Alex Kim", 2, 35],
+      [null, "Priya Shah", 1, 3],
+    ]);
+    expect(d.reports!.branches![0].href).toBe("https://x.test/explore/Engineering/l2");
+    expect(d.reports!.otherBranchesCount).toBe(0);
+  });
+
+  it("adds up to the section total", () => {
+    expect(d.reports!.branches!.reduce((s, b) => s + b.usd, 0)).toBe(d.reports!.headlineUsd);
+  });
+
+  it("keeps the top six and sums the rest", () => {
+    const leads = Array.from({ length: 8 }, (_, i) => emp(`d${i}`, `Lead ${i}`));
+    const m2 = new Map([...team, ...leads].map((p) => [p.id, p]));
+    const d2 = buildDigest(input({
+      recipient: map.get("boss")!, employeesById: m2,
+      facts: leads.map((l, i) => fact("2026-09-22", "cursor", "overage", 10 + i, l.id)),
+      reportIds: leads.map((l) => l.id), branches: leads.map((l) => ({ leadId: l.id, memberIds: [l.id] })),
+    }))!;
+    expect(d2.reports!.branches!.map((b) => b.usd)).toEqual([17, 16, 15, 14, 13, 12]);
+    expect(d2.reports).toMatchObject({ otherBranchesCount: 2, otherBranchesUsd: 21 });
+  });
+
+  it("is absent without branches (everyone who doesn't manage managers)", () => {
+    expect(buildDigest(input())!.reports!.branches).toBeUndefined();
+  });
+});

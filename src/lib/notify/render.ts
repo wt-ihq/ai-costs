@@ -103,7 +103,12 @@ function topLine(r: ReportsSection, unit: string, links: boolean): string {
   if (!r.top.length) return `No usage from your reports this ${unit}`;
   const names = r.top.map((p) => `${named(p.href, p.name, links)} ${formatUsd(p.usd)}`);
   if (r.othersCount) names.push(`+${r.othersCount} others ${formatUsd(r.othersUsd)}`);
-  return names.join(" · ");
+  const line = names.join(" · ");
+  // A manager of managers: their teams first ("Team · Lead (people)"), then the top people.
+  if (!r.branches?.length) return line;
+  const teams = r.branches.map((b) => `${escapeMrkdwn(b.team ?? "No team")} · ${named(b.href, b.name, links)}${b.headcount > 1 ? ` (${b.headcount})` : ""} ${formatUsd(b.usd)}`);
+  if (r.otherBranchesCount) teams.push(`+${r.otherBranchesCount} more ${formatUsd(r.otherBranchesUsd ?? 0)}`);
+  return `*By team*\n${teams.map((t) => `• ${t}`).join("\n")}\n*Top people:* ${line}`;
 }
 
 /**

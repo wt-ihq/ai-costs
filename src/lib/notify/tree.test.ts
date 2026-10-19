@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildReportingTree } from "./tree";
+import { buildReportingTree, seniorBranches } from "./tree";
 import type { NotifyEmployee } from "./types";
 
 const emp = (id: string, over: Partial<NotifyEmployee> = {}): NotifyEmployee => ({
@@ -64,5 +64,35 @@ describe("buildReportingTree", () => {
     ]);
     expect(t.reportsOf("m")).toEqual(["gone"]);
     expect(t.unresolved.sort()).toEqual(["lost", "m"]);
+  });
+});
+
+describe("seniorBranches", () => {
+  const t = buildReportingTree([
+    emp("ceo"),
+    emp("cto", { managerRef: "00uceo" }),
+    emp("dev", { managerRef: "00ucto" }),
+    emp("intern", { managerRef: "00udev" }),
+    emp("pa", { managerRef: "00uceo" }), // a direct report with no reports
+    emp("gone", { managerRef: "00upa", employmentStatus: "deprovisioned", leaveDate: "2026-09-01" }),
+  ]);
+  const active = (id: string) => id !== "gone";
+
+  it("splits a manager of managers into one branch per direct report (them + everyone below)", () => {
+    const b = seniorBranches(t, "ceo", active)!;
+    expect(b.map((x) => [x.leadId, [...x.memberIds].sort()]).sort()).toEqual([
+      ["cto", ["cto", "dev", "intern"]],
+      ["pa", ["gone", "pa"]], // a leaver's spend still counts in the branch
+    ]);
+  });
+
+  it("is null for someone whose direct reports manage no one active", () => {
+    expect(seniorBranches(t, "dev", active)).toBeNull(); // intern has no reports
+    expect(seniorBranches(t, "pa", active)).toBeNull(); // only a leaver below
+    expect(seniorBranches(t, "intern", active)).toBeNull();
+  });
+
+  it("counts a manager of managers anywhere in the chain", () => {
+    expect(seniorBranches(t, "cto", active)!.map((x) => x.leadId)).toEqual(["dev"]);
   });
 });

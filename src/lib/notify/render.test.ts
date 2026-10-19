@@ -126,6 +126,27 @@ describe("renderDigest", () => {
     expect(others(off.blocks)).toEqual(others(blocks).slice(0, -1));
   });
 
+  it("a manager of managers sees their teams first, then the top people, each labelled", () => {
+    const reports = {
+      ...digest().reports!,
+      branches: [
+        { employeeId: "l2", name: "Sam Lee", team: "Engineering", headcount: 9, usd: 1400, href: "https://x.test/explore/Engineering/l2" },
+        { employeeId: "ic", name: "Priya <Shah>", team: null, headcount: 1, usd: 300, href: "https://x.test/explore/Unassigned/ic" },
+      ],
+      otherBranchesCount: 3, otherBranchesUsd: 250,
+    };
+    const line = (links: boolean) => mrk(renderDigest(digest({ reports }), {}, { links }).blocks.find((b) => b.type === "section" && mrk(b).startsWith("*By team*"))!);
+    expect(line(true)).toBe(
+      "*By team*\n" +
+        "• Engineering · <https://x.test/explore/Engineering/l2|Sam Lee> (9) $1,400\n" +
+        "• No team · <https://x.test/explore/Unassigned/ic|Priya &lt;Shah&gt;> $300\n" +
+        "• +3 more $250\n" +
+        "*Top people:* <https://x.test/explore/Engineering/a|Alex Kim> $140 · <https://x.test/explore/Engineering/t|Tom &amp; &lt;Jerry&gt;> $96.00 · +9 others $175",
+    );
+    expect(line(false)).toContain("• Engineering · Sam Lee (9) $1,400\n• No team · Priya &lt;Shah&gt; $300");
+    expect(line(false)).not.toContain("https://");
+  });
+
   it("people without reports get no reports section", () => {
     const b = renderDigest(digest({ reports: null }), {}).blocks;
     expect(b.some((x) => x.type === "section" && mrk(x).includes("REPORTS"))).toBe(false);

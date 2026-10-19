@@ -3,6 +3,7 @@ import { fetchEmployeesAll } from "@/lib/queries/common";
 import { fixedCostsForTeam, type FixedCostChoice, type FixedCostSettings } from "./fixed-costs";
 import { pageAll, supabaseNotifyStore } from "./store";
 import { buildReportingTree } from "./tree";
+import { buildOrgTree, type OrgTree } from "./org-tree";
 import { activeDepartments, CADENCES, isActiveEmployee, NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence, type ReportKind, type SendMode } from "./types";
 
 export interface RecipientRow {
@@ -45,6 +46,8 @@ export interface NotificationsAdminData {
   sends: SendLogRow[]; // newest first, ≤ 50
   lastRun: LastRun | null;
   tree: { active: number; resolved: number; unresolved: string[] };
+  /** The reporting lines for the recipient picker (Reporting lines panel). */
+  orgTree: OrgTree;
   people: PersonOption[]; // active, not yet enrolled — the recipients table's add-a-person picker
   activePeople: PersonOption[]; // every active employee — the preview and test-send pickers
   departments: string[];
@@ -197,6 +200,7 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
     })),
     lastRun: summariseLastRun(sends),
     tree: { active: active.length, resolved: active.filter((e) => !unresolved.has(e.id)).length, unresolved: active.filter((e) => unresolved.has(e.id)).map((e) => e.fullName).sort() },
+    orgTree: buildOrgTree(employees, tree, cadencesBy, companyBy),
     people: activePeople.filter((p) => !cadencesBy.has(p.id)),
     companyPeople: activePeople.filter((p) => !companyBy.has(p.id)),
     activePeople,

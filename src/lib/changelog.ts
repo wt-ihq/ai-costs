@@ -12,6 +12,14 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-10-19",
+    title: "Reporting lines for Slack summaries",
+    items: [
+      "Data → Notifications has a Reporting lines view of who reports to whom. Pick people, a manager's whole branch, just the managers in it, all managers or the senior leaders, and add them to the personal summary or the company report in one go.",
+      "Senior leaders (managers of managers) now see their reports' spend by team in their Slack summary, one line per direct report, before the top individuals.",
+    ],
+  },
+  {
+    date: "2026-10-19",
     title: "OpenAI spend updates nightly again",
     items: [
       "OpenAI's nightly update was often turned away for asking at a busy minute, so OpenAI spend could lag by days. It now waits and tries again.",

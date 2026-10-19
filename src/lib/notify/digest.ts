@@ -76,6 +76,22 @@ export interface ReportsSection extends DigestSection {
    * `othersUsd`; the renderer shows it separately so "others" is only people.
    */
   teamLevelUsd?: number;
+  /**
+   * Managers of managers only: one line per direct report — their team, them and everyone below —
+   * largest first, the top BRANCHES_SHOWN; the rest summed. Same basis and period as the headline.
+   */
+  branches?: BranchLine[];
+  otherBranchesCount?: number;
+  otherBranchesUsd?: number;
+}
+
+export interface BranchLine {
+  employeeId: string; // the direct report who leads the branch
+  name: string;
+  team: string | null; // their Okta department
+  headcount: number; // ACTIVE people in the branch, the lead included
+  usd: number;
+  href: string; // the lead's Explore page
 }
 
 export interface TeamAmount {
@@ -159,6 +175,8 @@ export interface SectionInput {
 export interface DigestInput extends SectionInput {
   recipient: NotifyEmployee;
   reportIds: string[];
+  /** A manager of managers' direct-report branches (tree.ts:seniorBranches); absent for everyone else. */
+  branches?: { leadId: string; memberIds: string[] }[];
 }
 
 export interface TeamDigestInput extends SectionInput {
@@ -166,6 +184,7 @@ export interface TeamDigestInput extends SectionInput {
 }
 
 const TOP_N = 5;
+const BRANCHES_SHOWN = 6;
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 /** Cents, with -0 normalised (formatUsd(-0) would print "-$0.00"). */
 export const round2 = (n: number) => {
@@ -319,6 +338,38 @@ function peopleSection(pop: ShapeFact[], memberIds: readonly string[], input: Se
   };
 }
 
+/** Each branch's spend on the headline's basis and period; no spend, no line; the top few, the rest summed. */
+function branchLines(pop: ShapeFact[], branches: NonNullable<DigestInput["branches"]>, input: SectionInput): Pick<ReportsSection, "branches" | "otherBranchesCount" | "otherBranchesUsd"> {
+  const { period, employeesById, baseUrl } = input;
+  const perPerson = sumBy(
+    counted(pop, input).filter((f) => f.employeeId !== null && inRange(f, period.from, period.toExclusive)),
+    (f) => f.employeeId as string,
+  );
+  const lines = branches
+    .map((b): BranchLine => {
+      const lead = employeesById.get(b.leadId);
+      return {
+        employeeId: b.leadId,
+        name: lead?.fullName ?? "Unknown",
+        team: lead?.department ?? null,
+        headcount: b.memberIds.filter((id) => {
+          const e = employeesById.get(id);
+          return e ? isActiveEmployee(e) : false;
+        }).length,
+        usd: round2(b.memberIds.reduce((s, id) => s + (perPerson.get(id) ?? 0), 0)),
+        href: personHref(baseUrl, lead ?? { id: b.leadId, department: null }),
+      };
+    })
+    .filter((l) => l.usd > 0)
+    .sort((a, b) => b.usd - a.usd || a.name.localeCompare(b.name));
+  const rest = lines.slice(BRANCHES_SHOWN);
+  return {
+    branches: lines.slice(0, BRANCHES_SHOWN),
+    otherBranchesCount: rest.length,
+    otherBranchesUsd: round2(rest.reduce((s, l) => s + l.usd, 0)),
+  };
+}
+
 /** Same basis as the headline: a seat the digest doesn't count doesn't make the recipient a "user" of that source. */
 function sourcesIn(pop: ShapeFact[], input: SectionInput): string[] {
   const { period } = input;
@@ -343,6 +394,7 @@ export function buildDigest(input: DigestInput): Digest | null {
 
   const you = section(youFacts, input);
   const reports = reportIds.length ? peopleSection(reportFacts, reportIds, input) : null;
+  if (reports && input.branches?.length) Object.assign(reports, branchLines(reportFacts, input.branches, input));
 
   if (period.cadence === "daily" && you.headlineUsd === 0 && (reports?.headlineUsd ?? 0) === 0) return null;
 

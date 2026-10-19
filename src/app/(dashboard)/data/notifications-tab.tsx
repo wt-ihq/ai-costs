@@ -4,6 +4,7 @@ import { BlockKitPreview } from "@/components/notifications/block-kit-preview";
 import { CompanyRecipients } from "@/components/notifications/company-recipients";
 import { FixedCostsPanel } from "@/components/notifications/fixed-costs-panel";
 import { RecipientsTable } from "@/components/notifications/recipients-table";
+import { ReportingLines } from "@/components/notifications/reporting-lines";
 import { PreviewPicker } from "@/components/notifications/preview-picker";
 import { SendTestControls } from "@/components/notifications/send-test-controls";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -166,6 +167,15 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
           )}
         </Panel>
       </div>
+
+      <Panel>
+        <h2 className="mb-1 text-sm font-medium">Reporting lines</h2>
+        <p className="mb-4 text-xs text-muted">
+          The Okta manager chain. Tick people, a manager&rsquo;s whole branch, or the managers in it, then add them to a list.
+          Adding never removes a cadence someone already has; remove people in the recipient table below.
+        </p>
+        <ReportingLines org={data.orgTree} />
+      </Panel>
 
       <div className="grid items-start gap-4 xl:grid-cols-[1.35fr_1fr]">
         <Panel>
