@@ -12,6 +12,13 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-10-16",
+    title: "OpenRouter workspace owners",
+    items: [
+      "On Data → Tools, an OpenRouter workspace can now have an owner. Spend from the workspace's shared keys then shows under that person (and their team) instead of as a team-level cost, including past spend.",
+    ],
+  },
+  {
+    date: "2026-10-16",
     title: "Cursor spend corrected",
     items: [
       "Cursor usage spend now counts only what Cursor bills on top of seats. Usage the plan already includes was being counted as extra spend as well, so people's Cursor figures were too high.",

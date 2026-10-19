@@ -22,21 +22,25 @@ export interface OpenRouterSyncResult {
   unmatched: string[];
 }
 
+interface WorkspaceMapping { department: string | null; ownerId: string | null }
+
 /**
- * Register every workspace seen (name refreshed, department never touched
- * after creation — admins correct it on the Data page) and return
- * workspace_id → department. New workspaces PREFILL department with their own
- * name: the org names workspaces after departments, so the default is right
- * and only exceptions need admin attention.
+ * Register every workspace seen (name refreshed; department and owner never
+ * touched after creation — admins set them on Data → Tools) and return
+ * workspace_id → { department, owner }. New workspaces PREFILL department with
+ * their own name: the org names workspaces after departments, so the default
+ * is right and only exceptions need admin attention.
  */
 async function registerWorkspaces(
   supabase: SupabaseClient,
   workspaces: OpenRouterWorkspace[],
-): Promise<Map<string, string | null>> {
+): Promise<Map<string, WorkspaceMapping>> {
   // Bounded read: the table grows by workspaces, not days.
-  const { data, error } = await supabase.from("openrouter_workspaces").select("workspace_id, department").limit(500);
+  const { data, error } = await supabase.from("openrouter_workspaces").select("workspace_id, department, owner_employee_id").limit(500);
   if (error) throw new Error(`registerWorkspaces read: ${error.message}`);
-  const dept = new Map<string, string | null>((data ?? []).map((r) => [r.workspace_id as string, (r.department as string) ?? null]));
+  const dept = new Map<string, WorkspaceMapping>(
+    (data ?? []).map((r) => [r.workspace_id as string, { department: (r.department as string) ?? null, ownerId: (r.owner_employee_id as string) ?? null }]),
+  );
 
   const now = new Date().toISOString();
   const fresh = workspaces.filter((w) => !dept.has(w.id));
@@ -47,10 +51,10 @@ async function registerWorkspaces(
       { onConflict: "workspace_id" },
     );
     if (insErr) throw new Error(`registerWorkspaces insert: ${insErr.message}`);
-    for (const w of fresh) dept.set(w.id, w.name);
+    for (const w of fresh) dept.set(w.id, { department: w.name, ownerId: null });
   }
   if (known.length) {
-    // Payload omits `department`, so ON CONFLICT leaves an assigned mapping intact.
+    // Payload omits `department` and `owner_employee_id`, so ON CONFLICT leaves assigned mappings intact.
     const { error: updErr } = await supabase.from("openrouter_workspaces").upsert(
       known.map((w) => ({ workspace_id: w.id, name: w.name, updated_at: now })),
       { onConflict: "workspace_id" },
@@ -71,6 +75,17 @@ async function registerWorkspaces(
  * its authoritative day totals top up any analytics under-report as an
  * `unkeyed` fact.
  */
+/**
+ * A workspace's shared-key spend (entity_key = workspace name, no member) belongs to the workspace's
+ * owner when one is set on Data → Tools. Member usage is untouched. Pure.
+ */
+export function applyWorkspaceOwners<T extends { entityKey: string; employeeId: string | null }>(facts: T[], ownerByWorkspace: ReadonlyMap<string, string>): T[] {
+  return facts.map((f) => {
+    const owner = f.employeeId ? undefined : ownerByWorkspace.get(f.entityKey);
+    return owner ? { ...f, employeeId: owner } : f;
+  });
+}
+
 export async function syncOpenRouter(
   supabase: SupabaseClient,
   window: DateWindow,
@@ -81,19 +96,23 @@ export async function syncOpenRouter(
   const runId = await startSyncRun(supabase, "openrouter");
   try {
     let facts: SpendFact[];
+    const ownerByWorkspace = new Map<string, string>(); // workspace name → its owner's employee id
     try {
       const workspaces = await workspacesFetcher();
       const deptByWs = await registerWorkspaces(supabase, workspaces);
       const perWs = await Promise.all(
         workspaces.map(async (w) => ({
           name: w.name,
-          department: deptByWs.get(w.id) ?? null,
+          department: deptByWs.get(w.id)?.department ?? null,
+          ownerId: deptByWs.get(w.id)?.ownerId ?? null,
           raw: await fetcher({ ...window, workspaceId: w.id }),
         })),
       );
+      for (const p of perWs) if (p.ownerId) ownerByWorkspace.set(p.name, p.ownerId);
       await saveRawPayload(supabase, "openrouter", runId, { workspaces, results: perWs.map((p) => p.raw) });
       facts = combineWorkspaceFacts(
-        perWs.map((p) => ({ name: p.name, department: p.department, facts: normalizeOpenRouterAnalytics(p.raw, window) })),
+        // An owned workspace's shared-key spend follows its owner's own team, as a member's does.
+        perWs.map((p) => ({ name: p.name, department: p.ownerId ? null : p.department, facts: normalizeOpenRouterAnalytics(p.raw, window) })),
       );
     } catch (err) {
       // Workspace path degraded (roster endpoint or a per-workspace query) —
@@ -115,7 +134,8 @@ export async function syncOpenRouter(
     }
 
     const employees = await loadEmployees(supabase);
-    const { facts: resolved } = attachEmployees(facts, employees);
+    const { facts: attached } = attachEmployees(facts, employees);
+    const resolved = applyWorkspaceOwners(attached, ownerByWorkspace);
     // Workspace-attributed facts aren't "unmatched" — they have a cost
     // center. Only entities with neither an employee nor a department are.
     const unmatched = [...new Set(resolved.filter((f) => !f.employeeId && !f.department).map((f) => f.entityKey))];

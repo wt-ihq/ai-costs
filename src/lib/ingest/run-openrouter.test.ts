@@ -204,6 +204,44 @@ describe("syncOpenRouter", () => {
     }
   });
 
+  it("puts a workspace's shared-key spend on its owner, following the owner's own team", async () => {
+    const jerry = { id: "emp-jerry", email: "jerry.lieveld@intenthq.com" };
+    const { client, spendRows, workspaceUpserts } = fakeOpenRouterDb(
+      [],
+      [gareth, jerry],
+      [{ workspace_id: "ws-design", name: "Design", department: "Design", owner_employee_id: "emp-jerry" }],
+    );
+    const row = (over: Record<string, unknown>) => ({
+      date__day: "2026-07-01T00:00:00.000Z", user: "u1", user_email: "gareth.jones@intenthq.com",
+      model: "anthropic/claude-sonnet-5", total_usage: 1, tokens_total: 10, request_count: 1, ...over,
+    });
+    const perWorkspace: Record<string, unknown[]> = {
+      "ws-design": [row({ total_usage: 2 }), row({ user: null, user_email: null, total_usage: 40 })],
+      "ws-ops": [row({ user: null, user_email: null, total_usage: 7 })],
+    };
+
+    const result = await syncOpenRouter(
+      client,
+      window,
+      async ({ workspaceId }) => ({ data: { data: perWorkspace[workspaceId ?? ""] ?? [] } }) as never,
+      async () => ({ data: [] }),
+      async () => [
+        { id: "ws-design", name: "Design" },
+        { id: "ws-ops", name: "AI Operations" },
+      ],
+    );
+
+    // Shared-key spend → the owner, department left to the owner's own team.
+    expect(spendRows.find((r) => r.entity_key === "Design")).toMatchObject({ cost_usd: 40, employee_id: "emp-jerry", department: null });
+    // A member's own usage in that workspace stays theirs.
+    expect(spendRows.find((r) => r.entity_key === "gareth.jones@intenthq.com")).toMatchObject({ cost_usd: 2, employee_id: "emp-1" });
+    // A workspace without an owner is unchanged: team-level.
+    expect(spendRows.find((r) => r.entity_key === "AI Operations")).toMatchObject({ employee_id: null, department: "AI Operations" });
+    expect(result.unmatched).toEqual([]);
+    // The nightly refresh never touches an assigned owner.
+    for (const batch of workspaceUpserts) for (const r of batch) expect(r).not.toHaveProperty("owner_employee_id");
+  });
+
   it("marks the run failed and rethrows when the analytics fetch fails", async () => {
     const { client, syncRunUpdates } = fakeOpenRouterDb([], [gareth]);
 
