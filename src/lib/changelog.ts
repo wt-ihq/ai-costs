@@ -11,6 +11,13 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-10-19",
+    title: "OpenAI spend updates nightly again",
+    items: [
+      "OpenAI's nightly update was often turned away for asking at a busy minute, so OpenAI spend could lag by days. It now waits and tries again.",
+    ],
+  },
+  {
     date: "2026-10-16",
     title: "OpenRouter workspace owners",
     items: [
