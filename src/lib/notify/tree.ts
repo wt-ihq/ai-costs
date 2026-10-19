@@ -79,3 +79,17 @@ export function buildReportingTree(employees: NotifyEmployee[]): ReportingTree {
     unresolved,
   };
 }
+
+/** One direct report of a senior manager and everyone below them (leavers included: their spend counts). */
+export interface Branch { leadId: string; memberIds: string[] }
+
+/**
+ * A manager of managers' direct reports, each with their whole branch — the digest's by-team
+ * breakdown. Null unless at least one direct report has an ACTIVE report of their own (everyone
+ * else's digest lists top people only).
+ */
+export function seniorBranches(tree: ReportingTree, employeeId: string, isActive: (id: string) => boolean): Branch[] | null {
+  const direct = tree.reportsOf(employeeId).filter((id) => tree.managerOf(id) === employeeId);
+  if (!direct.some((d) => tree.reportsOf(d).some(isActive))) return null;
+  return direct.map((d) => ({ leadId: d, memberIds: [d, ...tree.reportsOf(d)] }));
+}

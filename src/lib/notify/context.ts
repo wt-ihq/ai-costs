@@ -5,7 +5,8 @@ import { fixedCostsFor, fixedCostsForTeam, type FixedCostSettings } from "./fixe
 import { monthlyReadiness, sourceFreshness, type SourceFreshness, type SyncRunRow } from "./freshness";
 import type { DigestPeriod } from "./schedule";
 import type { NotifyStore } from "./store";
-import { buildReportingTree, type ReportingTree } from "./tree";
+import { isActiveEmployee } from "./types";
+import { buildReportingTree, seniorBranches, type ReportingTree } from "./tree";
 import type { NotifyEmployee } from "./types";
 
 export interface NotifyContext {
@@ -93,7 +94,16 @@ export function digestFor(ctx: NotifyContext, employeeId: string, period: Digest
   const recipient = ctx.employeesById.get(employeeId);
   if (!recipient) return null;
   const { include } = fixedCostsFor(ctx.fixedCosts, recipient);
-  return buildDigest({ ...sectionInput(ctx, period, include), recipient, reportIds: ctx.tree.reportsOf(employeeId) });
+  const isActive = (id: string) => {
+    const e = ctx.employeesById.get(id);
+    return !!e && isActiveEmployee(e);
+  };
+  return buildDigest({
+    ...sectionInput(ctx, period, include),
+    recipient,
+    reportIds: ctx.tree.reportsOf(employeeId),
+    branches: seniorBranches(ctx.tree, employeeId, isActive) ?? undefined,
+  });
 }
 
 /** A whole Okta department's digest (preview/test only — never scheduled). Callers validate the department. */
