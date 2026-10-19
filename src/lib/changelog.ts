@@ -15,6 +15,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: "Exchange rates from the ECB",
     items: [
       "Pound and euro rates now update daily from the European Central Bank. The £ → $ rate for Claude Team imports and the £/€ rate for recurring tool costs start from the latest ECB rate (marked with its date); you can still type your own.",
+      "Data → Sync now names every source it runs, exchange rates included.",
     ],
   },
   {
