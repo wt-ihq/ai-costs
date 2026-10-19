@@ -11,6 +11,8 @@ import { SeatMonthEntries, type SeatMonthEntryRow } from "@/components/seat-mont
 import { ImportChecklist, VendorDot } from "@/components/imports/import-checklist";
 import { FxRateField, FxRateProvider } from "@/components/imports/fx-rate";
 import { coverageView, importChecklist, shortDay } from "@/lib/imports/checklist";
+import { latestEcbRates } from "@/lib/queries/fx";
+import { ecbNote } from "@/lib/fx";
 
 /** Every seat_month_entries row, newest month first, paged past PostgREST's 1000-row cap (gotcha #1). */
 async function fetchSeatEntries(supabase: SupabaseClient): Promise<SeatMonthEntryRow[]> {
@@ -77,8 +79,9 @@ export async function ImportsTab() {
   const lastSpendPaste = imports
     .filter((r) => r.status === "success" && r.source === "claude_team" && r.kind === "clipboard")
     .reduce<string | null>((a, r) => (a === null || r.dataAsOf > a ? r.dataAsOf : a), null);
-  // The Claude column's shared £ → $ rate starts from the latest seat month saved with one.
-  const claudeRate = String(seatEntries.find((e) => e.vendor === "claude_team" && e.fxRate)?.fxRate ?? 1.27);
+  // The Claude column's shared £ → $ rate starts from the latest ECB rate, else the latest seat month saved with one.
+  const ecb = await latestEcbRates(supabase);
+  const claudeRate = String(ecb.GBP?.rate ?? seatEntries.find((e) => e.vendor === "claude_team" && e.fxRate)?.fxRate ?? 1.27);
 
   return (
     <div className="grid gap-6">
@@ -134,7 +137,7 @@ export async function ImportsTab() {
           <section aria-labelledby="imports-claude" className="space-y-3">
             <div className="flex min-h-9 flex-wrap items-center justify-between gap-2">
               <VendorHeading id="imports-claude" vendor="claude_team">Claude Team</VendorHeading>
-              <FxRateField />
+              <FxRateField note={ecb.GBP ? ecbNote(ecb.GBP) : null} />
             </div>
 
             <Panel id="claude-spend">
