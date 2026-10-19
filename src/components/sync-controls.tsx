@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { triggerSync, backfillSync, type BackfillResult } from "@/app/(dashboard)/imports/actions";
 import type { SyncOutcome } from "@/lib/ingest/run-all";
 import { cn } from "@/lib/utils";
+import { syncSourceLabel } from "@/lib/sync-sources";
 
 export function SyncControls() {
   const [results, setResults] = useState<Record<string, SyncOutcome> | null>(null);
@@ -53,14 +54,17 @@ export function SyncControls() {
         >
           {pending ? "Syncing…" : "Run sync now"}
         </button>
-        <span className="text-xs text-muted">Pulls all API sources (Okta, Cursor, Anthropic, OpenAI) for the last 7 days.</span>
+        <span className="text-xs text-muted">
+          Runs every source for the last 7 days: Okta, Cursor, Anthropic, OpenAI, OpenRouter, Vercel, ChatGPT and Claude seats,
+          recurring tool costs and exchange rates (ECB).
+        </span>
       </div>
 
       {results && (
         <ul className="grid gap-1.5 sm:grid-cols-2">
           {Object.entries(results).map(([source, r]) => (
             <li key={source} className="flex items-center justify-between rounded-md border border-border bg-surface-2/40 px-3 py-1.5 text-sm">
-              <span className="capitalize">{source}</span>
+              <span>{syncSourceLabel(source)}</span>
               {r.ok ? (
                 <span className="text-emerald-300">{r.rowsWritten} rows</span>
               ) : (
