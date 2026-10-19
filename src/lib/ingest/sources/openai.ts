@@ -1,7 +1,31 @@
 import type { OpenAICostResponse } from "@/lib/ingest/normalizers/openai";
 import type { DateWindow } from "./anthropic";
 
-export type OpenAIFetcher = (opts: DateWindow) => Promise<OpenAICostResponse>;
+export type OpenAIFetcher = (opts: DateWindow, deps?: { sleep?: (ms: number) => Promise<void> }) => Promise<OpenAICostResponse>;
+
+/**
+ * Waits between attempts after a 429/5xx (when OpenAI sends no Retry-After). The org's admin
+ * endpoints allow 30 requests a minute, shared with other tools using the same organisation: since
+ * late Sep 2026 something else polls at 06:00 UTC, so our nightly request (one, for a month) was
+ * refused almost every night while runs at any other time succeeded. ~3 minutes in total outlasts a
+ * busy minute and stays inside the cron's 300 s.
+ */
+export const OPENAI_BACKOFF_MS = [10_000, 20_000, 30_000, 60_000, 60_000] as const;
+const MAX_RETRY_AFTER_MS = 60_000;
+
+const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** GET, retrying 429/5xx: Retry-After when sent (capped at a minute), else OPENAI_BACKOFF_MS. */
+async function openAIGet(url: URL, key: string, sleep: (ms: number) => Promise<void>): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${key}` } });
+    if (res.ok) return res;
+    const retryable = res.status === 429 || res.status >= 500;
+    if (!retryable || attempt >= OPENAI_BACKOFF_MS.length) throw new Error(`OpenAI API ${res.status}: ${await res.text()}`);
+    const retryAfter = Number(res.headers.get("retry-after")) * 1000;
+    await sleep(Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter, MAX_RETRY_AFTER_MS) : OPENAI_BACKOFF_MS[attempt]);
+  }
+}
 
 /**
  * Live fetch from the OpenAI organization costs endpoint. Needs the
@@ -9,7 +33,8 @@ export type OpenAIFetcher = (opts: DateWindow) => Promise<OpenAICostResponse>;
  * ⚠ Endpoint + response shape must be confirmed against the org (spec §3, §11);
  * the normalizer is fixture-tested. Only this piece needs the key.
  */
-export const fetchOpenAICost: OpenAIFetcher = async ({ startDate, endDate }) => {
+export const fetchOpenAICost: OpenAIFetcher = async ({ startDate, endDate }, deps = {}) => {
+  const sleep = deps.sleep ?? defaultSleep;
   const key = process.env.OPENAI_ADMIN_API_KEY;
   if (!key) throw new Error("OPENAI_ADMIN_API_KEY is not set");
 
@@ -24,8 +49,7 @@ export const fetchOpenAICost: OpenAIFetcher = async ({ startDate, endDate }) => 
     url.searchParams.set("end_time", String(Math.floor(Date.parse(endDate) / 1000)));
     url.searchParams.set("limit", "31");
     if (page) url.searchParams.set("page", page);
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${key}` } });
-    if (!res.ok) throw new Error(`OpenAI API ${res.status}: ${await res.text()}`);
+    const res = await openAIGet(url, key, sleep);
     const json = (await res.json()) as OpenAICostResponse & { has_more?: boolean; next_page?: string | null };
     all.push(...(json.data ?? []));
     if (!json.has_more || !json.next_page) return { data: all };
