@@ -6,12 +6,13 @@ import { OpenRouterWorkspaces, type OpenRouterWorkspaceRow } from "@/components/
 import { fetchRecurringEntries, monthsBetween } from "@/lib/ingest/recurring";
 import { OTHER_TOOL_PALETTE } from "@/lib/colors";
 import { fetchEmployeesAll } from "@/lib/queries/common";
+import { latestEcbRates } from "@/lib/queries/fx";
 import { isActiveEmployee, NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee } from "@/lib/notify/types";
 
 /** Department-attributed tool costs (admin): recurring subscriptions + Vercel project mapping. */
 export async function ToolsTab() {
   const supabase = getSupabaseAdminClient();
-  const [recurringRaw, emps, { data: vercelRows }, { data: workspaceRows }] = await Promise.all([
+  const [recurringRaw, emps, { data: vercelRows }, { data: workspaceRows }, ecbRates] = await Promise.all([
     fetchRecurringEntries(supabase),
     fetchEmployeesAll(supabase, NOTIFY_EMPLOYEE_COLUMNS),
     supabase
@@ -24,6 +25,7 @@ export async function ToolsTab() {
       .select("workspace_id, name, department, owner_employee_id")
       .order("name")
       .limit(200), // bounded: grows by workspaces
+    latestEcbRates(supabase),
   ]);
   const recurringRows: RecurringCostRow[] = recurringRaw.map((e) => {
     const months = e.kind === "contract" ? monthsBetween(e.startMonth, e.endMonth!).length : 1;
@@ -64,7 +66,7 @@ export async function ToolsTab() {
           contracts spread evenly across their months. Costs land on the chosen department and each tool
           appears as its own vendor in Explore. Price change? End the entry and add a new one.
         </p>
-        <RecurringCosts entries={recurringRows} departments={departments} />
+        <RecurringCosts entries={recurringRows} departments={departments} ecbRates={ecbRates} />
       </Panel>
 
       <Panel>

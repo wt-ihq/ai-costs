@@ -12,6 +12,13 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-10-19",
+    title: "Exchange rates from the ECB",
+    items: [
+      "Pound and euro rates now update daily from the European Central Bank. The £ → $ rate for Claude Team imports and the £/€ rate for recurring tool costs start from the latest ECB rate (marked with its date); you can still type your own.",
+    ],
+  },
+  {
+    date: "2026-10-19",
     title: "Reporting lines for Slack summaries",
     items: [
       "Data → Notifications has a Reporting lines view of who reports to whom. Pick people, a manager's whole branch, just the managers in it, all managers or the senior leaders, and add them to the personal summary or the company report in one go.",

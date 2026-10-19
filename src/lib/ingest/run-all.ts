@@ -6,6 +6,7 @@ import { syncAnthropic, syncOpenAI } from "@/lib/ingest/run-platforms";
 import { syncVercel } from "@/lib/ingest/run-vercel";
 import { syncOpenRouter } from "@/lib/ingest/run-openrouter";
 import { syncOkta } from "@/lib/ingest/run-okta";
+import { syncEcb } from "@/lib/ingest/run-ecb";
 import { syncChatGptSeats } from "@/lib/ingest/run-chatgpt-seats";
 import { syncClaudeSeats } from "@/lib/ingest/run-claude-seats";
 import { syncRecurring } from "@/lib/ingest/recurring";
@@ -52,6 +53,7 @@ export async function runAllSyncs(
     run("chatgpt_seats", () => syncChatGptSeats(supabase)),
     run("claude_seats", () => syncClaudeSeats(supabase)),
     run("recurring", () => syncRecurring(supabase)),
+    run("ecb", () => syncEcb(supabase)),
   ]);
   return results;
 }

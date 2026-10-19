@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { saveRecurringCost, endRecurringCost, deleteRecurringCost, type RecurringCostInput } from "@/app/(dashboard)/imports/actions";
 import { VENDOR_LABEL, type Vendor } from "@/lib/types";
 import { formatUsd } from "@/lib/utils";
+import { ecbNote, type EcbRates } from "@/lib/fx";
 
 export interface RecurringCostRow {
   id: string;
@@ -39,12 +40,15 @@ function termsFor(row: RecurringCostRow): string {
   return `${amountStr} · ${row.startMonth} → ${row.endMonth}`;
 }
 
-export function RecurringCosts({ entries, departments }: { entries: RecurringCostRow[]; departments: string[] }) {
+/** `ecbRates`: the latest ECB rates; a £ or € entry starts from them (else the tool's last rate, else a fallback). */
+export function RecurringCosts({ entries, departments, ecbRates = {} }: { entries: RecurringCostRow[]; departments: string[]; ecbRates?: EcbRates }) {
   const initialMonth = new Date().toISOString().slice(0, 7);
   const toolNames = [...new Set(entries.map((e) => e.tool))].sort();
 
   const prefillRate = (tool: string, currency: Currency): number => {
     if (currency === "USD") return 1;
+    const ecb = ecbRates[currency];
+    if (ecb) return ecb.rate;
     const matches = entries.filter((e) => e.tool.toLowerCase() === tool.trim().toLowerCase() && e.currency === currency);
     if (matches.length) {
       const latest = matches.reduce((a, b) => (b.startMonth > a.startMonth ? b : a));
@@ -248,8 +252,9 @@ export function RecurringCosts({ entries, departments }: { entries: RecurringCos
               step="0.0001"
               value={rate}
               onChange={(e) => setRate(e.target.value)}
-              className="w-20 rounded-md border border-border bg-surface-2 px-2 py-1 text-foreground outline-none focus:border-accent"
+              className="w-24 rounded-md border border-border bg-surface-2 px-2 py-1 text-foreground outline-none focus:border-accent"
             />
+            {ecbRates[currency] && <span className="text-xs">{ecbNote(ecbRates[currency]!)}</span>}
           </label>
         )}
         <label className="flex items-center gap-2 text-muted">
