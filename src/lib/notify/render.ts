@@ -1,6 +1,7 @@
 import { formatUsd } from "@/lib/utils";
 import type { ChartHeadline } from "./chart";
 import { round2, type CompanyDigest, type CompanyUsageSection, type Digest, type DigestSection, type FixedCostsSection, type MonthTotal, type ReportsSection, type TeamDigest, type ToolAmount } from "./digest";
+import { introFor } from "./intro";
 import { CADENCE_UNIT, CHART_SPAN, type DigestPeriod } from "./schedule";
 import type { Cadence } from "./types";
 
@@ -24,6 +25,8 @@ export interface RenderOpts {
   links?: boolean;
   /** The send's tracked "Open in dashboard" link (/api/digest/open/<send id>); absent = link straight to the dashboard. */
   openUrl?: string;
+  /** The person's first live message: the intro (intro.ts) above the digest, with their first name and cadences. */
+  intro?: { name: string | null; cadences: Cadence[] };
 }
 
 const TOOLS_MAX = 4;
@@ -176,6 +179,13 @@ function fixedBlocks(s: FixedCostsSection, period: DigestPeriod): SlackBlock[] {
   ];
 }
 
+/** A first live message: the intro above the digest, and the notification text opens with the greeting. */
+function withIntro(r: RenderedDigest, opts: RenderOpts, report: "personal" | "company", reports: "none" | "direct" | "byTeam"): RenderedDigest {
+  if (!opts.intro) return r;
+  const intro = introFor({ name: opts.intro.name, cadences: opts.intro.cadences, report, reports, links: !!opts.links });
+  return { blocks: [...intro.blocks, ...r.blocks], text: intro.text + r.text };
+}
+
 /** Banner and/or cron preview line above the digest; the text fallback gets the same context (escaped: Slack parses it as mrkdwn). */
 function withLead(r: RenderedDigest, opts: RenderOpts): RenderedDigest {
   const lead: SlackBlock[] = [];
@@ -213,7 +223,8 @@ export function renderDigest(d: Digest, files: ChartFileIds, opts: RenderOpts = 
   const text =
     `Your AI spend · ${d.period.label}: you ${formatUsd(d.you.headlineUsd)} ${d.you.basis}` +
     (d.reports ? ` · your reports ${formatUsd(d.reports.headlineUsd)} ${d.reports.basis}` : "");
-  return withLead({ blocks, text }, opts);
+  const reports = !d.reports ? "none" : d.reports.branches !== undefined ? "byTeam" : "direct";
+  return withLead(withIntro({ blocks, text }, opts, "personal", reports), opts);
 }
 
 /** A whole team's digest → Block Kit (admin preview and test sends; never scheduled). */
@@ -249,5 +260,5 @@ export function renderCompanyDigest(d: CompanyDigest, files: CompanyChartFileIds
   blocks.push(...dashboardButton(opts, d.dashboardUrl));
 
   const text = `Company AI spend · ${d.period.label}: usage ${formatUsd(d.usage.headlineUsd)} · ${escapeMrkdwn("seats & subscriptions")} ${formatUsd(d.fixed.headlineUsd)}`;
-  return withLead({ blocks, text }, opts);
+  return withLead(withIntro({ blocks, text }, opts, "company", "none"), opts);
 }

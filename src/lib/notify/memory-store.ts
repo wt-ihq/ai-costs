@@ -35,6 +35,8 @@ export interface MemorySeed {
   dashboardAccess?: string[];
   /** Make dashboardAccess() throw (the table unreadable). */
   dashboardAccessFails?: boolean;
+  /** Make everLive() throw (the send log unreadable). */
+  everLiveFails?: boolean;
 }
 
 const same = (a: SendKey, b: SendKey) =>
@@ -86,6 +88,14 @@ export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.no
     async importCoverage(nowMonth) {
       coverageCalls.push(nowMonth);
       return seed.coverage ?? [];
+    },
+    async everLive(ids) {
+      if (seed.everLiveFails) throw new Error("notification_sends: simulated outage");
+      return new Set(
+        sends
+          .filter((s) => s.mode === "live" && ids.includes(s.employeeId) && (s.status === "sent" || s.status === "pending" || s.detail === "interrupted"))
+          .map((s) => s.employeeId),
+      );
     },
     async sendStates(periodKeys, mode) {
       return sends.filter((s) => periodKeys.includes(s.periodKey) && s.mode === mode).map((s) => ({ ...s }));

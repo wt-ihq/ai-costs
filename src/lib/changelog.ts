@@ -11,6 +11,13 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-10-20",
+    title: "A welcome with the first Slack summary",
+    items: [
+      "Each person's first Slack summary now opens with a short hello by first name: what the summaries show, when they'll arrive, and who to ask. Admins can see it in the preview on Data → Notifications.",
+    ],
+  },
+  {
     date: "2026-10-19",
     title: "Exchange rates from the ECB",
     items: [

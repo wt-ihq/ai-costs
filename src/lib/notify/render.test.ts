@@ -147,6 +147,27 @@ describe("renderDigest", () => {
     expect(line(false)).not.toContain("https://");
   });
 
+  it("opens a first live message with the intro, under any preview line; the notification text greets first", () => {
+    const r = renderDigest(digest(), {}, { intro: { name: "Priya", cadences: ["weekly", "monthly"] }, previewFor: "Priya Nair (weekly)", links: true });
+    expect(r.blocks[0]).toMatchObject({ type: "context" }); // the cron's preview line stays on top
+    expect(mrk(r.blocks[1])).toContain("👋 *Hi Priya,* this is your first AI spend summary.");
+    expect(mrk(r.blocks[1])).toContain("• *Your reports:* the total for the people who report to you");
+    expect(r.blocks[3]).toEqual({ type: "divider" });
+    expect(r.blocks[4]).toMatchObject({ type: "header" });
+    expect(r.text.startsWith("[Preview for Priya Nair (weekly)] Hi Priya — your first AI spend summary. Your AI spend · ")).toBe(true);
+  });
+
+  it("matches the intro to the summary: teams for a manager of managers, nothing about reports without them", () => {
+    const senior = renderDigest(digest({ reports: { ...digest().reports!, branches: [] } }), {}, { intro: { name: "Dana", cadences: ["weekly"] } });
+    expect(mrk(senior.blocks[0])).toContain("split by team");
+    const solo = renderDigest(digest({ reports: null }), {}, { intro: { name: "Sam", cadences: ["weekly"] } });
+    expect(mrk(solo.blocks[0])).not.toContain("Your reports");
+  });
+
+  it("has no intro unless asked", () => {
+    expect(renderDigest(digest(), {}).blocks[0]).toMatchObject({ type: "header" });
+  });
+
   it("people without reports get no reports section", () => {
     const b = renderDigest(digest({ reports: null }), {}).blocks;
     expect(b.some((x) => x.type === "section" && mrk(x).includes("REPORTS"))).toBe(false);
@@ -434,6 +455,12 @@ describe("renderCompanyDigest", () => {
       "Engineering $212 · R&amp;D &lt;Ops&gt; $108 · unattributed $20.00\n" +
         "Alex Kim $140 · +3 others $168 · not tied to a person $32.00",
     );
+  });
+
+  it("opens a first company report with the company intro", () => {
+    const r = renderCompanyDigest(companyDigest(), {}, { intro: { name: "Ashley", cadences: ["weekly", "monthly"] } });
+    expect(mrk(r.blocks[0])).toContain("👋 *Hi Ashley,* this is your first company AI spend report.");
+    expect(r.text.startsWith("Hi Ashley — your first company AI spend report. Company AI spend")).toBe(true);
   });
 
   it("has an escaped plain-text fallback with both figures, and takes the preview line", () => {
