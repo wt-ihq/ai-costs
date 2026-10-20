@@ -12,6 +12,7 @@ export const SYNC_SOURCE_LABEL: Record<string, string> = {
   openrouter: "OpenRouter",
   chatgpt_seats: "ChatGPT seats (Okta group)",
   claude_seats: "Claude seats (Okta group)",
+  claude_spend: "Claude Team spend (daily spread)",
   recurring: "Recurring tool costs",
   ecb: "Exchange rates (ECB)",
 };

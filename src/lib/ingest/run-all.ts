@@ -11,6 +11,7 @@ import { syncChatGptSeats } from "@/lib/ingest/run-chatgpt-seats";
 import { syncClaudeSeats } from "@/lib/ingest/run-claude-seats";
 import { syncRecurring } from "@/lib/ingest/recurring";
 import type { DateWindow } from "@/lib/ingest/sources/anthropic";
+import { rebuildClaudeSpend, recentClaudeMonths } from "./run-claude-spend";
 
 export type SyncOutcome = { ok: true; rowsWritten: number } | { ok: false; error: string };
 
@@ -52,6 +53,7 @@ export async function runAllSyncs(
     run("openrouter", () => syncOpenRouter(supabase, window)),
     run("chatgpt_seats", () => syncChatGptSeats(supabase)),
     run("claude_seats", () => syncClaudeSeats(supabase)),
+    run("claude_spend", () => rebuildClaudeSpend(supabase, recentClaudeMonths(new Date()))),
     run("recurring", () => syncRecurring(supabase)),
     run("ecb", () => syncEcb(supabase)),
   ]);
