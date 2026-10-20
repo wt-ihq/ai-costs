@@ -48,8 +48,8 @@ const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 
 const REPORTS_PHRASE: Record<IntroInput["reports"], string> = {
   none: "",
-  direct: " and the total for the people who report to you",
-  byTeam: " and a team-by-team total for everyone below you",
+  direct: " and the total spend for the people who report to you, with comparisons to the previous period",
+  byTeam: " and the total spend for the teams who report to you, with comparisons to the previous period",
 };
 
 export function introFor(i: IntroInput): { blocks: SlackBlock[]; text: string } {
@@ -63,8 +63,7 @@ export function introFor(i: IntroInput): { blocks: SlackBlock[]; text: string } 
         ]
       : [
           `👋 *Hi ${hi},* this is your first ${what}.`,
-          `You'll get ${cadencePhrase(i.cadences, "personal")}. Each shows your own AI spend by tool${REPORTS_PHRASE[i.reports]}, ` +
-            `compared with the period before${i.reports === "none" ? "" : ", and who uses the most"}.`,
+          `You'll get ${cadencePhrase(i.cadences, "personal")}. Each shows your own AI spend by tool${REPORTS_PHRASE[i.reports]}.`,
         ];
   const footer = `${i.links ? "Use *Open in dashboard* for the detail. " : ""}Questions? Ask <${HELP_LINK}|Workplace Tech>.`;
   return {

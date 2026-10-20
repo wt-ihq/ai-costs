@@ -38,7 +38,7 @@ describe("introFor", () => {
         type: "mrkdwn",
         text:
           "👋 *Hi Priya,* this is your first AI spend summary.\n" +
-          "You'll get a weekly summary each Monday and a monthly recap early each month. Each shows your own AI spend by tool and the total for the people who report to you, compared with the period before, and who uses the most.",
+          "You'll get a weekly summary each Monday and a monthly recap early each month. Each shows your own AI spend by tool and the total spend for the people who report to you, with comparisons to the previous period.",
       },
     });
     expect(i.blocks[1]).toEqual({
@@ -51,13 +51,13 @@ describe("introFor", () => {
 
   it("speaks of teams to someone who manages managers", () => {
     expect(text(introFor({ ...base, cadences: ["weekly"], reports: "byTeam" }))).toContain(
-      "Each shows your own AI spend by tool and a team-by-team total for everyone below you, compared with the period before, and who uses the most.",
+      "Each shows your own AI spend by tool and the total spend for the teams who report to you, with comparisons to the previous period.",
     );
   });
 
   it("leaves out reports for someone without any, and the dashboard for someone who can't open it", () => {
     const i = text(introFor({ ...base, cadences: ["weekly"], reports: "none", links: false }));
-    expect(i).toContain("Each shows your own AI spend by tool, compared with the period before.");
+    expect(i).toContain("Each shows your own AI spend by tool.\"");
     expect(i).not.toContain("Open in dashboard");
     expect(i).toContain('"text":"Questions? Ask <https://slack.com/app_redirect?channel=C02ND4XRSLR|Workplace Tech>."');
   });
