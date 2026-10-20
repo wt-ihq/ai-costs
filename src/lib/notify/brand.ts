@@ -13,5 +13,6 @@ export const BRAND = {
   muted: "#6b5a4c", // titles and secondary labels on cream (5.4:1)
   dim: "#76655a", // dimmed past-bar labels on cream (4.5:1)
   grid: "#e3d1bc", // gridlines on cream (decorative)
+  highlight: "rgba(35, 26, 20, 0.07)", // Truffle tint behind the current bar (deepens the cream; bar colours untouched)
   creamMuted: "#cdbba6", // secondary text on Truffle (9.2:1)
 } as const;

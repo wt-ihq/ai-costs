@@ -51,10 +51,16 @@ function Headline({ h }: { h: ChartHeadline }) {
  * `display: flex` on any element with more than one child, so everything is
  * absolutely-positioned boxes. Every bar carries its total. Bars are drawn in the
  * dashboard's exact tool colours (never faded: on Warm Cream a faded bar turns
- * pastel and stops matching); the current one stands out by its larger, darker
- * total and label, earlier ones carry a small grey total.
+ * pastel and stops matching), so the current one is marked around it instead: a
+ * tinted column behind it, its label in a Truffle pill, and a bolder total;
+ * earlier ones carry a small grey total.
  */
 export async function renderChartPng(layout: ChartLayout): Promise<Uint8Array<ArrayBuffer>> {
+  const current = layout.bars.find((b) => b.current);
+  // Room either side of the current bar, kept clear of its neighbours (14 daily bars sit closer than 6 monthly).
+  const gap = layout.bars.length > 1 ? layout.bars[1].x - (layout.bars[0].x + layout.bars[0].w) : 40;
+  const highlightPad = Math.max(4, Math.min(14, Math.floor(gap / 2) - 4));
+  const dense = layout.bars.length > 8; // daily: the current bar's exact total must stay clear of its neighbour's
   const image = new ImageResponse(
     (
       <div style={{ width: layout.width, height: layout.height, display: "flex", position: "relative", backgroundColor: BRAND.cream, fontFamily: FONT }}>
@@ -62,6 +68,18 @@ export async function renderChartPng(layout: ChartLayout): Promise<Uint8Array<Ar
         {layout.headline && <Headline h={layout.headline} />}
         {layout.caption && (
           <div style={abs({ left: 24, top: CHART_CAPTION.top, fontSize: CHART_CAPTION.size, fontWeight: 500, letterSpacing: 1.2, color: BRAND.dim })}>{layout.caption}</div>
+        )}
+        {current && (
+          <div
+            style={abs({
+              left: current.x - highlightPad,
+              top: CHART_PLOT.top - 40,
+              width: current.w + 2 * highlightPad,
+              height: CHART_PLOT.bottom - CHART_PLOT.top + 82,
+              borderRadius: 10,
+              backgroundColor: BRAND.highlight,
+            })}
+          />
         )}
         {layout.gridlines.map((g) => (
           <div key={`g${g.y}`} style={abs({ left: 0, top: g.y - 12, width: layout.width, height: 24, alignItems: "center" })}>
@@ -73,18 +91,24 @@ export async function renderChartPng(layout: ChartLayout): Promise<Uint8Array<Ar
           ...b.segments.map((s, j) => (
             <div key={`s${i}-${j}`} style={abs({ left: b.x, top: s.y, width: b.w, height: s.h, backgroundColor: s.color })} />
           )),
-          <div key={`l${i}`} style={abs({ left: b.x - 30, top: CHART_PLOT.bottom + 10, width: b.w + 60, justifyContent: "center", fontSize: 20, fontWeight: b.current ? 500 : 400, color: b.current ? BRAND.truffle : BRAND.dim })}>{b.label}</div>,
+          b.current ? (
+            <div key={`l${i}`} style={abs({ left: b.x - 30, top: CHART_PLOT.bottom + 7, width: b.w + 60, justifyContent: "center" })}>
+              <div style={{ display: "flex", padding: "1px 10px 2px", borderRadius: 999, backgroundColor: BRAND.truffle, color: BRAND.cream, fontSize: 20, fontWeight: 700 }}>{b.label}</div>
+            </div>
+          ) : (
+            <div key={`l${i}`} style={abs({ left: b.x - 30, top: CHART_PLOT.bottom + 10, width: b.w + 60, justifyContent: "center", fontSize: 20, color: BRAND.dim })}>{b.label}</div>
+          ),
           ...(b.totalLabel
             ? [
                 <div
                   key={`t${i}`}
                   style={abs({
                     left: b.x - 60,
-                    top: (b.segments.at(-1)?.y ?? CHART_PLOT.bottom) - (b.current ? 30 : 26),
+                    top: (b.segments.at(-1)?.y ?? CHART_PLOT.bottom) - (b.current ? 32 : 26),
                     width: b.w + 120,
                     justifyContent: "center",
-                    fontSize: b.current ? 22 : 18,
-                    fontWeight: b.current ? 500 : 400,
+                    fontSize: b.current ? (dense ? 22 : 24) : 18,
+                    fontWeight: b.current ? 700 : 400,
                     color: b.current ? BRAND.truffle : BRAND.dim,
                   })}
                 >

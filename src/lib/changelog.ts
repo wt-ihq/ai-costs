@@ -15,7 +15,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: "A welcome with the first Slack summary",
     items: [
       "Each person's first Slack summary now opens with a short hello by first name: what the summaries show, when they'll arrive, and who to ask. Admins can see it in the preview on Data → Notifications.",
-      "The welcome opens with an Intent HQ banner, and the charts in Slack summaries now use the brand colours, with every bar in the same tool colours as the dashboard.",
+      "The welcome opens with an Intent HQ banner, and the charts in Slack summaries now use the brand colours, with every bar in the same tool colours as the dashboard and the latest week or month clearly marked.",
     ],
   },
   {
