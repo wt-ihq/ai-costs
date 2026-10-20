@@ -17,6 +17,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "Weekly Slack summaries now wait until the week's figures are complete — including Claude Team spend, which now counts in weekly summaries — and monthly recaps wait for their imports instead of going out with warnings.",
       "Admins can get a Monday Slack reminder of what's left to update, and a month-end reminder to paste Claude Team spend. Add people on Data → Notifications.",
       "Claude Team spend now shows on the days it was used in Explore, instead of all on the 1st.",
+      "The dashboard has its own app icon in the browser tab and on phone home screens.",
     ],
   },
   {
