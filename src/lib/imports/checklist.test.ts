@@ -48,7 +48,21 @@ describe("importChecklist", () => {
   });
 
   it("Claude spend is done once this month's table is pasted", () => {
-    expect(item(importChecklist(base), "claudeSpend")).toMatchObject({ done: true, status: "As of 12 Oct", detail: "October so far $17,829" });
+    expect(item(importChecklist(base), "claudeSpend")).toMatchObject({ done: true, status: "Pasted as of 12 Oct", detail: "October so far $17,829" });
+  });
+
+  it("Claude spend is due each week: pasted as of last Sunday", () => {
+    const late = { ...base, today: "2026-10-20" }; // Tue: last Sunday is 18 Oct
+    expect(item(importChecklist(late), "claudeSpend")).toMatchObject({ done: false, status: "Pasted as of 12 Oct · due as of 18 Oct", action: "Paste the spend table" });
+    const none = { ...base, imports: base.imports.filter((i) => i.source !== "claude_team" || !i.dataAsOf.startsWith("2026-10")) };
+    expect(item(importChecklist(none), "claudeSpend")).toMatchObject({ done: false, status: "Due: paste as of 11 Oct" });
+  });
+
+  it("before a month's first Sunday, the week just gone still needs a paste: this month's table", () => {
+    const feb = { coverage: [], imports: [imp("claude_team", "clipboard", "2027-01-29")], seatEntries: [], today: "2027-02-01" }; // Monday the 1st
+    expect(item(importChecklist(feb), "claudeSpend")).toMatchObject({ done: false, status: "Due: paste this month's table" });
+    const dec = { coverage: [], imports: [imp("claude_team", "clipboard", "2026-11-30")], seatEntries: [], today: "2026-12-01" }; // last Sunday 29 Nov
+    expect(item(importChecklist(dec), "claudeSpend")).toMatchObject({ done: true, status: "Pasted as of 30 Nov" });
   });
 
   it("seats are done only with this month's invoice counts, not a tier upload", () => {

@@ -31,25 +31,20 @@ export type ToolColors = Record<string, string>;
 const dimKey = (r: ShapeFact, dim: Dim): string =>
   dim === "vendor" ? (r.source === "other" ? `${OTHER_KEY_PREFIX}${r.model}` : r.source) : r.costType;
 
-/** Sources whose usage arrives as one month-stamped lump (Claude Team's member-usage import). */
-export const MONTHLY_SNAPSHOT_SOURCES = new Set(["claude_team"]);
-
 /**
- * `${source}:${YYYY-MM}` → the latest month-to-date import's as-of day for a
- * monthly-snapshot source. The lump covers the 1st → that day only, so the
- * trend spreads it there rather than over days the paste never saw.
- */
-export type SnapshotAsOf = Record<string, string>;
-
-/**
- * Facts that represent a MONTHLY cost posted as a single fact stamped to the
- * 1st: seats, subscriptions, and monthly-snapshot usage. Shared taxonomy —
- * the projection treats these as a monthly level, and day/week trend charts
- * amortize them across the month instead of spiking the 1st.
+ * Facts that represent a MONTHLY cost posted as a single fact stamped to the 1st: seats and
+ * subscriptions. Shared taxonomy — the projection treats these as a monthly level, and day/week
+ * trend charts amortize them across the month instead of spiking the 1st.
  */
 export function isMonthlyLevelFact(f: ShapeFact): boolean {
-  return f.costType === "seat" || f.costType === "subscription" || MONTHLY_SNAPSHOT_SOURCES.has(f.source);
+  return f.costType === "seat" || f.costType === "subscription";
 }
+
+/**
+ * Sources whose day-level figures are an even spread of a longer paste (Claude Team:
+ * ingest/claude-spread.ts) — fair over a week, invented for a single day.
+ */
+export const SPREAD_SOURCES: ReadonlySet<string> = new Set(["claude_team"]);
 
 /** Human label for a dim value. Vendor-dim "other:<tool>" keys resolve to the tool name verbatim. */
 export function dimLabel(dim: Dim, key: string): string {
@@ -146,15 +141,12 @@ function groupBy(rows: ShapeFact[], key: (r: ShapeFact) => string | null): Map<s
 
 /**
  * Period-scoped trend, adaptively bucketed (day→the trailing fortnight,
- * week→day, month→day, quarter→week, year→month). On day/week charts, monthly-level costs (seats,
- * subscriptions, monthly snapshots — all stamped to the 1st) are amortized
- * evenly across their month's days: without this a quarter's first week
- * towers with the whole quarter's fixed spend while later weeks look free.
- * Month-to-date snapshot usage spreads only up to its import's as-of day
- * (`snapshotAsOf`) — a paste taken on the 7th covers seven days, not thirty.
- * Totals are preserved; month-bucketed views are unaffected.
+ * week→day, month→day, quarter→week, year→month). On day/week charts, monthly-level costs (seats
+ * and subscriptions, stamped to the 1st) are amortized evenly across their month's days: without
+ * this a quarter's first week towers with the whole quarter's fixed spend while later weeks look
+ * free. Totals are preserved; month-bucketed views are unaffected.
  */
-export function trendForPeriod(rows: ShapeFact[], period: Period, dim: Dim, snapshotAsOf: SnapshotAsOf = {}): TrendPoint[] {
+export function trendForPeriod(rows: ShapeFact[], period: Period, dim: Dim): TrendPoint[] {
   const DAY_MS = 86_400_000;
   const buckets = enumerateBuckets(period);
   const points = new Map<string, TrendPoint>(buckets.map((b) => [b.key, { label: b.label }]));
@@ -180,10 +172,7 @@ export function trendForPeriod(rows: ShapeFact[], period: Period, dim: Dim, snap
       const month = r.day.slice(0, 7);
       const start = Date.parse(`${month}-01T00:00:00Z`);
       const [y, m] = month.split("-").map(Number);
-      const monthDays = new Date(Date.UTC(y, m, 0)).getUTCDate();
-      const isFee = r.costType === "seat" || r.costType === "subscription";
-      const asOf = isFee ? undefined : snapshotAsOf[`${r.source}:${month}`];
-      const days = asOf?.startsWith(month) ? Math.min(monthDays, Number(asOf.slice(8, 10))) : monthDays;
+      const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
       // Skip months the window can't touch — otherwise every scope row spreads.
       if (`${month}-01` >= windowTo || new Date(start + days * DAY_MS).toISOString().slice(0, 10) <= windowFrom) continue;
       for (let i = 0; i < days; i++) add(new Date(start + i * DAY_MS).toISOString().slice(0, 10), k, r.costUsd / days);

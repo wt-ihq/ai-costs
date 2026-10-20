@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Panel } from "@/components/ui";
 import { BlockKitPreview } from "@/components/notifications/block-kit-preview";
 import { CompanyRecipients } from "@/components/notifications/company-recipients";
+import { ReminderRecipients } from "@/components/notifications/reminder-recipients";
 import { FixedCostsPanel } from "@/components/notifications/fixed-costs-panel";
 import { RecipientsTable } from "@/components/notifications/recipients-table";
 import { ReportingLines } from "@/components/notifications/reporting-lines";
@@ -154,7 +155,19 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
 
   return (
     <div className="grid gap-4">
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Panel>
+          <p className="text-[10.5px] uppercase tracking-wide text-muted">{data.weekStatus.title}</p>
+          <p className={`my-1 text-sm font-semibold ${data.weekStatus.state === "waiting" || data.weekStatus.state === "skipped" ? "text-amber-300" : ""}`}>
+            {data.weekStatus.state === "sent" ? "Sent" : data.weekStatus.state === "ready" ? "Ready" : data.weekStatus.state === "skipped" ? "Skipped" : "Waiting"}
+          </p>
+          <p className="text-xs text-muted">{data.weekStatus.text}</p>
+          {data.monthStatus && (
+            <p className="mt-2 text-xs text-muted">
+              <span className={data.monthStatus.state === "waiting" ? "text-amber-300" : "text-foreground"}>{data.monthStatus.title}:</span> {data.monthStatus.text}
+            </p>
+          )}
+        </Panel>
         <Panel>
           <p className="text-[10.5px] uppercase tracking-wide text-muted">Mode</p>
           <p className="my-1 text-sm font-semibold">{mode.toUpperCase()}</p>
@@ -218,6 +231,14 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
               Same schedule as personal digests; someone on both lists gets both.
             </p>
             <CompanyRecipients rows={data.companyRecipients} people={data.companyPeople} />
+          </div>
+          <div className="mt-6 border-t border-border pt-4">
+            <h2 className="mb-1 text-sm font-medium">Update reminders · {data.reminderRecipients.length}</h2>
+            <p className="mb-3 text-xs text-muted">
+              A Slack message on Mondays at 09:30 listing what&apos;s left before the weekly summaries can go (Claude Team paste, ChatGPT credits, failed syncs),
+              and on the month&apos;s last working day at 15:00 a reminder to paste Claude Team spend before its table resets.
+            </p>
+            <ReminderRecipients rows={data.reminderRecipients} people={data.reminderPeople} />
           </div>
         </Panel>
 
@@ -325,7 +346,7 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
                   <tr key={i} className="border-b border-border/60 last:border-0">
                     <td className="px-3 py-2 text-xs text-muted">{s.at.slice(0, 16).replace("T", " ")}</td>
                     <td className="px-3 py-2">{s.name}</td>
-                    <td className="px-3 py-2 text-xs">{s.report === "company" ? "Company" : "Personal"}</td>
+                    <td className="px-3 py-2 text-xs">{s.report === "company" ? "Company" : s.report === "reminder" ? "Reminder" : "Personal"}</td>
                     <td className="px-3 py-2">{s.cadence}</td>
                     <td className="px-3 py-2 text-xs">{s.periodKey}</td>
                     <td className="px-3 py-2 text-xs">{s.mode}</td>

@@ -2,7 +2,7 @@
 
 import { revalidatePath, updateTag } from "next/cache";
 import { FACTS_TAG } from "@/lib/queries/cached";
-import { requireAdmin } from "@/lib/auth-guard";
+import { actorEmail, requireAdmin } from "@/lib/auth-guard";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { recentWindow, runAllSyncs, type SyncOutcome } from "@/lib/ingest/run-all";
 import { rebuildCursorOverage, syncCursor } from "@/lib/ingest/run-cursor";
@@ -11,7 +11,8 @@ import { syncVercel } from "@/lib/ingest/run-vercel";
 import { parseClaudeSpend } from "@/lib/ingest/parsers/claude-spend";
 import { parseSeatRoster } from "@/lib/ingest/parsers/seat-roster";
 import { parseOpenAiCreditsCsv, coveredWindow, type CreditUsageFact } from "@/lib/ingest/parsers/openai-credits";
-import { loadEmployeesFull, upsertSpendFacts, replaceWindowFacts, type ResolvedFact } from "@/lib/ingest/persist";
+import { loadEmployeesFull, replaceWindowFacts, type ResolvedFact } from "@/lib/ingest/persist";
+import { claudeSnapshotMonths, rebuildClaudeSpend, saveClaudePaste } from "@/lib/ingest/run-claude-spend";
 import { isTieredVendor, rebuildSeatMonth, type TieredVendor } from "@/lib/ingest/seat-months";
 import {
   fetchRecurringEntries,
@@ -335,19 +336,15 @@ export async function commitClaudeSpendImport(
 ): Promise<ImportCommitResult> {
   await requireAdmin();
   const supabase = getSupabaseAdminClient();
-  const day = asOf.slice(0, 7) + "-01"; // monthly MTD snapshot, upsert-replace
-
-  const facts: ResolvedFact[] = rows
-    .filter((r) => r.usd > 0)
-    .map((r) => ({
-      source: "claude_team",
-      day,
-      costType: "overage",
-      entityKey: r.email,
-      costUsd: r.usd,
-      employeeId: r.employeeId,
-    }));
-  const written = await upsertSpendFacts(supabase, facts);
+  if (typeof asOf !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(asOf)) throw new Error("Pick the paste's date");
+  const pasted = rows.filter((r) => r.usd > 0);
+  // Every paste is kept; the month's daily facts are rebuilt from all of them (claude-spread.ts).
+  const written = await saveClaudePaste(
+    supabase,
+    asOf,
+    pasted.map((r) => ({ email: r.email, employeeId: r.employeeId, mtdGbp: r.mtdGbp, mtdUsd: r.usd })),
+    await actorEmail(),
+  );
 
   const identities = rows
     .filter((r) => r.matched && r.employeeId)
@@ -361,19 +358,19 @@ export async function commitClaudeSpendImport(
     await supabase.from("identities").upsert(identities, { onConflict: "vendor,external_email" });
   }
 
-  const attributed = facts.filter((f) => f.employeeId).length;
+  const attributed = pasted.filter((r) => r.employeeId).length;
   await supabase.from("imports").insert({
     source: "claude_team",
     kind: "clipboard",
     data_as_of: asOf,
     status: "success",
-    row_counts: { withSpend: facts.length, attributed, queued: facts.length - attributed },
+    row_counts: { withSpend: pasted.length, attributed, queued: pasted.length - attributed },
   });
 
   updateTag(FACTS_TAG);
   revalidatePath("/data");
   revalidatePath("/");
-  return { written, attributed, queued: facts.length - attributed };
+  return { written, attributed, queued: pasted.length - attributed };
 }
 
 // ---- Roster CSV (seat tiers: Claude Team, ChatGPT Business) ----------------
@@ -758,6 +755,20 @@ export async function rebuildCursorMonth(month: unknown): Promise<CursorRebuildR
   updateTag(FACTS_TAG);
   revalidatePath("/data");
   return { month, written: r.rowsWritten, notPeople: r.unmatched.filter((k) => k.startsWith("cursor service account")).length };
+}
+
+/**
+ * Rebuild Claude Team's daily usage from every saved paste (Data → Sync). Run once after the 0024
+ * migration so earlier months are spread over their days instead of sitting on the 1st; safe any time.
+ */
+export async function rebuildClaudeTeamSpend(): Promise<{ months: number; written: number }> {
+  await requireAdmin();
+  const supabase = getSupabaseAdminClient();
+  const months = await claudeSnapshotMonths(supabase);
+  const { rowsWritten } = await rebuildClaudeSpend(supabase, months);
+  updateTag(FACTS_TAG);
+  revalidatePath("/data");
+  return { months: months.length, written: rowsWritten };
 }
 
 export async function backfillSync(months: number): Promise<BackfillResult> {

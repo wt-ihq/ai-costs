@@ -1,20 +1,20 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ShapeFact } from "@/lib/explore/shape";
 import { fetchEmployeesAll, fetchFactsInRange } from "@/lib/queries/common";
-import { getSnapshotAsOf, getSourceHorizons, getToolColors } from "@/lib/queries/explore";
-import type { SnapshotAsOf } from "@/lib/explore/shape";
+import { getSourceHorizons, getToolColors } from "@/lib/queries/explore";
 import { buildImportCoverage, getImportCoverageScope, type CoverageMonthRow } from "@/lib/queries/import-coverage";
 import { fetchAccessList } from "@/lib/queries/dashboard-access";
 import { NO_FIXED_COST_SETTINGS, type FixedCostSettings } from "./fixed-costs";
 import type { SyncRunRow } from "./freshness";
-import { NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence, type NotifyEmployee, type ReportKind, type SendMode } from "./types";
+import type { ManualImportRow } from "./readiness";
+import { NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence, type NotifyEmployee, type ReportKind, type SendMode, type SendReport } from "./types";
 
 export interface SendKey {
   employeeId: string;
   cadence: Cadence;
   periodKey: string;
   mode: SendMode;
-  report: ReportKind;
+  report: SendReport;
 }
 
 export interface SendResult {
@@ -28,15 +28,18 @@ export interface SendResult {
 /** Everything runNotify / the admin preview need from the database — injectable for tests (memory-store.ts). */
 export interface NotifyStore {
   subscriptions(cadences: Cadence[]): Promise<{ employeeId: string; cadence: Cadence }[]>;
+  /** notification_reminder_recipients: who gets the update reminders. */
+  reminderRecipients(): Promise<string[]>;
   /** notification_company_recipients: who gets the whole-company report, on which cadences. */
   companyRecipients(cadences: Cadence[]): Promise<{ employeeId: string; cadence: Cadence }[]>;
   employees(): Promise<NotifyEmployee[]>;
   facts(from: string, toExclusive: string): Promise<ShapeFact[]>;
   sourceHorizons(): Promise<Record<string, string>>;
-  snapshotAsOf(): Promise<SnapshotAsOf>;
   toolColors(): Promise<Record<string, string>>;
   recentSyncRuns(sinceIso: string): Promise<SyncRunRow[]>;
   importCoverage(nowMonth: string): Promise<CoverageMonthRow[]>;
+  /** Successful ChatGPT credits / Claude Team imports dated on or after `sinceDay` (readiness.ts). */
+  manualImports(sinceDay: string): Promise<ManualImportRow[]>;
   /** notification_settings: the organisation default and per-team / per-person overrides. */
   fixedCostSettings(): Promise<FixedCostSettings>;
   /** dashboard_access: the emails (lowercased) besides ADMIN_EMAILS who can open the dashboard. */
@@ -46,6 +49,7 @@ export interface NotifyStore {
   /**
    * Of these people, who has had a live message, or may have: a live row that was sent, is still
    * pending, or ended "interrupted" (it may have gone out). They never get the first-message intro.
+   * Update reminders don't count.
    */
   everLive(employeeIds: string[]): Promise<ReadonlySet<string>>;
   /** Insert a pending row; its id = this run owns the send (the id carries the DM's tracked open link), null = it doesn't. */
@@ -112,6 +116,13 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
   return {
     subscriptions: (cadences) => cadenceRows(supabase, "notification_subscriptions", cadences),
     companyRecipients: (cadences) => cadenceRows(supabase, "notification_company_recipients", cadences),
+    async reminderRecipients() {
+      const rows = await pageAll<{ employee_id: string }>(
+        (a, b) => supabase.from("notification_reminder_recipients").select("employee_id").order("employee_id").range(a, b),
+        "notification_reminder_recipients",
+      );
+      return rows.map((r) => r.employee_id);
+    },
     async employees() {
       return (await fetchEmployeesAll(supabase, NOTIFY_EMPLOYEE_COLUMNS)).map(toNotifyEmployee);
     },
@@ -119,7 +130,6 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
       return fetchFactsInRange(supabase, from, toExclusive);
     },
     sourceHorizons: () => getSourceHorizons(supabase),
-    snapshotAsOf: () => getSnapshotAsOf(supabase),
     toolColors: () => getToolColors(supabase),
     async recentSyncRuns(sinceIso) {
       const rows = await pageAll<{ source: string; status: string; started_at: string }>(
@@ -132,9 +142,25 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
       const scope = await getImportCoverageScope(supabase);
       return buildImportCoverage(scope.facts, scope.imports, nowMonth);
     },
+    async manualImports(sinceDay) {
+      const rows = await pageAll<{ source: string; kind: string; data_as_of: string }>(
+        (a, b) =>
+          supabase
+            .from("imports")
+            .select("source, kind, data_as_of")
+            .eq("status", "success")
+            .in("source", ["chatgpt_business", "claude_team"])
+            .gte("data_as_of", sinceDay)
+            .order("data_as_of")
+            .order("id")
+            .range(a, b),
+        "manualImports",
+      );
+      return rows.map((r) => ({ source: r.source, kind: r.kind, dataAsOf: r.data_as_of }));
+    },
     async sendStates(periodKeys, mode) {
       if (!periodKeys.length) return [];
-      const rows = await pageAll<{ employee_id: string; cadence: Cadence; period_key: string; report: ReportKind; status: string; attempts: number }>(
+      const rows = await pageAll<{ employee_id: string; cadence: Cadence; period_key: string; report: SendReport; status: string; attempts: number }>(
         (a, b) =>
           supabase
             .from("notification_sends")
@@ -165,6 +191,7 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
             .from("notification_sends")
             .select("employee_id")
             .eq("mode", "live")
+            .in("report", ["personal", "company"])
             .in("employee_id", employeeIds)
             .or("status.in.(sent,pending),detail.eq.interrupted")
             .order("id")
@@ -192,7 +219,7 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
     async markOpened(sendId) {
       const { data: send, error } = await supabase.from("notification_sends").select("employee_id, opened_at, report").eq("id", sendId).maybeSingle();
       if (error) throw new Error(`markOpened: ${error.message}`);
-      if (!send) return null;
+      if (!send || send.report === "reminder") return null; // reminders carry no tracked link
       if (!send.opened_at) {
         // First open only: a later click (or a forwarded link) never moves it.
         const { error: upErr } = await supabase.from("notification_sends").update({ opened_at: new Date().toISOString() }).eq("id", sendId).is("opened_at", null);

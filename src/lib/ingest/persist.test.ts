@@ -217,9 +217,16 @@ describe("upsertEmployees", () => {
  * employees + the digest lists for removeOktaEmployees: select by okta_id / employee_id, delete by id;
  * `referenced` ids fail to delete like a NO ACTION foreign key.
  */
-function fakeOktaRemovalDb(rows: { id: string; okta_id: string | null }[], opts: { referenced?: string[]; subscribed?: string[]; companyRecipients?: string[] } = {}) {
+function fakeOktaRemovalDb(
+  rows: { id: string; okta_id: string | null }[],
+  opts: { referenced?: string[]; subscribed?: string[]; companyRecipients?: string[]; reminderRecipients?: string[] } = {},
+) {
   const deleted: string[] = [];
-  const lists: Record<string, string[]> = { notification_subscriptions: opts.subscribed ?? [], notification_company_recipients: opts.companyRecipients ?? [] };
+  const lists: Record<string, string[]> = {
+    notification_subscriptions: opts.subscribed ?? [],
+    notification_company_recipients: opts.companyRecipients ?? [],
+    notification_reminder_recipients: opts.reminderRecipients ?? [],
+  };
   const client = {
     from: (table: string) => ({
       select: () => ({
@@ -262,6 +269,12 @@ describe("removeOktaEmployees", () => {
       { subscribed: ["s"], companyRecipients: ["c"] },
     );
     expect(await removeOktaEmployees(db.client, ["00us", "00uc", "00ux"])).toEqual({ removed: 1, kept: ["00us", "00uc"] });
+    expect(db.deleted).toEqual(["x"]);
+  });
+
+  it("keeps anyone on the update-reminder list", async () => {
+    const db = fakeOktaRemovalDb([{ id: "r", okta_id: "00ur" }, { id: "x", okta_id: "00ux" }], { reminderRecipients: ["r"] });
+    expect(await removeOktaEmployees(db.client, ["00ur", "00ux"])).toEqual({ removed: 1, kept: ["00ur"] });
     expect(db.deleted).toEqual(["x"]);
   });
 

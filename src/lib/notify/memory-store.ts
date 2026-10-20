@@ -2,8 +2,9 @@ import type { ShapeFact } from "@/lib/explore/shape";
 import type { CoverageMonthRow } from "@/lib/queries/import-coverage";
 import { NO_FIXED_COST_SETTINGS, type FixedCostSettings } from "./fixed-costs";
 import type { SyncRunRow } from "./freshness";
+import type { ManualImportRow } from "./readiness";
 import { canRetakeClaim, MAX_SEND_ATTEMPTS, type NotifyStore, type SendKey } from "./store";
-import type { Cadence, NotifyEmployee, ReportKind } from "./types";
+import type { Cadence, NotifyEmployee, ReportKind, SendReport } from "./types";
 
 /** In-memory NotifyStore for unit tests. Claim semantics share canRetakeClaim with the Supabase store. */
 export interface SendRow extends SendKey {
@@ -18,7 +19,7 @@ export interface SendRow extends SendKey {
 }
 
 /** A seeded send row; `report` defaults to "personal" (rows written before the company report existed). */
-export type SeedSendRow = Omit<SendRow, "report"> & { report?: ReportKind };
+export type SeedSendRow = Omit<SendRow, "report"> & { report?: SendReport };
 
 export interface MemorySeed {
   employees?: NotifyEmployee[];
@@ -26,11 +27,14 @@ export interface MemorySeed {
   subscriptions?: { employeeId: string; cadence: Cadence }[];
   syncRuns?: SyncRunRow[];
   coverage?: CoverageMonthRow[];
+  manualImports?: ManualImportRow[];
   sourceHorizons?: Record<string, string>;
   companyRecipients?: { employeeId: string; cadence: Cadence }[];
+  reminderRecipients?: string[];
+  /** Make reminderRecipients() throw (the table unreadable). */
+  reminderRecipientsFails?: boolean;
   sends?: SeedSendRow[];
   fixedCosts?: FixedCostSettings;
-  snapshotAsOf?: Record<string, string>;
   /** dashboard_access emails. */
   dashboardAccess?: string[];
   /** Make dashboardAccess() throw (the table unreadable). */
@@ -66,6 +70,10 @@ export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.no
     async subscriptions(cadences) {
       return (seed.subscriptions ?? []).filter((s) => cadences.includes(s.cadence));
     },
+    async reminderRecipients() {
+      if (seed.reminderRecipientsFails) throw new Error("notification_reminder_recipients: simulated outage");
+      return seed.reminderRecipients ?? [];
+    },
     async companyRecipients(cadences) {
       return (seed.companyRecipients ?? []).filter((s) => cadences.includes(s.cadence));
     },
@@ -77,7 +85,6 @@ export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.no
       return (seed.facts ?? []).filter((f) => f.day >= from && f.day < toExclusive);
     },
     sourceHorizons: async () => seed.sourceHorizons ?? {},
-    snapshotAsOf: async () => seed.snapshotAsOf ?? {},
     toolColors: async () => ({}),
     recentSyncRuns: async (since) => (seed.syncRuns ?? []).filter((r) => r.startedAt >= since),
     fixedCostSettings: async () => seed.fixedCosts ?? NO_FIXED_COST_SETTINGS,
@@ -85,6 +92,7 @@ export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.no
       if (seed.dashboardAccessFails) throw new Error("dashboard_access: simulated outage");
       return new Set(seed.dashboardAccess ?? []);
     },
+    manualImports: async (since) => (seed.manualImports ?? []).filter((r) => r.dataAsOf >= since),
     async importCoverage(nowMonth) {
       coverageCalls.push(nowMonth);
       return seed.coverage ?? [];
@@ -93,7 +101,7 @@ export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.no
       if (seed.everLiveFails) throw new Error("notification_sends: simulated outage");
       return new Set(
         sends
-          .filter((s) => s.mode === "live" && ids.includes(s.employeeId) && (s.status === "sent" || s.status === "pending" || s.detail === "interrupted"))
+          .filter((s) => s.mode === "live" && s.report !== "reminder" && ids.includes(s.employeeId) && (s.status === "sent" || s.status === "pending" || s.detail === "interrupted"))
           .map((s) => s.employeeId),
       );
     },
@@ -113,10 +121,10 @@ export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.no
     },
     async markOpened(sendId) {
       const row = sends.find((s) => s.id === sendId);
-      if (!row) return null;
+      if (!row || row.report === "reminder") return null; // reminders carry no tracked link
       row.openedAt ??= nowIso();
       const e = (seed.employees ?? []).find((x) => x.id === row.employeeId);
-      return { employeeId: row.employeeId, department: e?.department ?? null, report: row.report };
+      return { employeeId: row.employeeId, department: e?.department ?? null, report: row.report as ReportKind };
     },
     async finishSend(key, r) {
       if (store.failNextFinish) {

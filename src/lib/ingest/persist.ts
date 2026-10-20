@@ -185,7 +185,7 @@ export async function fetchStoredOktaIds(supabase: SupabaseClient): Promise<Set<
  * a row with history:
  * - every foreign key to employees from spend, keys, seats, identities and sends is NO ACTION, so a
  *   row anything references fails to delete and is kept;
- * - digest subscriptions and company-report places would CASCADE away silently, so a row on either
+ * - digest subscriptions, company-report places and update-reminder places would CASCADE away silently, so a row on any
  *   list is kept without trying.
  * Kept rows are returned by Okta id. `oktaIds` is bounded by planOktaRemovals (at most half the
  * stored accounts), which keeps each .in() read well under PostgREST's 1000-row cap.
@@ -199,7 +199,7 @@ export async function removeOktaEmployees(
   if (error) throw new Error(`removeOktaEmployees: ${error.message}`);
   const rows = (data ?? []) as { id: string; okta_id: string }[];
   const onDigestLists = new Set<string>();
-  for (const table of ["notification_subscriptions", "notification_company_recipients"]) {
+  for (const table of ["notification_subscriptions", "notification_company_recipients", "notification_reminder_recipients"]) {
     const { data: listed, error: listErr } = await supabase.from(table).select("employee_id").in("employee_id", rows.map((r) => r.id));
     if (listErr) throw new Error(`removeOktaEmployees(${table}): ${listErr.message}`);
     for (const r of (listed ?? []) as { employee_id: string }[]) onDigestLists.add(r.employee_id);

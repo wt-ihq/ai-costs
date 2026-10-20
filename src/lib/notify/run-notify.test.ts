@@ -302,6 +302,38 @@ describe("runNotify", () => {
     expect(slack.posts).toHaveLength(0);
   });
 
+  describe("only when the week is complete", () => {
+    const WED = new Date("2026-09-30T09:30:00Z"); // 10:30 BST Wednesday
+    const claudeAsOf = (d: string) => [{ source: "claude_team", kind: "clipboard", dataAsOf: d }];
+
+    it("holds the weekly until Claude Team is pasted as of Sunday, then sends it midweek", async () => {
+      const seedImports = claudeAsOf("2026-09-20");
+      const store = memoryStore(seed({ manualImports: seedImports }), () => MONDAY.getTime());
+      const slack = fakeSlack();
+      const mon = await runNotify(deps(store, slack.client));
+      expect(mon.held).toEqual(["weekly:2026-W39"]);
+      expect(store.sends.some((s) => s.cadence === "weekly")).toBe(false);
+
+      seedImports.push({ source: "claude_team", kind: "clipboard", dataAsOf: "2026-09-27" });
+      const runs = [{ source: "cursor", status: "success", startedAt: "2026-09-30T06:00:03Z" }];
+      const wedStore = memoryStore(seed({ manualImports: seedImports, syncRuns: runs, sends: store.sends }), () => WED.getTime());
+      const wed = await runNotify(deps(wedStore, slack.client, { now: WED, clock: () => WED.getTime() }));
+      expect(wed.due).toContain("weekly:2026-W39");
+      expect(wedStore.sends.find((s) => s.cadence === "weekly" && s.employeeId === "m")).toMatchObject({ status: "sent", periodKey: "2026-W39" });
+    });
+
+    it("skips a week that wasn't ready by Friday: the next Monday moves on", async () => {
+      const NEXT_MON = new Date("2026-10-05T09:30:00Z");
+      const store = memoryStore(
+        seed({ manualImports: claudeAsOf("2026-10-04"), syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-10-05T06:00:03Z" }] }),
+        () => NEXT_MON.getTime(),
+      );
+      const r = await runNotify(deps(store, fakeSlack().client, { now: NEXT_MON, clock: () => NEXT_MON.getTime() }));
+      expect(r.due).toContain("weekly:2026-W40");
+      expect(store.sends.some((s) => s.periodKey === "2026-W39")).toBe(false);
+    });
+  });
+
   it("logs a daily with no usage as skipped and a missing Slack account as failed", async () => {
     const store = memoryStore(
       seed({ facts: [fact("2026-09-22", 30, "m")], employees: [emp("m"), emp("a", { managerRef: "00um" }), emp("gareth")] }),
@@ -385,13 +417,45 @@ describe("runNotify", () => {
       expect(r).toMatchObject({ sent: 1, due: ["daily:2026-10-06"] });
     });
 
-    it("reads import coverage only on days a monthly could be due", async () => {
-      const store = memoryStore(seed(), () => MONDAY.getTime());
+    it("reads import coverage only when someone's monthly could be due", async () => {
+      const store = memoryStore(seed(), () => MONDAY.getTime()); // no monthly subscribers
       await runNotify(deps(store, fakeSlack().client));
       expect(store.coverageCalls).toHaveLength(0);
-      const oct = memoryStore(seed({ syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-10-05T06:00:03Z" }] }), () => MONDAY.getTime());
+      const monthly = (over: MemorySeed = {}) => seed({ subscriptions: [{ employeeId: "a", cadence: "monthly" }], ...over });
+      const early = memoryStore(monthly({ syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-10-02T06:00:03Z" }] }), () => MONDAY.getTime());
+      await runNotify(deps(early, fakeSlack().client, at("2026-10-02T09:30:00Z"))); // the 2nd: before the window
+      expect(early.coverageCalls).toHaveLength(0);
+      const oct = memoryStore(monthly({ syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-10-05T06:00:03Z" }] }), () => MONDAY.getTime());
       await runNotify(deps(oct, fakeSlack().client, at("2026-10-05T09:30:00Z")));
       expect(oct.coverageCalls).toHaveLength(1);
+    });
+
+    it("doesn't read import coverage once someone's monthly has gone out (the cron runs 24×/day)", async () => {
+      const store = memoryStore(
+        seed({
+          subscriptions: [{ employeeId: "a", cadence: "monthly" }],
+          syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-10-20T06:00:03Z" }],
+          sends: [{ employeeId: "a", cadence: "monthly", periodKey: "2026-09", mode: "live", status: "sent", attempts: 1, slackTs: "ts", detail: null, updatedAt: "2026-10-05T09:30:00Z" }],
+        }),
+        () => MONDAY.getTime(),
+      );
+      const r = await runNotify(deps(store, fakeSlack().client, at("2026-10-20T09:30:00Z")));
+      expect(store.coverageCalls).toHaveLength(0);
+      expect(r).toMatchObject({ sent: 0, alreadyHandled: 1 });
+    });
+
+    it("counts a handled monthly once when someone else's is still due that day", async () => {
+      const store = memoryStore(
+        seed({
+          subscriptions: [{ employeeId: "a", cadence: "monthly" }, { employeeId: "m", cadence: "monthly" }],
+          syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-10-20T06:00:03Z" }],
+          sends: [{ employeeId: "a", cadence: "monthly", periodKey: "2026-09", mode: "live", status: "sent", attempts: 1, slackTs: "ts", detail: null, updatedAt: "2026-10-05T09:30:00Z" }],
+        }),
+        () => MONDAY.getTime(),
+      );
+      const r = await runNotify(deps(store, fakeSlack().client, at("2026-10-20T09:30:00Z")));
+      expect(r.alreadyHandled).toBe(1);
+      expect(store.coverageCalls).toHaveLength(1);
     });
 
     it("stops resolving Slack users past the time budget, leaving the rest for the next run", async () => {
@@ -509,7 +573,8 @@ describe("runNotify: company report", () => {
   it("logs a company daily with no usage as skipped, never a bill-only DM", async () => {
     const TUESDAY = new Date("2026-09-29T09:30:00Z"); // daily for Monday 28th: no usage that day
     const store = memoryStore(
-      withCompany({ subscriptions: [], syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-09-29T06:00:03Z" }] }),
+      // Only the daily: a weekly not sent on Monday would now go out on Tuesday.
+      withCompany({ subscriptions: [], companyRecipients: [{ employeeId: "gareth", cadence: "daily" }], syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-09-29T06:00:03Z" }] }),
       () => TUESDAY.getTime(),
     );
     const slack = fakeSlack();

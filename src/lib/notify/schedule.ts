@@ -23,12 +23,13 @@ export interface DigestPeriod {
 export const CHART_SPAN: Record<Cadence, number> = { daily: 14, weekly: 8, monthly: 6 };
 export const CADENCE_UNIT: Record<Cadence, "day" | "week" | "month"> = { daily: "day", weekly: "week", monthly: "month" };
 /**
- * Monthly recaps go out on the first working morning from the 3rd when the
- * month is ready, and on the 5th regardless (the Monday after, if the 5th is a
- * weekend — see monthlyLastDay). The 3rd because monthToDate (run-all.ts)
- * re-syncs the previous month through the 3rd — automatic sources aren't final before then.
+ * Monthly recaps go out once ready, on any working day from the 3rd (monthToDate in run-all.ts
+ * re-syncs the previous month through the 3rd, so automatic sources aren't final before then) to
+ * the month's end. Never forced: an incomplete month waits.
  */
-export const MONTHLY_WINDOW = { firstDay: 3, lastDay: 5 } as const;
+export const MONTHLY_WINDOW = { firstDay: 3 } as const;
+
+export const inMonthlyWindow = (day: string) => Number(day.slice(8, 10)) >= MONTHLY_WINDOW.firstDay;
 
 /** Digests go out on working days at 10:30 in each recipient's own Slack time zone. */
 export const SEND_AT_MINUTES = 10 * 60 + 30;
@@ -49,13 +50,6 @@ export function previousWorkingDay(day: string): string {
   return d;
 }
 
-/** The monthly window's last day for "YYYY-MM": the 5th, or the Monday after when the 5th is a weekend. */
-export function monthlyLastDay(month: string): number {
-  let d = `${month}-${String(MONTHLY_WINDOW.lastDay).padStart(2, "0")}`;
-  while (!isWorkingDay(d)) d = addDays(d, 1);
-  return Number(d.slice(8, 10));
-}
-
 function localClock(now: Date, tz: string): { day: string; minutes: number } {
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
@@ -70,13 +64,51 @@ function localClock(now: Date, tz: string): { day: string; minutes: number } {
  * day there and 10:30 or later — else null. An unknown or invalid zone counts as London.
  */
 export function sendDay(now: Date, tz: string | null): string | null {
-  let local: { day: string; minutes: number };
-  try {
-    local = localClock(now, tz ?? DEFAULT_TZ);
-  } catch {
-    local = localClock(now, DEFAULT_TZ); // RangeError: Slack handed us a zone this runtime doesn't know
-  }
+  const local = localSafe(now, tz);
   return isWorkingDay(local.day) && local.minutes >= SEND_AT_MINUTES ? local.day : null;
+}
+
+/** The recipient's local day and time; an unknown or invalid zone counts as London. */
+function localSafe(now: Date, tz: string | null): { day: string; minutes: number } {
+  try {
+    return localClock(now, tz ?? DEFAULT_TZ);
+  } catch {
+    return localClock(now, DEFAULT_TZ); // RangeError: Slack handed us a zone this runtime doesn't know
+  }
+}
+
+/** Update reminders: Monday 09:30 (an hour before summaries) and the month's last working day 15:00, local time. */
+export const WEEKLY_REMINDER_AT = 9 * 60 + 30;
+export const MONTH_END_REMINDER_AT = 15 * 60;
+
+/** The month's last working day ("YYYY-MM" → "YYYY-MM-DD"). */
+export function lastWorkingDay(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  let d = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+  while (!isWorkingDay(d)) d = addDays(d, -1);
+  return d;
+}
+
+export interface DueReminder {
+  kind: "weekly" | "monthEnd";
+  cadence: "weekly" | "monthly"; // the send log's cadence column
+  periodKey: string; // the week's ISO key / the month
+  day: string; // the recipient's local day
+}
+
+/** The reminders due to someone now, in their own time zone (run-reminders.ts). `anyTime`: a ?date= replay. */
+export function dueReminders(now: Date, tz: string | null, opts: { anyTime?: boolean } = {}): DueReminder[] {
+  const local = localSafe(now, tz);
+  if (!isWorkingDay(local.day)) return [];
+  const at = (min: number) => opts.anyTime || local.minutes >= min;
+  const out: DueReminder[] = [];
+  if (weekday(local.day) === 1 && at(WEEKLY_REMINDER_AT)) {
+    out.push({ kind: "weekly", cadence: "weekly", periodKey: latestCompleteKey("weekly", new Date(`${local.day}T12:00:00Z`)), day: local.day });
+  }
+  if (local.day === lastWorkingDay(local.day.slice(0, 7)) && at(MONTH_END_REMINDER_AT)) {
+    out.push({ kind: "monthEnd", cadence: "monthly", periodKey: local.day.slice(0, 7), day: local.day });
+  }
+  return out;
 }
 
 const SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -143,25 +175,20 @@ export function defaultPreviewKey(cadence: Cadence, now: Date): string {
 
 export interface DueDigest {
   period: DigestPeriod;
-  /** Monthly sent on the window's last day although not ready (caveats explain what's missing). */
-  force: boolean;
 }
 
 /**
- * What goes out on a recipient's local `day`. Working days only: Tue–Fri carry
- * the day before, Monday carries Friday (weekend spend is in Monday's weekly
- * recap). `monthlyReady` is the previous month's import readiness.
+ * What may go out on a recipient's local working `day`: the previous working day's daily (Monday
+ * carries Friday; weekend spend is in the weekly); the latest complete week's weekly once that week
+ * is ready (any working day — a week not ready by Friday is skipped, as Monday moves on); last
+ * month's recap once ready (readiness.ts and run-notify.ts decide `ready`).
  */
-export function dueDigests(day: string, monthlyReady: boolean): DueDigest[] {
+export function dueDigests(day: string, ready: { week: boolean; month: boolean }): DueDigest[] {
   if (!isWorkingDay(day)) return [];
   const now = new Date(`${day}T12:00:00Z`); // a moment inside that day, for the period helpers
-  const out: DueDigest[] = [{ period: periodFor("daily", previousWorkingDay(day), now), force: false }];
-  if (weekday(day) === 1) out.push({ period: periodFor("weekly", latestCompleteKey("weekly", now), now), force: false });
-  const dom = Number(day.slice(8, 10));
-  const lastDay = monthlyLastDay(day.slice(0, 7));
-  if (dom >= MONTHLY_WINDOW.firstDay && dom <= lastDay && (monthlyReady || dom === lastDay)) {
-    out.push({ period: periodFor("monthly", latestCompleteKey("monthly", now), now), force: !monthlyReady });
-  }
+  const out: DueDigest[] = [{ period: periodFor("daily", previousWorkingDay(day), now) }];
+  if (ready.week) out.push({ period: periodFor("weekly", latestCompleteKey("weekly", now), now) });
+  if (ready.month && inMonthlyWindow(day)) out.push({ period: periodFor("monthly", latestCompleteKey("monthly", now), now) });
   return out;
 }
 

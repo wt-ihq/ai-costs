@@ -24,6 +24,15 @@ describe("summariseLastRun", () => {
     expect(summariseLastRun([])).toBeNull();
   });
 
+  it("leaves update reminders out: they're not digests", () => {
+    const r = summariseLastRun([
+      { ...row("g", "live", "weekly", "2026-10-19T08:30:00Z"), report: "reminder" },
+      row("m", "live", "weekly", "2026-10-19T09:30:00Z"),
+    ]);
+    expect(r).toMatchObject({ day: "2026-10-19", sent: 1 });
+    expect(summariseLastRun([{ ...row("g", "live", "weekly", "2026-10-19T08:30:00Z"), report: "reminder" }])).toBeNull();
+  });
+
   it("reports the latest day's mode, cadences and counts", () => {
     expect(
       summariseLastRun([

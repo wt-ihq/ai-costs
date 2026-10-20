@@ -17,6 +17,11 @@ export function monthEnd(month: string): string {
   const [y, m] = month.split("-").map(Number);
   return `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
 }
+/** The Sunday before `today` (YYYY-MM-DD); on a Monday, yesterday. */
+export function lastSunday(today: string): string {
+  const dow = new Date(`${today}T00:00:00Z`).getUTCDay();
+  return new Date(Date.parse(`${today}T00:00:00Z`) - (dow === 0 ? 7 : dow) * 86_400_000).toISOString().slice(0, 10);
+}
 function previousMonth(month: string): string {
   const [y, m] = month.split("-").map(Number);
   return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
@@ -59,10 +64,23 @@ const ok = (r: CoverageImportRow) => r.status === "success";
 const latest = (days: string[]): string | null => (days.length ? days.reduce((a, b) => (b > a ? b : a)) : null);
 
 /**
+ * Claude spend's state. This month it's due weekly: a paste dated on or after the Sunday just gone
+ * (the weekly summary waits for it — notify/readiness.ts). An earlier month needs one paste.
+ */
+function claudeSpendState(month: string, current: boolean, asOf: string | null, latestAny: string | null, today: string): { done: boolean; status: string } {
+  if (!current) return { done: !!asOf, status: asOf ? `As of ${shortDay(asOf)}` : "Not pasted" };
+  const due = lastSunday(today);
+  if (latestAny && latestAny >= due) return { done: true, status: `Pasted as of ${shortDay(latestAny)}` };
+  if (asOf) return { done: false, status: `Pasted as of ${shortDay(asOf)} · due as of ${shortDay(due)}` };
+  // The Sunday just gone was last month's: Claude's table has reset, so this month's table is what's due.
+  return { done: false, status: due < `${month}-01` ? "Due: paste this month's table" : `Due: paste as of ${shortDay(due)}` };
+}
+
+/**
  * The four monthly tasks for a month. Credits: the CSV is date-ranged, so a month is covered when
  * the furthest import reaches into it (the current month) or past its last day (an earlier one).
- * Claude spend: a month-to-date paste dated in the month (its final table may not be retrievable
- * later, so an earlier month only needs one). Seats: that month's invoice counts on file; a tier
+ * Claude spend: this month it's due weekly — a paste dated on or after the Sunday just gone (as the
+ * weekly summary needs it); an earlier month needs one paste (its final table may not be retrievable). Seats: that month's invoice counts on file; a tier
  * (roster) upload is a different job and doesn't count.
  */
 function tasksFor(month: string, current: boolean, input: ChecklistInput): ChecklistItem[] {
@@ -84,11 +102,13 @@ function tasksFor(month: string, current: boolean, input: ChecklistInput): Check
   };
 
   const spendAsOf = latest(input.imports.filter((r) => ok(r) && r.source === "claude_team" && r.kind === "clipboard" && r.dataAsOf.startsWith(month)).map((r) => r.dataAsOf));
+  const latestPaste = latest(input.imports.filter((r) => ok(r) && r.source === "claude_team" && r.kind === "clipboard").map((r) => r.dataAsOf));
+  const { done: spendDone, status: spendStatus } = claudeSpendState(month, current, spendAsOf, latestPaste, input.today);
   const spend: ChecklistItem = {
-    key: "claudeSpend", vendor: "claude_team", label: "Claude spend", done: !!spendAsOf,
-    status: spendAsOf ? `As of ${shortDay(spendAsOf)}` : current ? `Nothing for ${name} yet` : "Not pasted",
+    key: "claudeSpend", vendor: "claude_team", label: "Claude spend", done: spendDone,
+    status: spendStatus,
     detail: `${name} so far ${usd(row?.claudeSpend)}`,
-    action: spendAsOf ? "Paste a newer table" : "Paste the spend table",
+    action: spendDone ? "Paste a newer table" : "Paste the spend table",
     anchor: "claude-spend",
   };
 

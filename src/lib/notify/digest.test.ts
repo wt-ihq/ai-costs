@@ -31,7 +31,7 @@ const facts: ShapeFact[] = [
   fact("2026-09-24", "cursor", "overage", 140, "a"),
   fact("2026-09-25", "anthropic", "metered", 96, "s"),
   fact("2026-09-21", "openrouter", "metered", 42, "l"), // leaver's spend still counts
-  fact("2026-09-01", "claude_team", "overage", 500, "a"), // Claude Team monthly lump
+  fact("2026-09-01", "claude_team", "overage", 500, "a"), // Claude Team, dated the 1st: outside the week
   fact("2026-09-24", "other", "subscription", 999, null, "Figma AI"), // person-less
 ];
 
@@ -49,7 +49,7 @@ describe("buildDigest — weekly (usage basis)", () => {
     expect(d.you.byTool.map((t) => [t.key, t.label, t.usd])).toEqual([["cursor", "Cursor", 30.1], ["anthropic", "Anthropic API", 8.1]]);
   });
 
-  it("excludes Claude Team's monthly lump and person-less facts from reports", () => {
+  it("leaves out facts outside the week and person-less facts from reports", () => {
     expect(d.reports).toMatchObject({ headlineUsd: 278, headcount: 2, othersCount: 0 });
     expect(d.reports!.top.map((p) => [p.name, p.usd])).toEqual([["Alex Kim", 140], ["Sam Lee", 96], ["Former Person", 42]]);
     expect(d.reports!.top[1].href).toBe("https://x.test/explore/Data%20Science/s");
@@ -80,12 +80,14 @@ describe("buildDigest — monthly (total basis)", () => {
   });
 });
 
-describe("month line with a month-to-date paste", () => {
-  it("projects Claude Team's paste at its pace when the as-of day is known", () => {
-    const sep = [fact("2026-09-01", "claude_team", "overage", 300, "m")];
-    const d = buildDigest(input({ facts: sep, reportIds: [], snapshotAsOf: { "claude_team:2026-09": "2026-09-10" } }));
-    // weekly: the paste isn't in the headline, but the month line projects it: $30/day × 30
-    expect(d?.you.month?.projectedUsd ?? null).toBeCloseTo(900, 0);
+describe("Claude Team's daily spread", () => {
+  const spread = [fact("2026-09-22", "claude_team", "overage", 5, "m"), fact("2026-09-23", "claude_team", "overage", 5, "m")];
+  it("counts in a weekly", () => {
+    expect(buildDigest(input({ facts: spread, reportIds: [] }))!.you.headlineUsd).toBe(10);
+  });
+  it("is left out of a daily (an even split is invented for a single day)", () => {
+    const d = buildDigest(input({ facts: spread, reportIds: [], period: periodFor("daily", "2026-09-22", now) }));
+    expect(d?.you.headlineUsd ?? 0).toBe(0);
   });
 });
 
@@ -398,7 +400,7 @@ describe("buildCompanyDigest", () => {
     f("2026-09-23", "anthropic", "metered", 20, null, null), // unkeyed: no person, no team
     f("2026-09-23", "openrouter", "metered", 12, null, "Data Science"), // a workspace key: a team, no person
     f("2026-09-15", "cursor", "overage", 100, "m", "Engineering"), // previous week
-    f("2026-09-01", "claude_team", "overage", 500, "a", "Engineering"), // Claude Team's monthly lump
+    f("2026-09-01", "claude_team", "overage", 500, "a", "Engineering"), // Claude Team, dated the 1st: outside the week
     f("2026-08-01", "cursor", "seat", 310, "m", "Engineering"),
     f("2026-08-01", "other", "subscription", 90, null, "Engineering", "Figma AI"),
     f("2026-09-01", "cursor", "seat", 300, "m", "Engineering"),

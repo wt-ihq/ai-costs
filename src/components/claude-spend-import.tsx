@@ -9,6 +9,7 @@ import {
 } from "@/app/(dashboard)/imports/actions";
 import { formatUsd, cn, localDateISO } from "@/lib/utils";
 import { useFxRate } from "@/components/imports/fx-rate";
+import { defaultPasteDate } from "@/lib/ingest/claude-spread";
 
 const gbp = (n: number) => `£${n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -16,7 +17,7 @@ const gbp = (n: number) => `£${n.toLocaleString("en-GB", { minimumFractionDigit
 export function ClaudeSpendImport() {
   const [text, setText] = useState("");
   const rate = useFxRate()?.rate ?? "";
-  const [asOf, setAsOf] = useState(() => localDateISO());
+  const [asOf, setAsOf] = useState(() => defaultPasteDate(localDateISO()));
   const [preview, setPreview] = useState<ClaudePreview | null>(null);
   const [result, setResult] = useState<ImportCommitResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -59,9 +60,10 @@ export function ClaudeSpendImport() {
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <label className="flex items-center gap-2 text-muted">
           Data as of
-          {/* Default is the client's local date; the server-rendered value can differ by a day. */}
+          {/* Default: Sunday on a Monday, else today (claude-spread.ts); from the client's date, so the server render can differ by a day. */}
           <input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} suppressHydrationWarning className="rounded-md border border-border bg-surface-2 px-2 py-1 text-foreground outline-none focus:border-accent" />
         </label>
+        <span className="text-xs text-muted">Paste every Monday (dated Sunday) and on the month&rsquo;s last working day.</span>
         <button
           onClick={onPreview}
           disabled={pending || !text.trim() || !(Number(rate) > 0)}

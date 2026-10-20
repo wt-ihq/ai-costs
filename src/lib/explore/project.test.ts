@@ -172,19 +172,6 @@ describe("projectPeriodEnd — month", () => {
     expect(projectPeriodEnd([], NOW, MONTH)).toBeNull();
     expect(projectPeriodEnd([fact("2026-01-01", "seat", 10)], NOW, MONTH)).toBeNull(); // no current/prev month data
   });
-
-  it("monthly-snapshot usage (Claude Team import) is a level, not a daily rate", () => {
-    // The Claude spend import posts a whole month's usage as ONE overage fact
-    // on the 1st. Feeding that lump into the daily run rate inflated
-    // projections ~2.4× (lump ÷ 13 window days × 31 days).
-    const facts = [fact("2026-07-01", "overage", 270, "claude_team"), ...julyUsage()];
-    const p = projectPeriodEnd(facts, NOW, MONTH)!;
-    // lump counts once (270) + daily usage 130 + 10 × 18 remaining = 580
-    expect(p.projectedUsd).toBe(580);
-    // ...and future months repeat the level instead of extrapolating it:
-    const t = projectTrend(facts, NOW, 1);
-    expect(t[0].projected).toBe(270 + 10 * 31); // Aug
-  });
 });
 
 describe("projectPeriodEnd — quarter", () => {
@@ -394,27 +381,10 @@ describe("sub-month periods", () => {
   });
 });
 
-describe("Claude Team's month-to-date paste", () => {
-  const MONTH_JUL = { granularity: "month" as const, from: "2026-07-01", toExclusive: "2026-08-01", label: "July 2026" };
-  const pasted = [fact("2026-07-01", "overage", 1000, "claude_team"), fact("2026-06-01", "overage", 2000, "claude_team")];
-  const asOf = { "claude_team:2026-07": "2026-07-10", "claude_team:2026-06": "2026-06-30" };
-
-  it("projects the paste's pace over the rest of the month, blended with last month's, instead of treating it as the whole month", () => {
-    // pace 1000/10 = 100/day; June 2000/30 = 66.67/day; blend (1000 + 66.67×10)/20 = 83.33/day → 1000 + 83.33×21
-    expect(projectPeriodEnd(pasted, NOW, MONTH_JUL, {}, asOf)!.projectedUsd).toBeCloseTo(2750, 0);
-  });
-
-  it("before this month's first paste, last month's pace carries the month", () => {
-    const juneOnly = [fact("2026-06-01", "overage", 2000, "claude_team")];
-    expect(projectPeriodEnd(juneOnly, NOW, MONTH_JUL, {}, asOf)!.projectedUsd).toBeCloseTo((2000 / 30) * 31, 0);
-  });
-
-  it("Claude Team seats stay a fixed monthly cost", () => {
-    const withSeat = [...pasted, fact("2026-07-01", "seat", 500, "claude_team")];
-    expect(projectPeriodEnd(withSeat, NOW, MONTH_JUL, {}, asOf)!.projectedUsd).toBeCloseTo(3250, 0);
-  });
-
-  it("without as-of days the paste is read as the whole month, as before", () => {
-    expect(projectPeriodEnd(pasted, NOW, MONTH_JUL)!.projectedUsd).toBe(1000);
+describe("Claude Team's daily spread", () => {
+  it("projects at its pace like any daily usage", () => {
+    const days = Array.from({ length: 10 }, (_, i) => fact(`2026-07-${String(i + 1).padStart(2, "0")}`, "overage", 100, "claude_team"));
+    // pace $100/day over 1–10 Jul (the horizon), no prior month: 1000 + 100 × 21
+    expect(projectPeriodEnd(days, NOW, MONTH, { claude_team: "2026-07-10" })!.projectedUsd).toBeCloseTo(3100, 0);
   });
 });
