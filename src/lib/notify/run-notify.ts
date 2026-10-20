@@ -1,5 +1,5 @@
 import { companyDigestFor, digestFor, loadNotifyContext, syncRunsSince, type NotifyContext } from "./context";
-import { deliverCompanyDigest, deliverDigest, loadDashboardAccess, PostOutcomeUnknownError, resolveSlackUser, type RenderChart, type SlackRecipient } from "./deliver";
+import { deliverCompanyDigest, deliverDigest, loadDashboardAccess, PostOutcomeUnknownError, resolveSlackUser, type RenderBanner, type RenderChart, type SlackRecipient } from "./deliver";
 import type { CompanyDigest } from "./digest";
 import { monthlyReadiness, syncSucceededSince } from "./freshness";
 import { dueDigests, latestCompleteKey, MONTHLY_WINDOW, monthlyLastDay, sendDay, type DigestPeriod, type DueDigest } from "./schedule";
@@ -13,6 +13,8 @@ export interface RunNotifyDeps {
   store: NotifyStore;
   slack: SlackClient;
   renderChart: RenderChart;
+  /** The welcome banner for a first message (absent: the intro is text only). */
+  renderBanner?: RenderBanner;
   mode: SendMode;
   previewEmail: string | null;
   now: Date; // the moment being run (?date= replays in preview)
@@ -262,6 +264,7 @@ async function sendOne(
   const common = {
     slack,
     renderChart: deps.renderChart,
+    renderBanner: deps.renderBanner,
     slackUserId: w.slackUser.slackUserId,
     links,
     openUrl: `${deps.baseUrl}/api/digest/open/${sendId}`,

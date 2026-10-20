@@ -14,11 +14,9 @@ describe("firstName", () => {
 
 describe("cadencePhrase", () => {
   it("names each cadence the person is on, in order", () => {
-    expect(cadencePhrase(["weekly", "monthly"], "personal")).toBe("a weekly summary each Monday and a monthly recap early each month");
-    expect(cadencePhrase(["monthly", "daily", "weekly"], "personal")).toBe(
-      "a daily summary each working day, a weekly summary each Monday and a monthly recap early each month",
-    );
-    expect(cadencePhrase(["daily"], "personal")).toBe("a daily summary each working day");
+    expect(cadencePhrase(["weekly", "monthly"], "personal")).toBe("weekly and monthly");
+    expect(cadencePhrase(["monthly", "daily", "weekly"], "personal")).toBe("daily, weekly and monthly");
+    expect(cadencePhrase(["daily"], "personal")).toBe("daily");
   });
   it("speaks of when, for the company report", () => {
     expect(cadencePhrase(["weekly", "monthly"], "company")).toBe("each Monday and early each month");
@@ -38,14 +36,12 @@ describe("introFor", () => {
         type: "mrkdwn",
         text:
           "👋 *Hi Priya,* this is your first AI spend summary.\n" +
-          "You'll get a weekly summary each Monday and a monthly recap early each month, showing what your use of AI tools costs and how it compares with the period before:\n" +
-          "• *You:* your own usage, by tool.\n" +
-          "• *Your reports:* the total for the people who report to you, and who uses the most.",
+          "From now on you'll get weekly and monthly recaps. Each shows your own AI spend by tool and the total spend for the people who report to you, with comparisons to the previous period.",
       },
     });
     expect(i.blocks[1]).toEqual({
       type: "context",
-      elements: [{ type: "mrkdwn", text: "Figures come from each tool's own billing data, updated overnight. Use *Open in dashboard* for the detail.\nQuestions, or want these more or less often? Ask Workplace Tech." }],
+      elements: [{ type: "mrkdwn", text: "Use *Open in dashboard* for the detail. Questions? Ask <https://slack.com/app_redirect?channel=C02ND4XRSLR|Workplace Tech>." }],
     });
     expect(i.blocks.at(-1)).toEqual({ type: "divider" });
     expect(i.text).toBe("Hi Priya — your first AI spend summary. ");
@@ -53,15 +49,15 @@ describe("introFor", () => {
 
   it("speaks of teams to someone who manages managers", () => {
     expect(text(introFor({ ...base, cadences: ["weekly"], reports: "byTeam" }))).toContain(
-      "• *Your reports:* everyone below you, split by team (each of your direct reports and their people), and who uses the most.",
+      "Each shows your own AI spend by tool and the total spend for the teams who report to you, with comparisons to the previous period.",
     );
   });
 
   it("leaves out reports for someone without any, and the dashboard for someone who can't open it", () => {
     const i = text(introFor({ ...base, cadences: ["weekly"], reports: "none", links: false }));
-    expect(i).not.toContain("Your reports");
+    expect(i).toContain("Each shows your own AI spend by tool.\"");
     expect(i).not.toContain("Open in dashboard");
-    expect(i).toContain("Figures come from each tool's own billing data, updated overnight.\\nQuestions");
+    expect(i).toContain('"text":"Questions? Ask <https://slack.com/app_redirect?channel=C02ND4XRSLR|Workplace Tech>."');
   });
 
   it("introduces the company report on its own terms", () => {
@@ -70,6 +66,12 @@ describe("introFor", () => {
       "👋 *Hi Priya,* this is your first company AI spend report.\\nYou'll get the whole company's AI spend each Monday and early each month: usage by team and person, then seats and subscriptions, compared with the period before.",
     );
     expect(i.text).toBe("Hi Priya — your first company AI spend report. ");
+  });
+
+  it("opens with the welcome banner when one was uploaded", () => {
+    const i = introFor({ ...base, cadences: ["weekly"], bannerFileId: "F9" });
+    expect(i.blocks[0]).toEqual({ type: "image", slack_file: { id: "F9" }, alt_text: "Your AI spend, in Slack: what your AI tools cost, and how it's changing" });
+    expect(i.blocks[1]).toMatchObject({ type: "section" });
   });
 
   it("says hi there without a name, and escapes one that needs it", () => {

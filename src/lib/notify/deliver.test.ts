@@ -87,7 +87,30 @@ describe("deliverTeamDigest", () => {
     const logs: string[] = [];
     await deliverTeamDigest({ ...args(s.client, { renderChart: async () => { throw new Error("satori"); }, log: (m: string) => logs.push(m) }), digest: teamDigest });
     expect(hasImage(s.posts[0].blocks)).toBe(false);
-    expect(logs).toEqual(["[notify] chart team skipped: satori"]);
+    expect(logs).toEqual(["[notify] image team skipped: satori"]);
+  });
+
+  it("uploads the welcome banner only with a first message's intro, and opens the message with it", async () => {
+    const png = async () => new Uint8Array([1]) as Uint8Array<ArrayBuffer>;
+    const s = fakeSlack();
+    await deliverCompanyDigest({ ...args(s.client), digest: companyDigest, renderBanner: png, intro: { name: "Ashley", cadences: ["weekly"] } });
+    expect(s.uploads.map((u) => u.name)).toEqual(["ai-spend-banner.png", "ai-spend-company.png"]);
+    expect(s.posts[0].blocks[0]).toMatchObject({ type: "image", alt_text: expect.stringContaining("Your AI spend, in Slack") });
+
+    const later = fakeSlack();
+    await deliverCompanyDigest({ ...args(later.client), digest: companyDigest, renderBanner: png });
+    expect(later.uploads.map((u) => u.name)).toEqual(["ai-spend-company.png"]);
+  });
+
+  it("keeps the intro as text when the banner can't be drawn", async () => {
+    const s = fakeSlack();
+    const logs: string[] = [];
+    await deliverCompanyDigest({
+      ...args(s.client, { log: (m: string) => logs.push(m) }), digest: companyDigest,
+      renderBanner: async () => { throw new Error("satori"); }, intro: { name: "Ashley", cadences: ["weekly"] },
+    });
+    expect(JSON.stringify(s.posts[0].blocks[0])).toContain("Hi Ashley");
+    expect(logs).toContain("[notify] image banner skipped: satori");
   });
 
   it("retries the image blocks once after a pause, then falls back to text only", async () => {

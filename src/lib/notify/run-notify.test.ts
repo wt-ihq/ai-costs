@@ -88,7 +88,7 @@ describe("runNotify", () => {
     const to = (id: string) => slack.posts.find((p) => p.channel === `D-U-${id}`)!;
     expect(hasButton(to("a").blocks)).toBe(true);
     expect(hasButton(to("m").blocks)).toBe(false);
-    expect(JSON.stringify(to("m").blocks)).not.toContain("https://");
+    expect(JSON.stringify(to("m").blocks)).not.toContain("https://x.test"); // the #tech-help link isn't the dashboard
     expect(store.sends.find((s) => s.employeeId === "a")!.dashboardLink).toBe(true);
     expect(store.sends.find((s) => s.employeeId === "m")!.dashboardLink).toBe(false);
   });
@@ -539,7 +539,7 @@ describe("runNotify: company report", () => {
       const store = memoryStore(seed({ subscriptions: [{ employeeId: "a", cadence: "daily" }, { employeeId: "a", cadence: "monthly" }] }), () => MONDAY.getTime());
       const slack = fakeSlack();
       await runNotify(deps(store, slack.client));
-      expect(JSON.stringify(to(slack.posts, "a")[0].blocks)).toContain("a daily summary each working day and a monthly recap early each month");
+      expect(JSON.stringify(to(slack.posts, "a")[0].blocks)).toContain("From now on you'll get daily and monthly recaps.");
     });
 
     it("ignores preview-only history, and counts a send that may have gone out", async () => {
@@ -559,6 +559,15 @@ describe("runNotify: company report", () => {
       expect(header(toM.find(intro)!)).toContain("Your AI spend");
       // A company-only recipient gets the company version.
       expect(JSON.stringify(to(slack.posts, "gareth")[0].blocks)).toContain("your first company AI spend report");
+    });
+
+    it("uploads the welcome banner for first messages only", async () => {
+      const store = memoryStore(seed({ sends: [liveRow("m")] }), () => MONDAY.getTime());
+      const slack = fakeSlack();
+      await runNotify(deps(store, slack.client, { renderBanner: png }));
+      expect(slack.uploads.filter((u) => u === "ai-spend-banner.png")).toHaveLength(1); // a's first; m had one before
+      expect(to(slack.posts, "a")[0].blocks[0]).toMatchObject({ type: "image" });
+      expect(to(slack.posts, "m")[0].blocks.some((b) => JSON.stringify(b).includes("Your AI spend, in Slack"))).toBe(false);
     });
 
     it("sends no intros when the send history can't be read (a missed welcome beats a second one)", async () => {

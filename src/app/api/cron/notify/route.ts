@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { isCronAuthorized } from "@/lib/cron-auth";
 import { parseAdminEmails } from "@/lib/dashboard-access";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
-import { renderChartPng } from "@/lib/notify/chart-image";
+import { renderChartPng, renderWelcomeBannerPng } from "@/lib/notify/chart-image";
 import { runNotify } from "@/lib/notify/run-notify";
 import { resolveRunDate } from "@/lib/notify/schedule";
 import { supabaseNotifyStore } from "@/lib/notify/store";
@@ -35,6 +35,7 @@ export async function GET(req: Request) {
       store: supabaseNotifyStore(getSupabaseAdminClient()),
       slack: slackClientFromEnv(),
       renderChart: renderChartPng,
+      renderBanner: renderWelcomeBannerPng,
       mode,
       previewEmail: process.env.SLACK_PREVIEW_EMAIL ?? null,
       now: runDate.now,

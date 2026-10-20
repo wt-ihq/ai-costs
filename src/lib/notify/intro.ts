@@ -14,34 +14,38 @@ export interface IntroInput {
   /** personal: none · direct (a reports section) · byTeam (managers of managers: split by team). */
   reports: "none" | "direct" | "byTeam";
   links: boolean; // can open the dashboard
+  /** The uploaded welcome banner (chart-image.ts:renderWelcomeBannerPng); absent = the text alone. */
+  bannerFileId?: string;
 }
+
+export const BANNER_ALT = "Your AI spend, in Slack: what your AI tools cost, and how it's changing";
 
 /** The first word of an Okta name ("Jerry Marcel Lieveld" → "Jerry"); null when there's none. */
 export function firstName(fullName: string): string | null {
   return fullName.trim().split(/\s+/)[0] || null;
 }
 
-const PERSONAL: Record<Cadence, string> = {
-  daily: "a daily summary each working day",
-  weekly: "a weekly summary each Monday",
-  monthly: "a monthly recap early each month",
-};
+const PERSONAL: Record<Cadence, string> = { daily: "daily", weekly: "weekly", monthly: "monthly" };
 const COMPANY: Record<Cadence, string> = { daily: "each working day", weekly: "each Monday", monthly: "early each month" };
 
 const andList = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
 
-/** When the messages come, in cadence order: "a weekly summary each Monday and a monthly recap early each month". */
+/** Which messages come, in cadence order: "weekly and monthly" (personal) or "each Monday and early each month" (company). */
 export function cadencePhrase(cadences: Cadence[], report: ReportKind): string {
   const words = report === "company" ? COMPANY : PERSONAL;
   return andList(CADENCES.filter((c) => cadences.includes(c)).map((c) => words[c]));
 }
 
+/** #tech-help. app_redirect opens a channel by ID in the clicker's own workspace — no workspace URL needed. */
+const HELP_LINK = "https://slack.com/app_redirect?channel=C02ND4XRSLR";
+
 // Slack mrkdwn control characters (render.ts:escapeMrkdwn, inlined to keep this module free of the renderer).
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-const REPORTS_LINE: Record<Exclude<IntroInput["reports"], "none">, string> = {
-  direct: "• *Your reports:* the total for the people who report to you, and who uses the most.",
-  byTeam: "• *Your reports:* everyone below you, split by team (each of your direct reports and their people), and who uses the most.",
+const REPORTS_PHRASE: Record<IntroInput["reports"], string> = {
+  none: "",
+  direct: " and the total spend for the people who report to you, with comparisons to the previous period",
+  byTeam: " and the total spend for the teams who report to you, with comparisons to the previous period",
 };
 
 export function introFor(i: IntroInput): { blocks: SlackBlock[]; text: string } {
@@ -55,15 +59,12 @@ export function introFor(i: IntroInput): { blocks: SlackBlock[]; text: string } 
         ]
       : [
           `👋 *Hi ${hi},* this is your first ${what}.`,
-          `You'll get ${cadencePhrase(i.cadences, "personal")}, showing what your use of AI tools costs and how it compares with the period before:`,
-          "• *You:* your own usage, by tool.",
-          ...(i.reports === "none" ? [] : [REPORTS_LINE[i.reports]]),
+          `From now on you'll get ${cadencePhrase(i.cadences, "personal")} recaps. Each shows your own AI spend by tool${REPORTS_PHRASE[i.reports]}.`,
         ];
-  const footer =
-    `Figures come from each tool's own billing data, updated overnight.${i.links ? " Use *Open in dashboard* for the detail." : ""}\n` +
-    "Questions, or want these more or less often? Ask Workplace Tech.";
+  const footer = `${i.links ? "Use *Open in dashboard* for the detail. " : ""}Questions? Ask <${HELP_LINK}|Workplace Tech>.`;
   return {
     blocks: [
+      ...(i.bannerFileId ? [{ type: "image", slack_file: { id: i.bannerFileId }, alt_text: BANNER_ALT }] : []),
       { type: "section", text: { type: "mrkdwn", text: body.join("\n") } },
       { type: "context", elements: [{ type: "mrkdwn", text: footer }] },
       { type: "divider" },
