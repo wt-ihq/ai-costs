@@ -49,8 +49,10 @@ function Headline({ h }: { h: ChartHeadline }) {
 /**
  * ChartLayout → PNG via next/og (Satori). Satori is flexbox-only and needs
  * `display: flex` on any element with more than one child, so everything is
- * absolutely-positioned boxes. Every bar carries its total; earlier buckets are
- * dimmed with a small grey total, the current one full-strength with its exact total.
+ * absolutely-positioned boxes. Every bar carries its total. Bars are drawn in the
+ * dashboard's exact tool colours (never faded: on Warm Cream a faded bar turns
+ * pastel and stops matching); the current one stands out by its larger, darker
+ * total and label, earlier ones carry a small grey total.
  */
 export async function renderChartPng(layout: ChartLayout): Promise<Uint8Array<ArrayBuffer>> {
   const image = new ImageResponse(
@@ -69,7 +71,7 @@ export async function renderChartPng(layout: ChartLayout): Promise<Uint8Array<Ar
         ))}
         {layout.bars.flatMap((b, i) => [
           ...b.segments.map((s, j) => (
-            <div key={`s${i}-${j}`} style={abs({ left: b.x, top: s.y, width: b.w, height: s.h, backgroundColor: s.color, opacity: b.current ? 1 : 0.45 })} />
+            <div key={`s${i}-${j}`} style={abs({ left: b.x, top: s.y, width: b.w, height: s.h, backgroundColor: s.color })} />
           )),
           <div key={`l${i}`} style={abs({ left: b.x - 30, top: CHART_PLOT.bottom + 10, width: b.w + 60, justifyContent: "center", fontSize: 20, fontWeight: b.current ? 500 : 400, color: b.current ? BRAND.truffle : BRAND.dim })}>{b.label}</div>,
           ...(b.totalLabel
