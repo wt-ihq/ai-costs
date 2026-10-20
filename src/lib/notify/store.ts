@@ -6,6 +6,7 @@ import { buildImportCoverage, getImportCoverageScope, type CoverageMonthRow } fr
 import { fetchAccessList } from "@/lib/queries/dashboard-access";
 import { NO_FIXED_COST_SETTINGS, type FixedCostSettings } from "./fixed-costs";
 import type { SyncRunRow } from "./freshness";
+import type { ManualImportRow } from "./readiness";
 import { NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence, type NotifyEmployee, type ReportKind, type SendMode } from "./types";
 
 export interface SendKey {
@@ -35,6 +36,8 @@ export interface NotifyStore {
   toolColors(): Promise<Record<string, string>>;
   recentSyncRuns(sinceIso: string): Promise<SyncRunRow[]>;
   importCoverage(nowMonth: string): Promise<CoverageMonthRow[]>;
+  /** Successful ChatGPT credits / Claude Team imports dated on or after `sinceDay` (readiness.ts). */
+  manualImports(sinceDay: string): Promise<ManualImportRow[]>;
   /** notification_settings: the organisation default and per-team / per-person overrides. */
   fixedCostSettings(): Promise<FixedCostSettings>;
   /** dashboard_access: the emails (lowercased) besides ADMIN_EMAILS who can open the dashboard. */
@@ -128,6 +131,22 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
     async importCoverage(nowMonth) {
       const scope = await getImportCoverageScope(supabase);
       return buildImportCoverage(scope.facts, scope.imports, nowMonth);
+    },
+    async manualImports(sinceDay) {
+      const rows = await pageAll<{ source: string; kind: string; data_as_of: string }>(
+        (a, b) =>
+          supabase
+            .from("imports")
+            .select("source, kind, data_as_of")
+            .eq("status", "success")
+            .in("source", ["chatgpt_business", "claude_team"])
+            .gte("data_as_of", sinceDay)
+            .order("data_as_of")
+            .order("id")
+            .range(a, b),
+        "manualImports",
+      );
+      return rows.map((r) => ({ source: r.source, kind: r.kind, dataAsOf: r.data_as_of }));
     },
     async sendStates(periodKeys, mode) {
       if (!periodKeys.length) return [];

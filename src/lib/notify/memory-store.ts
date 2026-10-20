@@ -2,6 +2,7 @@ import type { ShapeFact } from "@/lib/explore/shape";
 import type { CoverageMonthRow } from "@/lib/queries/import-coverage";
 import { NO_FIXED_COST_SETTINGS, type FixedCostSettings } from "./fixed-costs";
 import type { SyncRunRow } from "./freshness";
+import type { ManualImportRow } from "./readiness";
 import { canRetakeClaim, MAX_SEND_ATTEMPTS, type NotifyStore, type SendKey } from "./store";
 import type { Cadence, NotifyEmployee, ReportKind } from "./types";
 
@@ -26,6 +27,7 @@ export interface MemorySeed {
   subscriptions?: { employeeId: string; cadence: Cadence }[];
   syncRuns?: SyncRunRow[];
   coverage?: CoverageMonthRow[];
+  manualImports?: ManualImportRow[];
   sourceHorizons?: Record<string, string>;
   companyRecipients?: { employeeId: string; cadence: Cadence }[];
   sends?: SeedSendRow[];
@@ -83,6 +85,7 @@ export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.no
       if (seed.dashboardAccessFails) throw new Error("dashboard_access: simulated outage");
       return new Set(seed.dashboardAccess ?? []);
     },
+    manualImports: async (since) => (seed.manualImports ?? []).filter((r) => r.dataAsOf >= since),
     async importCoverage(nowMonth) {
       coverageCalls.push(nowMonth);
       return seed.coverage ?? [];
