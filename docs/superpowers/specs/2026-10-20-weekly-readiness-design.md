@@ -61,9 +61,10 @@ October's existing paste over 1 Oct → its date, and each Monday paste after th
 
 **Where it counts.** `claude_team` leaves `MONTHLY_SNAPSHOT_SOURCES`: weeklies, the weekly chart's
 8 weeks, and Explore's day/week views include it. **Daily summaries still leave it out**
-(`digest.ts:counted`): an even split is fair across a week, invented for a single day. Explore's
-"as of" labelling for Claude Team keeps showing the latest paste date. Fact shapes don't change, so
-no `CACHE_VERSION` bump.
+(`digest.ts:counted`): an even split is fair across a week, invented for a single day. With no
+month-lump source left, Explore's lump handling (`MONTHLY_SNAPSHOT_SOURCES`, `snapshotAsOf`:
+amortising a paste over 1st → as-of, pacing it in projections) is retired. Explore scopes lose
+`snapshotAsOf`, so `CACHE_VERSION` is bumped in the same commit.
 
 **The paste form** (`components/claude-spend-import.tsx`) defaults its date to **yesterday on a
 Monday** (the table includes Monday morning; counting it as of Sunday puts the week's spend in the
