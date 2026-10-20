@@ -49,17 +49,11 @@ function Headline({ h }: { h: ChartHeadline }) {
 /**
  * ChartLayout → PNG via next/og (Satori). Satori is flexbox-only and needs
  * `display: flex` on any element with more than one child, so everything is
- * absolutely-positioned boxes. Every bar carries its total. Bars are drawn in the
- * dashboard's exact tool colours (never faded: on Warm Cream a faded bar turns
- * pastel and stops matching), so the current one is marked around it instead: a
- * tinted column behind it, its label in a Truffle pill, and a bolder total;
- * earlier ones carry a small grey total.
+ * absolutely-positioned boxes. Every bar carries its total. The current bar is
+ * full-strength in the dashboard's tool colours, with its label in a Truffle pill
+ * and a bold total; earlier ones are faded to 45% with a small grey total.
  */
 export async function renderChartPng(layout: ChartLayout): Promise<Uint8Array<ArrayBuffer>> {
-  const current = layout.bars.find((b) => b.current);
-  // Room either side of the current bar, kept clear of its neighbours (14 daily bars sit closer than 6 monthly).
-  const gap = layout.bars.length > 1 ? layout.bars[1].x - (layout.bars[0].x + layout.bars[0].w) : 40;
-  const highlightPad = Math.max(4, Math.min(14, Math.floor(gap / 2) - 4));
   const dense = layout.bars.length > 8; // daily: the current bar's exact total must stay clear of its neighbour's
   const image = new ImageResponse(
     (
@@ -69,18 +63,6 @@ export async function renderChartPng(layout: ChartLayout): Promise<Uint8Array<Ar
         {layout.caption && (
           <div style={abs({ left: 24, top: CHART_CAPTION.top, fontSize: CHART_CAPTION.size, fontWeight: 500, letterSpacing: 1.2, color: BRAND.dim })}>{layout.caption}</div>
         )}
-        {current && (
-          <div
-            style={abs({
-              left: current.x - highlightPad,
-              top: CHART_PLOT.top - 40,
-              width: current.w + 2 * highlightPad,
-              height: CHART_PLOT.bottom - CHART_PLOT.top + 82,
-              borderRadius: 10,
-              backgroundColor: BRAND.highlight,
-            })}
-          />
-        )}
         {layout.gridlines.map((g) => (
           <div key={`g${g.y}`} style={abs({ left: 0, top: g.y - 12, width: layout.width, height: 24, alignItems: "center" })}>
             <div style={{ width: CHART_PLOT.left - 12, display: "flex", justifyContent: "flex-end", paddingRight: 10, fontSize: 20, color: BRAND.dim }}>{g.label}</div>
@@ -89,7 +71,7 @@ export async function renderChartPng(layout: ChartLayout): Promise<Uint8Array<Ar
         ))}
         {layout.bars.flatMap((b, i) => [
           ...b.segments.map((s, j) => (
-            <div key={`s${i}-${j}`} style={abs({ left: b.x, top: s.y, width: b.w, height: s.h, backgroundColor: s.color })} />
+            <div key={`s${i}-${j}`} style={abs({ left: b.x, top: s.y, width: b.w, height: s.h, backgroundColor: s.color, opacity: b.current ? 1 : 0.45 })} />
           )),
           b.current ? (
             <div key={`l${i}`} style={abs({ left: b.x - 30, top: CHART_PLOT.bottom + 7, width: b.w + 60, justifyContent: "center" })}>
