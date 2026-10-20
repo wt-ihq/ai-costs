@@ -19,6 +19,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "Claude Team spend now shows on the days it was used in Explore, instead of all on the 1st.",
       "The dashboard has its own app icon in the browser tab and on phone home screens.",
       "Slack summaries open with the AI spend icon instead of a bar-chart emoji.",
+      "Cursor's automated accounts can be named and given a team on Data → Tools. Bugbot, Cursor's pull-request reviewer, now counts toward Engineering instead of Unattributed.",
     ],
   },
   {

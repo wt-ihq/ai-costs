@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SpendFact } from "@/lib/types";
 import { matchIdentity } from "@/lib/ingest/identity";
 import { normalizeCursor, normalizeCursorEvents, normalizeCursorMembers, normalizeCursorTopModels } from "@/lib/ingest/normalizers/cursor";
+import { applyServiceAccountTeams, serviceAccountRegistry, type ServiceAccountRegistry } from "@/lib/ingest/cursor-service-accounts";
 import {
   fetchCursorUsage,
   fetchCursorUsageEvents,
@@ -57,6 +58,8 @@ export function eventsWindow(window: Window, days?: number): Window {
  * longer produces; a chunk Cursor answered with events but no on-demand spend is pruned too
  * (pruneWhenEmpty), while one with no events at all is left alone (gotcha #4). Each chunk stands
  * alone, so a run stopped part-way leaves finished chunks correct and the rest as they were.
+ * Service-account spend carries the team set on Data → Tools (`serviceAccounts`), and accounts
+ * seen for the first time are registered there.
  */
 export async function syncCursorEvents(
   supabase: SupabaseClient,
@@ -64,14 +67,17 @@ export async function syncCursorEvents(
   window: Window,
   eventsFetcher: CursorEventsFetcher,
   employees: { id: string; email: string }[],
+  serviceAccounts?: ServiceAccountRegistry,
 ): Promise<{ rowsWritten: number; unmatched: string[] }> {
   let rowsWritten = 0;
   const unmatched = new Set<string>();
   for (const chunk of eventChunks(window)) {
     const rawEvents = await eventsFetcher(chunk);
     await saveRawPayload(supabase, "cursor", runId, rawEvents);
-    const { facts, unmatched: u } = attachEmployees(normalizeCursorEvents(rawEvents), employees);
+    const { facts: attached, unmatched: u } = attachEmployees(normalizeCursorEvents(rawEvents), employees);
     u.forEach((k) => unmatched.add(k));
+    if (serviceAccounts) await serviceAccounts.register(attached);
+    const facts = serviceAccounts ? applyServiceAccountTeams(attached, serviceAccounts.teams()) : attached;
     rowsWritten += await replaceWindowFacts(supabase, "cursor", chunk, facts, {
       costType: "overage",
       pruneWhenEmpty: (rawEvents.usageEvents?.length ?? 0) > 0,
@@ -88,7 +94,7 @@ export async function rebuildCursorOverage(
 ): Promise<CursorSyncResult> {
   const runId = await startSyncRun(supabase, "cursor");
   try {
-    const result = await syncCursorEvents(supabase, runId, window, eventsFetcher, await loadEmployees(supabase));
+    const result = await syncCursorEvents(supabase, runId, window, eventsFetcher, await loadEmployees(supabase), await serviceAccountRegistry(supabase));
     await finishSyncRun(supabase, runId, { status: "success", rowsWritten: result.rowsWritten });
     return result;
   } catch (err) {
@@ -139,7 +145,7 @@ export async function syncCursor(
     const { facts: resolved, unmatched: seatUnmatched } = attachEmployees([...seatFacts, ...memberSeatFacts], employees);
     // Seats first: they don't depend on the usage events, so an events failure (e.g. a new event kind) can't hold them back.
     const seatRows = await upsertSpendFacts(supabase, resolved);
-    const events = await syncCursorEvents(supabase, runId, eventsWindow(window, opts.eventsDays), eventsFetcher, employees);
+    const events = await syncCursorEvents(supabase, runId, eventsWindow(window, opts.eventsDays), eventsFetcher, employees, await serviceAccountRegistry(supabase));
 
     const rowsWritten = seatRows + events.rowsWritten;
     const unmatched = [...new Set([...seatUnmatched, ...events.unmatched])];
