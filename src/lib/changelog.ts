@@ -18,6 +18,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "Admins can get a Monday Slack reminder of what's left to update, and a month-end reminder to paste Claude Team spend. Add people on Data → Notifications.",
       "Claude Team spend now shows on the days it was used in Explore, instead of all on the 1st.",
       "The dashboard has its own app icon in the browser tab and on phone home screens.",
+      "Slack summaries open with the AI spend icon instead of a bar-chart emoji.",
     ],
   },
   {

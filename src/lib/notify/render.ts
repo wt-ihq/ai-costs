@@ -32,6 +32,16 @@ export interface RenderOpts {
 const TOOLS_MAX = 4;
 const CONTEXT_MAX = 10; // Slack's element cap per context block
 const HEADER_MAX = 150; // Slack's plain_text cap for a header block
+/**
+ * The app's icon as a Slack custom emoji, leading every digest header (header blocks take only text
+ * and emoji). It must exist in the workspace under exactly this name, or Slack shows the text itself.
+ */
+export const HEADER_EMOJI = ":ai-spend:";
+
+/** A header's leading app-icon emoji split off, for the admin preview to draw the icon itself. */
+export function headerParts(text: string): { icon: boolean; text: string } {
+  return text.startsWith(`${HEADER_EMOJI} `) ? { icon: true, text: text.slice(HEADER_EMOJI.length + 1) } : { icon: false, text };
+}
 
 /** Slack mrkdwn treats &, < and > as control characters — escape every user-supplied string. */
 export function escapeMrkdwn(s: string): string {
@@ -211,7 +221,7 @@ const dashboardButton = (opts: RenderOpts, dashboardUrl: string): SlackBlock[] =
 export function renderDigest(d: Digest, files: ChartFileIds, opts: RenderOpts = {}): RenderedDigest {
   const unit = CADENCE_UNIT[d.period.cadence];
   const blocks: SlackBlock[] = [];
-  blocks.push({ type: "header", text: { type: "plain_text", text: `📊 Your AI spend · ${d.period.label}`, emoji: true } });
+  blocks.push({ type: "header", text: { type: "plain_text", text: `${HEADER_EMOJI} Your AI spend · ${d.period.label}`, emoji: true } });
   blocks.push(...sectionBlocks("YOU", d.you, files.you, chartTitle("you", d), d.period.compareTo));
   if (d.reports) {
     blocks.push({ type: "divider" });
@@ -231,7 +241,7 @@ export function renderDigest(d: Digest, files: ChartFileIds, opts: RenderOpts = 
 export function renderTeamDigest(d: TeamDigest, files: TeamChartFileIds, opts: RenderOpts = {}): RenderedDigest {
   const unit = CADENCE_UNIT[d.period.cadence];
   const blocks: SlackBlock[] = [
-    { type: "header", text: { type: "plain_text", text: `📊 AI spend · ${d.department} · ${d.period.label}`.slice(0, HEADER_MAX), emoji: true } },
+    { type: "header", text: { type: "plain_text", text: `${HEADER_EMOJI} AI spend · ${d.department} · ${d.period.label}`.slice(0, HEADER_MAX), emoji: true } },
     // Uppercase BEFORE escaping: "&amp;" must not become "&AMP;".
     ...sectionBlocks(`${escapeMrkdwn(d.department.toUpperCase())} · ${people(d.team.headcount)}`, d.team, files.team, teamChartTitle(d), d.period.compareTo, teamTopLine(d.team, unit, !!opts.links)),
   ];
@@ -247,7 +257,7 @@ export function renderTeamDigest(d: TeamDigest, files: TeamChartFileIds, opts: R
 export function renderCompanyDigest(d: CompanyDigest, files: CompanyChartFileIds, opts: RenderOpts = {}): RenderedDigest {
   const unit = CADENCE_UNIT[d.period.cadence];
   const blocks: SlackBlock[] = [
-    { type: "header", text: { type: "plain_text", text: `📊 Company AI spend · ${d.period.label}`, emoji: true } },
+    { type: "header", text: { type: "plain_text", text: `${HEADER_EMOJI} Company AI spend · ${d.period.label}`, emoji: true } },
     ...sectionBlocks(`COMPANY · ${people(d.usage.headcount)}`, d.usage, files.company, companyChartTitle(d), d.period.compareTo, companyLines(d.usage, unit, !!opts.links)),
     { type: "divider" },
     ...fixedBlocks(d.fixed, d.period),
