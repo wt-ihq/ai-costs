@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { defaultPreviewKey, dueDigests, latestCompleteKey, monthlyLastDay, periodFor, previousWorkingDay, resolveRunDate, sendDay, stepKey } from "./schedule";
+import { defaultPreviewKey, dueDigests, latestCompleteKey, periodFor, previousWorkingDay, resolveRunDate, sendDay, stepKey } from "./schedule";
 
 const at = (iso: string) => new Date(`${iso}T07:00:00Z`);
-const due = (day: string, ready: boolean) => dueDigests(day, ready).map((d) => `${d.period.cadence}:${d.period.key}${d.force ? ":force" : ""}`);
+const due = (day: string, ready = { week: true, month: true }) => dueDigests(day, ready).map((d) => `${d.period.cadence}:${d.period.key}`);
 
 describe("periodFor", () => {
   const now = at("2026-09-30");
@@ -52,9 +52,6 @@ describe("working days", () => {
   it("steps back over weekends", () => {
     expect(["2026-10-06", "2026-10-05", "2026-10-04", "2026-10-03"].map(previousWorkingDay)).toEqual(["2026-10-05", "2026-10-02", "2026-10-02", "2026-10-02"]);
   });
-  it("moves the monthly window's last day off a weekend to the Monday", () => {
-    expect([monthlyLastDay("2026-10"), monthlyLastDay("2026-11"), monthlyLastDay("2026-12"), monthlyLastDay("2026-09")]).toEqual([5, 5, 7, 7]);
-  });
 });
 
 describe("defaultPreviewKey", () => {
@@ -68,21 +65,23 @@ describe("defaultPreviewKey", () => {
 
 describe("dueDigests", () => {
   it("nothing at all on Saturday or Sunday", () => {
-    expect(due("2026-10-03", true)).toEqual([]);
-    expect(due("2026-10-04", true)).toEqual([]);
+    expect(due("2026-10-03")).toEqual([]);
+    expect(due("2026-10-04")).toEqual([]);
   });
-  it("Tue–Fri: the day before; Monday: Friday's daily plus the weekly recap", () => {
-    expect(due("2026-09-30", true)).toEqual(["daily:2026-09-29"]);
-    expect(due("2026-09-28", true)).toEqual(["daily:2026-09-25", "weekly:2026-W39"]);
+  it("the day before every working day (Monday: Friday)", () => {
+    expect(due("2026-09-30", { week: false, month: false })).toEqual(["daily:2026-09-29"]);
+    expect(due("2026-09-28", { week: false, month: false })).toEqual(["daily:2026-09-25"]);
   });
-  it("monthly from the 3rd once ready, forced on the window's last working day", () => {
-    expect(due("2026-10-02", true)).toEqual(["daily:2026-10-01"]); // before the window
-    expect(due("2026-11-03", true)).toEqual(["daily:2026-11-02", "monthly:2026-10"]);
-    expect(due("2026-11-03", false)).toEqual(["daily:2026-11-02"]);
-    expect(due("2026-10-05", false)).toEqual(["daily:2026-10-02", "weekly:2026-W40", "monthly:2026-09:force"]); // 3rd/4th were the weekend
-    expect(due("2026-10-06", true)).toEqual(["daily:2026-10-05"]);
-    expect(due("2026-12-04", false)).toEqual(["daily:2026-12-03"]);
-    expect(due("2026-12-07", false)).toEqual(["daily:2026-12-04", "weekly:2026-W49", "monthly:2026-11:force"]); // the 5th was a Saturday
+  it("the latest complete week on any working day once it's ready, not before", () => {
+    expect(due("2026-09-28", { week: true, month: false })).toEqual(["daily:2026-09-25", "weekly:2026-W39"]);
+    expect(due("2026-10-02", { week: true, month: false })).toEqual(["daily:2026-10-01", "weekly:2026-W39"]); // Friday
+    expect(due("2026-10-02", { week: false, month: false })).toEqual(["daily:2026-10-01"]);
+  });
+  it("last month's recap from the 3rd to the month's end once ready — never forced", () => {
+    expect(due("2026-10-02", { week: false, month: true })).toEqual(["daily:2026-10-01"]); // before the 3rd
+    expect(due("2026-11-03", { week: false, month: true })).toEqual(["daily:2026-11-02", "monthly:2026-10"]);
+    expect(due("2026-11-03", { week: false, month: false })).toEqual(["daily:2026-11-02"]);
+    expect(due("2026-10-27", { week: false, month: true })).toEqual(["daily:2026-10-26", "monthly:2026-09"]);
   });
 });
 

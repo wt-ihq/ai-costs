@@ -1,8 +1,9 @@
-import { companyDigestFor, digestFor, loadNotifyContext, syncRunsSince, type NotifyContext } from "./context";
+import { companyDigestFor, digestFor, loadNotifyContext, type NotifyContext } from "./context";
 import { deliverCompanyDigest, deliverDigest, loadDashboardAccess, PostOutcomeUnknownError, resolveSlackUser, type RenderBanner, type RenderChart, type SlackRecipient } from "./deliver";
 import type { CompanyDigest } from "./digest";
 import { monthlyReadiness, syncSucceededSince } from "./freshness";
-import { dueDigests, latestCompleteKey, MONTHLY_WINDOW, monthlyLastDay, sendDay, type DigestPeriod, type DueDigest } from "./schedule";
+import { importsInUseSince, readinessSyncSince, syncsOutstanding, weekReadiness } from "./readiness";
+import { dueDigests, inMonthlyWindow, latestCompleteKey, periodFor, sendDay, type DigestPeriod, type DueDigest } from "./schedule";
 import { firstName } from "./intro";
 import type { RenderOpts } from "./render";
 import { SlackApiError, type SlackClient } from "./slack-client";
@@ -39,16 +40,19 @@ export interface RunNotifyResult {
   expired: number;
   /** Subscriptions whose recipient is before 10:30, or at the weekend, where they are. */
   waiting: number;
+  /** Weeklies/monthlies someone is waiting for whose data isn't complete yet ("weekly:2026-W42"). */
+  held: string[];
   note?: string;
 }
 
 const CADENCES: Cadence[] = ["daily", "weekly", "monthly"];
 
 export const STALE_PENDING_MS = 10 * 60_000;
+const addDays = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 /** Stop claiming new recipients well inside the route's 300 s maxDuration. */
 export const DEFAULT_BUDGET_MS = 240_000;
 
-const errorDetail = (err: unknown) =>
+export const errorDetail = (err: unknown) =>
   (err instanceof SlackApiError ? err.code : err instanceof Error ? err.message : String(err)).slice(0, 200);
 
 /**
@@ -65,9 +69,9 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
   const log = deps.log ?? console.log;
   const start = clock();
   const budget = deps.budgetMs ?? DEFAULT_BUDGET_MS;
-  const result: RunNotifyResult = { due: [], sent: 0, skipped: 0, failed: 0, alreadyHandled: 0, notReached: 0, expired: 0, waiting: 0 };
+  const result: RunNotifyResult = { due: [], sent: 0, skipped: 0, failed: 0, alreadyHandled: 0, notReached: 0, expired: 0, waiting: 0, held: [] };
   const done = () => {
-    log(`[notify] mode=${deps.mode} due=${result.due.join(",")} sent=${result.sent} skipped=${result.skipped} failed=${result.failed} waiting=${result.waiting} notReached=${result.notReached} expired=${result.expired}`);
+    log(`[notify] mode=${deps.mode} due=${result.due.join(",")} sent=${result.sent} skipped=${result.skipped} failed=${result.failed} waiting=${result.waiting} held=${result.held.join(",")} notReached=${result.notReached} expired=${result.expired}`);
     return result;
   };
 
@@ -119,24 +123,35 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
   }
   if (!candidates.length) return done();
 
-  // 2. What's due on each of those days (usually one). Import coverage pages through every manual-source
-  //    fact, so it's read only when a monthly could be due.
-  const days = [...new Set(candidates.map((c) => c.day))];
-  const inMonthlyWindow = (day: string) => Number(day.slice(8, 10)) >= MONTHLY_WINDOW.firstDay && Number(day.slice(8, 10)) <= monthlyLastDay(day.slice(0, 7));
-  const coverage = days.some(inMonthlyWindow) ? await store.importCoverage(now.toISOString().slice(0, 7)) : [];
-  const syncRuns = await store.recentSyncRuns(syncRunsSince(now));
+  // 2. What's due on each of those days. Weeklies and monthlies go only once their data is complete
+  //    (readiness.ts); a daily still waits for that day's sync. Import coverage pages through every
+  //    manual-source fact, so it's read only when someone's monthly could be due.
+  const days = [...new Set(candidates.map((c) => c.day))].sort();
+  const wants = (day: string, cadence: Cadence) => candidates.some((c) => c.day === day && c.cadence === cadence);
+  const monthlyWanted = days.some((d) => inMonthlyWindow(d) && wants(d, "monthly"));
+  const coverage = monthlyWanted ? await store.importCoverage(now.toISOString().slice(0, 7)) : [];
+  const syncRuns = await store.recentSyncRuns(readinessSyncSince(now));
+  const imports = days.some((d) => wants(d, "weekly")) ? await store.manualImports(importsInUseSince(addDays(days[0], -7))) : [];
   const dueByDay = new Map<string, DueDigest[]>();
   for (const day of days) {
-    const prevMonth = latestCompleteKey("monthly", new Date(`${day}T12:00:00Z`));
-    let due = dueDigests(day, inMonthlyWindow(day) && monthlyReadiness(coverage, prevMonth).ready);
+    const at = new Date(`${day}T12:00:00Z`);
+    const week = periodFor("weekly", latestCompleteKey("weekly", at), at);
+    const prevMonth = latestCompleteKey("monthly", at);
+    const weekReady = wants(day, "weekly") && weekReadiness({ week, syncRuns, imports }).ready;
+    const monthReady =
+      wants(day, "monthly") && inMonthlyWindow(day) && monthlyReadiness(coverage, prevMonth).ready && syncsOutstanding(syncRuns, `${day.slice(0, 7)}-01`).length === 0;
+    if (wants(day, "weekly") && !weekReady) result.held.push(`weekly:${week.key}`);
+    if (wants(day, "monthly") && inMonthlyWindow(day) && !monthReady) result.held.push(`monthly:${prevMonth}`);
+    let due = dueDigests(day, { week: weekReady, month: monthReady });
     if (!syncSucceededSince(syncRuns, day)) {
-      // No all-caveat messages. A monthly waits for a later run — except on the window's last day.
-      const kept = due.filter((d) => d.period.cadence === "monthly" && Number(day.slice(8, 10)) === monthlyLastDay(day.slice(0, 7)));
-      if (kept.length < due.length) result.note = `no source has synced since ${day} began — daily/weekly held`;
+      // The daily covers yesterday: it waits for today's sync. Weeklies/monthlies have their own check.
+      const kept = due.filter((d) => d.period.cadence !== "daily");
+      if (kept.length < due.length) result.note = `no source has synced since ${day} began — daily held`;
       due = kept;
     }
     dueByDay.set(day, due);
   }
+  result.held = [...new Set(result.held)];
   result.due = [...new Set([...dueByDay.values()].flat().map((d) => `${d.period.cadence}:${d.period.key}`))];
 
   const work = candidates.flatMap((c) => {
@@ -223,7 +238,7 @@ const who = (k: SendKey) => `employee=${k.employeeId} cadence=${k.cadence}${k.re
  * error means this run does not own the row (or can't tell), so it must never reach finishSend for it:
  * whatever state the row is in stays as is — an orphaned pending row just expires as "interrupted".
  */
-async function claim(store: NotifyStore, key: SendKey, result: RunNotifyResult, log: (m: string) => void): Promise<string | null> {
+export async function claim(store: NotifyStore, key: SendKey, result: { alreadyHandled: number; failed: number }, log: (m: string) => void): Promise<string | null> {
   try {
     const id = await store.claimSend(key);
     if (id) return id;
