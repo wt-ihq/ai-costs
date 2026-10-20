@@ -43,6 +43,11 @@ export interface NotifyStore {
   dashboardAccess(): Promise<ReadonlySet<string>>;
   /** Existing send rows for these period keys in one mode — lets a run skip the heavy data load when nothing is left to send. */
   sendStates(periodKeys: string[], mode: SendMode): Promise<(SendKey & { status: string; attempts: number })[]>;
+  /**
+   * Of these people, who has had a live message, or may have: a live row that was sent, is still
+   * pending, or ended "interrupted" (it may have gone out). They never get the first-message intro.
+   */
+  everLive(employeeIds: string[]): Promise<ReadonlySet<string>>;
   /** Insert a pending row; its id = this run owns the send (the id carries the DM's tracked open link), null = it doesn't. */
   claimSend(key: SendKey): Promise<string | null>;
   /** Stamp a send's first open (the digest's "Open in dashboard" click); its recipient and report kind, or null for an unknown id. */
@@ -151,6 +156,22 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
     },
     async dashboardAccess() {
       return new Set((await fetchAccessList(supabase)).map((r) => r.email));
+    },
+    async everLive(employeeIds) {
+      if (!employeeIds.length) return new Set();
+      const rows = await pageAll<{ employee_id: string }>(
+        (a, b) =>
+          supabase
+            .from("notification_sends")
+            .select("employee_id")
+            .eq("mode", "live")
+            .in("employee_id", employeeIds)
+            .or("status.in.(sent,pending),detail.eq.interrupted")
+            .order("id")
+            .range(a, b),
+        "everLive",
+      );
+      return new Set(rows.map((r) => r.employee_id));
     },
     async claimSend(key) {
       const { data: inserted, error } = await supabase.from("notification_sends").insert({ ...keyMatch(key), status: "pending" }).select("id").single();

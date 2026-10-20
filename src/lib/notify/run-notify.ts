@@ -3,6 +3,8 @@ import { deliverCompanyDigest, deliverDigest, loadDashboardAccess, PostOutcomeUn
 import type { CompanyDigest } from "./digest";
 import { monthlyReadiness, syncSucceededSince } from "./freshness";
 import { dueDigests, latestCompleteKey, MONTHLY_WINDOW, monthlyLastDay, sendDay, type DigestPeriod, type DueDigest } from "./schedule";
+import { firstName } from "./intro";
+import type { RenderOpts } from "./render";
 import { SlackApiError, type SlackClient } from "./slack-client";
 import { canRetakeClaim, type NotifyStore, type SendKey } from "./store";
 import { isActiveEmployee, type Cadence, type NotifyEmployee, type ReportKind, type SendMode } from "./types";
@@ -161,15 +163,46 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
 
   const ctx = await loadNotifyContext(store, now, deps.baseUrl, { coverage, syncRuns, employees });
   const canOpenDashboard = await loadDashboardAccess(store, deps.adminEmails, log);
+  // A person's first live message opens with the intro (intro.ts). Unsure who's had one → nobody gets
+  // it: a missed welcome beats a second one.
+  let hadLive: ReadonlySet<string>;
+  try {
+    hadLive = await store.everLive([...new Set(sendable.map((w) => w.recipient.id))]);
+  } catch (err) {
+    log(`[notify] send history unreadable, no intros this run: ${errorDetail(err)}`);
+    hadLive = new Set(sendable.map((w) => w.recipient.id));
+  }
+  const cadencesOf: Record<ReportKind, Map<string, Cadence[]>> = { personal: byPerson(personal), company: byPerson(company) };
+  const intros: IntroState = { hadLive, introduced: new Set(), cadencesOf };
   const companyDigests = new Map<string, CompanyDigest | null>(); // by period key: built once per period per run
   for (const w of sendable) {
     if (clock() - start > budget) {
       result.notReached++;
       continue;
     }
-    await sendOne(deps, w, ctx, result, { log, previewTarget, companyDigests, canOpenDashboard });
+    await sendOne(deps, w, ctx, result, { log, previewTarget, companyDigests, canOpenDashboard, intros });
   }
   return done();
+}
+
+const byPerson = (rows: { employeeId: string; cadence: Cadence }[]) => {
+  const m = new Map<string, Cadence[]>();
+  for (const r of rows) m.set(r.employeeId, [...(m.get(r.employeeId) ?? []), r.cadence]);
+  return m;
+};
+
+/** Who gets the first-message intro: no live message before, and not already given one this run. */
+interface IntroState {
+  hadLive: ReadonlySet<string>;
+  introduced: Set<string>;
+  cadencesOf: Record<ReportKind, Map<string, Cadence[]>>;
+}
+
+/** The intro for this DM, or undefined; claims it, so a person on both lists gets one (the personal summary runs first). */
+function takeIntro(s: IntroState, recipient: NotifyEmployee, report: ReportKind, cadence: Cadence): RenderOpts["intro"] {
+  if (s.hadLive.has(recipient.id) || s.introduced.has(recipient.id)) return undefined;
+  s.introduced.add(recipient.id);
+  return { name: firstName(recipient.fullName), cadences: s.cadencesOf[report].get(recipient.id) ?? [cadence] };
 }
 
 const sendKey = (deps: RunNotifyDeps, w: { recipient: NotifyEmployee; cadence: Cadence; report: ReportKind; period: DigestPeriod }): SendKey => ({
@@ -206,11 +239,12 @@ async function sendOne(
   w: { recipient: NotifyEmployee; cadence: Cadence; report: ReportKind; slackUser: SlackRecipient; period: DigestPeriod },
   ctx: NotifyContext,
   result: RunNotifyResult,
-  { log, previewTarget, companyDigests, canOpenDashboard }: {
+  { log, previewTarget, companyDigests, canOpenDashboard, intros }: {
     log: (m: string) => void;
     previewTarget: NotifyEmployee | undefined;
     companyDigests: Map<string, CompanyDigest | null>;
     canOpenDashboard: (email: string) => boolean;
+    intros: IntroState;
   },
 ): Promise<void> {
   const { store, slack } = deps;
@@ -245,11 +279,13 @@ async function sendOne(
         companyDigests.set(period.key, digest);
       }
       if (!digest) return await skip();
-      ts = await deliverCompanyDigest({ ...common, digest, previewFor: previewTarget ? `${recipient.fullName} (company ${cadence})` : undefined });
+      const intro = takeIntro(intros, recipient, "company", cadence);
+      ts = await deliverCompanyDigest({ ...common, digest, intro, previewFor: previewTarget ? `${recipient.fullName} (company ${cadence})` : undefined });
     } else {
       const digest = digestFor(ctx, recipient.id, period);
       if (!digest) return await skip();
-      ts = await deliverDigest({ ...common, digest, previewFor: previewTarget ? `${recipient.fullName} (${cadence})` : undefined });
+      const intro = takeIntro(intros, recipient, "personal", cadence);
+      ts = await deliverDigest({ ...common, digest, intro, previewFor: previewTarget ? `${recipient.fullName} (${cadence})` : undefined });
     }
     posted = true;
     await store.finishSend(key, { status: "sent", slackTs: ts, dashboardLink: links });

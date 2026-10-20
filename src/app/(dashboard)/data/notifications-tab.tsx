@@ -22,6 +22,7 @@ import { supabaseNotifyStore } from "@/lib/notify/store";
 import { previewHref, type TestSubject } from "@/lib/notify/subject";
 import { activeDepartments, CADENCES, isActiveEmployee, isCadence, isUuid, notifyMode, type Cadence } from "@/lib/notify/types";
 import { appBaseUrl } from "@/lib/notify/wiring";
+import { firstName } from "@/lib/notify/intro";
 
 export interface NotificationsParams { preview?: string; team?: string; company?: string; cadence?: string; at?: string }
 
@@ -34,6 +35,7 @@ interface PreviewState {
   label: string;
   fixedCosts: FixedCostChoice | null; // which setting the digest was built with, and why; null = the company report (its own section)
   links: boolean; // a person's preview: whether they get the dashboard button and links (team/company: shown as people with access get it)
+  intro: boolean; // a person who hasn't had a live message: their first one opens with the intro, shown here too
   prevKey: string | null;
   nextKey: string | null;
   blocks: SlackBlock[] | null; // null = nothing to send (daily with no usage)
@@ -81,7 +83,18 @@ async function loadPreview(p: NotificationsParams): Promise<PreviewState | null>
       : null,
     prevKey: stepKey(cadence, key, -1, now), nextKey: stepKey(cadence, key, 1, now),
     links: subject.kind !== "person" || (person !== undefined && canOpenDashboard(person.email)),
+    intro: false,
   };
+  // A person's first live message opens with the intro: show it as they'd get it, with their cadences.
+  let intro: { name: string | null; cadences: Cadence[] } | undefined;
+  if (subject.kind === "person" && person) {
+    const [hadLive, subs] = await Promise.all([store.everLive([person.id]), store.subscriptions([...CADENCES])]);
+    if (!hadLive.has(person.id)) {
+      const mine = subs.filter((s) => s.employeeId === person.id).map((s) => s.cadence);
+      intro = { name: firstName(person.fullName), cadences: mine.length ? mine : [cadence] };
+      base.intro = true;
+    }
+  }
   if (!digest) return { ...base, blocks: null, images: {} };
   const layouts: Record<string, ChartLayout | undefined> = isCompanyDigest(digest)
     ? chartLayoutsForCompany(digest)
@@ -98,7 +111,7 @@ async function loadPreview(p: NotificationsParams): Promise<PreviewState | null>
       // Best-effort, like the cron: the section renders without its chart.
     }
   }
-  const opts = { links: base.links };
+  const opts = { links: base.links, intro };
   const rendered = isCompanyDigest(digest)
     ? renderCompanyDigest(digest, files, opts)
     : isTeamDigest(digest) ? renderTeamDigest(digest, files, opts) : renderDigest(digest, files, opts);
@@ -250,6 +263,15 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
                   <span className="text-foreground">shown</span>
                 ) : (
                   <><span className="text-foreground">hidden</span> ({preview.name} can&apos;t open the dashboard; see the Access tab)</>
+                )}
+                {preview.subject.kind === "person" && (
+                  <>
+                    <br />
+                    First-message intro:{" "}
+                    {preview.intro
+                      ? <><span className="text-foreground">included</span> (they haven&apos;t had a live message yet, so their first one opens with it)</>
+                      : <span className="text-foreground">not included</span>}
+                  </>
                 )}
               </p>
               {preview.blocks ? (

@@ -2,7 +2,7 @@ import { dashboardAccessFor } from "@/lib/dashboard-access";
 import { chartLayout, type ChartLayout } from "./chart";
 import type { CompanyDigest, Digest, TeamDigest } from "./digest";
 import { DEFAULT_TZ } from "./schedule";
-import { chartHeadline, chartSpan, chartTitle, companyChartTitle, renderCompanyDigest, renderDigest, renderTeamDigest, teamChartTitle, type RenderedDigest } from "./render";
+import { chartHeadline, chartSpan, chartTitle, companyChartTitle, renderCompanyDigest, renderDigest, renderTeamDigest, teamChartTitle, type RenderedDigest, type RenderOpts } from "./render";
 import { SlackApiError, type SlackClient } from "./slack-client";
 import type { NotifyStore } from "./store";
 import type { NotifyEmployee } from "./types";
@@ -189,14 +189,15 @@ interface DeliverArgs {
   banner?: string; // admin test sends: a context line above the digest
   openUrl?: string; // scheduled sends: the tracked "Open in dashboard" link
   links?: boolean; // the recipient can open the dashboard: show its button and links (RenderOpts.links)
+  intro?: RenderOpts["intro"]; // their first live message: the intro above the digest
   log?: (m: string) => void;
   sleep?: (ms: number) => Promise<void>;
 }
 
 /** A person's digest (the cron's send, the preview redirect, and admin test sends). */
 export function deliverDigest(args: DeliverArgs & { digest: Digest; previewFor?: string }): Promise<string> {
-  const { digest, previewFor, banner, openUrl, links } = args;
-  return deliverRendered({ ...args, layouts: chartLayoutsFor(digest), render: (files) => renderDigest(digest, files, { previewFor, banner, openUrl, links }) });
+  const { digest, previewFor, banner, openUrl, links, intro } = args;
+  return deliverRendered({ ...args, layouts: chartLayoutsFor(digest), render: (files) => renderDigest(digest, files, { previewFor, banner, openUrl, links, intro }) });
 }
 
 /** A whole team's digest (admin test sends only). */
@@ -207,6 +208,6 @@ export function deliverTeamDigest(args: DeliverArgs & { digest: TeamDigest }): P
 
 /** The whole-company report (the cron's company sends and admin test sends). */
 export function deliverCompanyDigest(args: DeliverArgs & { digest: CompanyDigest; previewFor?: string }): Promise<string> {
-  const { digest, previewFor, banner, openUrl, links } = args;
-  return deliverRendered({ ...args, layouts: chartLayoutsForCompany(digest), render: (files) => renderCompanyDigest(digest, files, { previewFor, banner, openUrl, links }) });
+  const { digest, previewFor, banner, openUrl, links, intro } = args;
+  return deliverRendered({ ...args, layouts: chartLayoutsForCompany(digest), render: (files) => renderCompanyDigest(digest, files, { previewFor, banner, openUrl, links, intro }) });
 }

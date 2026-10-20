@@ -435,7 +435,7 @@ describe("runNotify: company report", () => {
       companyRecipients: [{ employeeId: "m", cadence: "weekly" }, { employeeId: "gareth", cadence: "daily" }, { employeeId: "gone", cadence: "weekly" }],
       ...over,
     });
-  const header = (p: { blocks: unknown[] }) => JSON.stringify(p.blocks[0]);
+  const header = (p: { blocks: unknown[] }) => JSON.stringify(p.blocks.find((b) => (b as { type: string }).type === "header"));
 
   it("sends the company report as its own DM beside a personal digest for the same period, once", async () => {
     const store = memoryStore(withCompany(), () => MONDAY.getTime());
@@ -482,7 +482,7 @@ describe("runNotify: company report", () => {
     const slack = fakeSlack();
     await runNotify(deps(store, slack.client, { mode: "preview" }));
     expect(slack.posts.every((p) => p.channel === "D-U-gareth")).toBe(true);
-    expect(slack.posts.some((p) => header(p).includes("would send to Person m (company weekly)"))).toBe(true);
+    expect(slack.posts.some((p) => JSON.stringify(p.blocks[0]).includes("would send to Person m (company weekly)"))).toBe(true);
     expect(store.sends.every((s) => s.report === "company" && s.mode === "preview")).toBe(true);
   });
 
@@ -517,4 +517,56 @@ describe("runNotify: company report", () => {
     expect(slack.posts).toHaveLength(0);
     expect(store.sends).toEqual([expect.objectContaining({ employeeId: "gareth", report: "company", status: "skipped", detail: "no usage" })]);
   });
+
+  describe("first-message intro", () => {
+    const intro = (p: { blocks: unknown[] }) => JSON.stringify(p.blocks).includes("this is your first");
+    const to = (posts: { channel: string; blocks: unknown[]; text: string }[], id: string) => posts.filter((p) => p.channel === `D-U-${id}`);
+    const liveRow = (employeeId: string, over: Record<string, unknown> = {}) => ({
+      employeeId, cadence: "weekly" as const, periodKey: "2026-W38", mode: "live" as const, status: "sent", attempts: 1, slackTs: "ts0", detail: null, updatedAt: "2026-09-21T09:30:00Z", ...over,
+    });
+
+    it("opens a person's first live message, by first name, and not a later one", async () => {
+      const store = memoryStore(seed({ sends: [liveRow("m")] }), () => MONDAY.getTime());
+      const slack = fakeSlack();
+      await runNotify(deps(store, slack.client));
+      const [a] = to(slack.posts, "a");
+      expect(intro(a)).toBe(true);
+      expect(a.text.startsWith("Hi Person — your first AI spend summary. ")).toBe(true);
+      expect(intro(to(slack.posts, "m")[0])).toBe(false); // had a live summary last week
+    });
+
+    it("names the cadences the person is on", async () => {
+      const store = memoryStore(seed({ subscriptions: [{ employeeId: "a", cadence: "daily" }, { employeeId: "a", cadence: "monthly" }] }), () => MONDAY.getTime());
+      const slack = fakeSlack();
+      await runNotify(deps(store, slack.client));
+      expect(JSON.stringify(to(slack.posts, "a")[0].blocks)).toContain("a daily summary each working day and a monthly recap early each month");
+    });
+
+    it("ignores preview-only history, and counts a send that may have gone out", async () => {
+      const store = memoryStore(seed({ sends: [liveRow("a", { mode: "preview" }), liveRow("m", { status: "failed", detail: "interrupted", attempts: 3 })] }), () => MONDAY.getTime());
+      const slack = fakeSlack();
+      await runNotify(deps(store, slack.client));
+      expect(intro(to(slack.posts, "a")[0])).toBe(true);
+      expect(intro(to(slack.posts, "m")[0])).toBe(false);
+    });
+
+    it("gives someone on both lists one intro, on their personal summary", async () => {
+      const store = memoryStore(withCompany(), () => MONDAY.getTime());
+      const slack = fakeSlack();
+      await runNotify(deps(store, slack.client));
+      const toM = to(slack.posts, "m");
+      expect(toM.filter(intro)).toHaveLength(1);
+      expect(header(toM.find(intro)!)).toContain("Your AI spend");
+      // A company-only recipient gets the company version.
+      expect(JSON.stringify(to(slack.posts, "gareth")[0].blocks)).toContain("your first company AI spend report");
+    });
+
+    it("sends no intros when the send history can't be read (a missed welcome beats a second one)", async () => {
+      const store = memoryStore(seed({ everLiveFails: true }), () => MONDAY.getTime());
+      const slack = fakeSlack();
+      expect(await runNotify(deps(store, slack.client))).toMatchObject({ sent: 2, failed: 0 });
+      expect(slack.posts.some(intro)).toBe(false);
+    });
+  });
 });
+
