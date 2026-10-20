@@ -7,9 +7,9 @@ import type { Cadence } from "./types";
 
 export type SlackBlock = Record<string, unknown>;
 /** Slack file ids of the uploaded charts (absent = send without that image). */
-export interface ChartFileIds { you?: string; reports?: string }
+export interface ChartFileIds { you?: string; reports?: string; banner?: string }
 export interface TeamChartFileIds { team?: string }
-export interface CompanyChartFileIds { company?: string }
+export interface CompanyChartFileIds { company?: string; banner?: string }
 export interface RenderedDigest { blocks: SlackBlock[]; text: string }
 /**
  * previewFor: the cron's preview mode ("would send to X"). banner: a context line above everything
@@ -180,9 +180,9 @@ function fixedBlocks(s: FixedCostsSection, period: DigestPeriod): SlackBlock[] {
 }
 
 /** A first live message: the intro above the digest, and the notification text opens with the greeting. */
-function withIntro(r: RenderedDigest, opts: RenderOpts, report: "personal" | "company", reports: "none" | "direct" | "byTeam"): RenderedDigest {
+function withIntro(r: RenderedDigest, opts: RenderOpts, report: "personal" | "company", reports: "none" | "direct" | "byTeam", bannerFileId?: string): RenderedDigest {
   if (!opts.intro) return r;
-  const intro = introFor({ name: opts.intro.name, cadences: opts.intro.cadences, report, reports, links: !!opts.links });
+  const intro = introFor({ name: opts.intro.name, cadences: opts.intro.cadences, report, reports, links: !!opts.links, bannerFileId });
   return { blocks: [...intro.blocks, ...r.blocks], text: intro.text + r.text };
 }
 
@@ -224,7 +224,7 @@ export function renderDigest(d: Digest, files: ChartFileIds, opts: RenderOpts = 
     `Your AI spend · ${d.period.label}: you ${formatUsd(d.you.headlineUsd)} ${d.you.basis}` +
     (d.reports ? ` · your reports ${formatUsd(d.reports.headlineUsd)} ${d.reports.basis}` : "");
   const reports = !d.reports ? "none" : d.reports.branches !== undefined ? "byTeam" : "direct";
-  return withLead(withIntro({ blocks, text }, opts, "personal", reports), opts);
+  return withLead(withIntro({ blocks, text }, opts, "personal", reports, files.banner), opts);
 }
 
 /** A whole team's digest → Block Kit (admin preview and test sends; never scheduled). */
@@ -260,5 +260,5 @@ export function renderCompanyDigest(d: CompanyDigest, files: CompanyChartFileIds
   blocks.push(...dashboardButton(opts, d.dashboardUrl));
 
   const text = `Company AI spend · ${d.period.label}: usage ${formatUsd(d.usage.headlineUsd)} · ${escapeMrkdwn("seats & subscriptions")} ${formatUsd(d.fixed.headlineUsd)}`;
-  return withLead(withIntro({ blocks, text }, opts, "company", "none"), opts);
+  return withLead(withIntro({ blocks, text }, opts, "company", "none", files.banner), opts);
 }

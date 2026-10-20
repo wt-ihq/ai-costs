@@ -36,19 +36,20 @@ export function chartLayoutsForCompany(d: CompanyDigest): { company: ChartLayout
 const failureCode = (err: unknown): string =>
   (err instanceof SlackApiError ? err.code : err instanceof Error ? err.message : String(err)).slice(0, 200);
 
-/** Best effort: a chart that fails to render or upload is simply left out. */
-async function uploadCharts(
+export type RenderBanner = () => Promise<Uint8Array<ArrayBuffer>>;
+
+/** Best effort: an image (chart or banner) that fails to render or upload is simply left out. */
+async function uploadImages(
   slack: SlackClient,
-  renderChart: RenderChart,
-  layouts: Record<string, ChartLayout>,
+  images: Record<string, { render: () => Promise<Uint8Array<ArrayBuffer>>; title: string }>,
   log: (m: string) => void,
 ): Promise<Record<string, string>> {
   const files: Record<string, string> = {};
-  for (const [section, layout] of Object.entries(layouts)) {
+  for (const [section, image] of Object.entries(images)) {
     try {
-      files[section] = await slack.uploadImage(await renderChart(layout), `ai-spend-${section}.png`, layout.title);
+      files[section] = await slack.uploadImage(await image.render(), `ai-spend-${section}.png`, image.title);
     } catch (err) {
-      log(`[notify] chart ${section} skipped: ${failureCode(err)}`);
+      log(`[notify] image ${section} skipped: ${failureCode(err)}`);
     }
   }
   return files;
@@ -143,6 +144,8 @@ export async function deliverRendered(args: {
   renderChart: RenderChart;
   slackUserId: string;
   layouts: Record<string, ChartLayout>;
+  /** A first message's welcome banner, uploaded as `banner` beside the charts. */
+  renderBanner?: RenderBanner;
   render: (fileIds: Record<string, string>) => RenderedDigest;
   log?: (m: string) => void;
   sleep?: (ms: number) => Promise<void>;
@@ -150,7 +153,10 @@ export async function deliverRendered(args: {
   const { slack, render } = args;
   const log = args.log ?? console.log;
   const sleep = args.sleep ?? defaultSleep;
-  const files = await uploadCharts(slack, args.renderChart, args.layouts, log);
+  const images: Record<string, { render: () => Promise<Uint8Array<ArrayBuffer>>; title: string }> = {};
+  if (args.renderBanner) images.banner = { render: args.renderBanner, title: "Your AI spend, in Slack" };
+  for (const [section, layout] of Object.entries(args.layouts)) images[section] = { render: () => args.renderChart(layout), title: layout.title };
+  const files = await uploadImages(slack, images, log);
   const channel = await slack.openDm(args.slackUserId);
 
   async function post(r: RenderedDigest): Promise<string> {
@@ -190,6 +196,7 @@ interface DeliverArgs {
   openUrl?: string; // scheduled sends: the tracked "Open in dashboard" link
   links?: boolean; // the recipient can open the dashboard: show its button and links (RenderOpts.links)
   intro?: RenderOpts["intro"]; // their first live message: the intro above the digest
+  renderBanner?: RenderBanner; // with an intro: the welcome banner image (left out without one)
   log?: (m: string) => void;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -197,7 +204,12 @@ interface DeliverArgs {
 /** A person's digest (the cron's send, the preview redirect, and admin test sends). */
 export function deliverDigest(args: DeliverArgs & { digest: Digest; previewFor?: string }): Promise<string> {
   const { digest, previewFor, banner, openUrl, links, intro } = args;
-  return deliverRendered({ ...args, layouts: chartLayoutsFor(digest), render: (files) => renderDigest(digest, files, { previewFor, banner, openUrl, links, intro }) });
+  return deliverRendered({
+    ...args,
+    renderBanner: intro ? args.renderBanner : undefined,
+    layouts: chartLayoutsFor(digest),
+    render: (files) => renderDigest(digest, files, { previewFor, banner, openUrl, links, intro }),
+  });
 }
 
 /** A whole team's digest (admin test sends only). */
@@ -209,5 +221,10 @@ export function deliverTeamDigest(args: DeliverArgs & { digest: TeamDigest }): P
 /** The whole-company report (the cron's company sends and admin test sends). */
 export function deliverCompanyDigest(args: DeliverArgs & { digest: CompanyDigest; previewFor?: string }): Promise<string> {
   const { digest, previewFor, banner, openUrl, links, intro } = args;
-  return deliverRendered({ ...args, layouts: chartLayoutsForCompany(digest), render: (files) => renderCompanyDigest(digest, files, { previewFor, banner, openUrl, links, intro }) });
+  return deliverRendered({
+    ...args,
+    renderBanner: intro ? args.renderBanner : undefined,
+    layouts: chartLayoutsForCompany(digest),
+    render: (files) => renderCompanyDigest(digest, files, { previewFor, banner, openUrl, links, intro }),
+  });
 }

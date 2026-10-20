@@ -561,6 +561,15 @@ describe("runNotify: company report", () => {
       expect(JSON.stringify(to(slack.posts, "gareth")[0].blocks)).toContain("your first company AI spend report");
     });
 
+    it("uploads the welcome banner for first messages only", async () => {
+      const store = memoryStore(seed({ sends: [liveRow("m")] }), () => MONDAY.getTime());
+      const slack = fakeSlack();
+      await runNotify(deps(store, slack.client, { renderBanner: png }));
+      expect(slack.uploads.filter((u) => u === "ai-spend-banner.png")).toHaveLength(1); // a's first; m had one before
+      expect(to(slack.posts, "a")[0].blocks[0]).toMatchObject({ type: "image" });
+      expect(to(slack.posts, "m")[0].blocks.some((b) => JSON.stringify(b).includes("Your AI spend, in Slack"))).toBe(false);
+    });
+
     it("sends no intros when the send history can't be read (a missed welcome beats a second one)", async () => {
       const store = memoryStore(seed({ everLiveFails: true }), () => MONDAY.getTime());
       const slack = fakeSlack();

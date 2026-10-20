@@ -14,7 +14,11 @@ export interface IntroInput {
   /** personal: none · direct (a reports section) · byTeam (managers of managers: split by team). */
   reports: "none" | "direct" | "byTeam";
   links: boolean; // can open the dashboard
+  /** The uploaded welcome banner (chart-image.ts:renderWelcomeBannerPng); absent = the text alone. */
+  bannerFileId?: string;
 }
+
+export const BANNER_ALT = "Your AI spend, in Slack: what your AI tools cost, and how it's changing";
 
 /** The first word of an Okta name ("Jerry Marcel Lieveld" → "Jerry"); null when there's none. */
 export function firstName(fullName: string): string | null {
@@ -64,6 +68,7 @@ export function introFor(i: IntroInput): { blocks: SlackBlock[]; text: string } 
     "Questions, or want these more or less often? Ask Workplace Tech.";
   return {
     blocks: [
+      ...(i.bannerFileId ? [{ type: "image", slack_file: { id: i.bannerFileId }, alt_text: BANNER_ALT }] : []),
       { type: "section", text: { type: "mrkdwn", text: body.join("\n") } },
       { type: "context", elements: [{ type: "mrkdwn", text: footer }] },
       { type: "divider" },

@@ -72,6 +72,12 @@ describe("introFor", () => {
     expect(i.text).toBe("Hi Priya — your first company AI spend report. ");
   });
 
+  it("opens with the welcome banner when one was uploaded", () => {
+    const i = introFor({ ...base, cadences: ["weekly"], bannerFileId: "F9" });
+    expect(i.blocks[0]).toEqual({ type: "image", slack_file: { id: "F9" }, alt_text: "Your AI spend, in Slack: what your AI tools cost, and how it's changing" });
+    expect(i.blocks[1]).toMatchObject({ type: "section" });
+  });
+
   it("says hi there without a name, and escapes one that needs it", () => {
     expect(introFor({ ...base, cadences: ["weekly"], name: null }).text).toBe("Hi there — your first AI spend summary. ");
     expect(text(introFor({ ...base, cadences: ["weekly"], name: "Tom<&>" }))).toContain("*Hi Tom&lt;&amp;&gt;,*");

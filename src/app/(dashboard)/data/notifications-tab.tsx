@@ -9,7 +9,7 @@ import { PreviewPicker } from "@/components/notifications/preview-picker";
 import { SendTestControls } from "@/components/notifications/send-test-controls";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { loadNotificationsAdmin, OPEN_RATE_DAYS } from "@/lib/notify/admin-store";
-import { renderChartPng } from "@/lib/notify/chart-image";
+import { renderChartPng, renderWelcomeBannerPng } from "@/lib/notify/chart-image";
 import type { ChartLayout } from "@/lib/notify/chart";
 import { companyDigestFor, digestFor, loadNotifyContext, teamDigestFor } from "@/lib/notify/context";
 import { fixedCostsFor, fixedCostsForTeam, type FixedCostChoice } from "@/lib/notify/fixed-costs";
@@ -109,6 +109,14 @@ async function loadPreview(p: NotificationsParams): Promise<PreviewState | null>
       files[section] = id;
     } catch {
       // Best-effort, like the cron: the section renders without its chart.
+    }
+  }
+  if (intro) {
+    try {
+      images["preview-banner"] = `data:image/png;base64,${Buffer.from(await renderWelcomeBannerPng()).toString("base64")}`;
+      files.banner = "preview-banner";
+    } catch {
+      // Best-effort, like the cron: the intro shows without its banner.
     }
   }
   const opts = { links: base.links, intro };
