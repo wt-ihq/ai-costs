@@ -1,5 +1,5 @@
 import { parseMrkdwn } from "@/lib/notify/mrkdwn";
-import type { SlackBlock } from "@/lib/notify/render";
+import { headerParts, type SlackBlock } from "@/lib/notify/render";
 
 function Mrk({ text }: { text: string }) {
   return (
@@ -16,8 +16,16 @@ function Mrk({ text }: { text: string }) {
 
 function Block({ block, images }: { block: SlackBlock; images: Record<string, string> }) {
   switch (block.type) {
-    case "header":
-      return <p className="mb-2 text-[15px] font-black">{(block.text as { text: string }).text}</p>;
+    case "header": {
+      const h = headerParts((block.text as { text: string }).text);
+      return (
+        <p className="mb-2 flex items-center gap-1.5 text-[15px] font-black">
+          {/* eslint-disable-next-line @next/next/no-img-element -- the app icon, as Slack shows the :ai-spend: emoji */}
+          {h.icon && <img src="/icon.png" alt="" className="size-[18px]" />}
+          {h.text}
+        </p>
+      );
+    }
     case "section":
       return <p className="mt-2"><Mrk text={(block.text as { text: string }).text} /></p>;
     case "image": {

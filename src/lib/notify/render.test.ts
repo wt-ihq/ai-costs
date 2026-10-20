@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CompanyDigest, Digest, DigestSection, TeamDigest } from "./digest";
-import { chartHeadline, chartSpan, chartTitle, companyChartTitle, deltaText, escapeMrkdwn, renderCompanyDigest, renderDigest, renderTeamDigest, teamChartTitle } from "./render";
+import { chartHeadline, chartSpan, chartTitle, companyChartTitle, deltaText, escapeMrkdwn, headerParts, renderCompanyDigest, renderDigest, renderTeamDigest, teamChartTitle } from "./render";
 import { periodFor } from "./schedule";
 
 const now = new Date("2026-09-30T07:00:00Z");
@@ -32,7 +32,7 @@ describe("renderDigest", () => {
   const { blocks, text } = renderDigest(digest(), { you: "F1", reports: "F2" }, { links: true });
 
   it("leads with a header naming the period", () => {
-    expect(blocks[0]).toEqual({ type: "header", text: { type: "plain_text", text: "📊 Your AI spend · 21–27 Sep 2026", emoji: true } });
+    expect(blocks[0]).toEqual({ type: "header", text: { type: "plain_text", text: ":ai-spend: Your AI spend · 21–27 Sep 2026", emoji: true } });
   });
 
   it("renders the You section: label, its own chart (headline drawn in), tools + month line", () => {
@@ -196,7 +196,7 @@ describe("renderTeamDigest", () => {
   const { blocks, text } = renderTeamDigest(teamDigest(), { team: "F1" }, { links: true });
 
   it("leads with a header naming the department and period (plain text: not escaped)", () => {
-    expect(blocks[0]).toEqual({ type: "header", text: { type: "plain_text", text: "📊 AI spend · R&D <Ops> · 21–27 Sep 2026", emoji: true } });
+    expect(blocks[0]).toEqual({ type: "header", text: { type: "plain_text", text: ":ai-spend: AI spend · R&D <Ops> · 21–27 Sep 2026", emoji: true } });
   });
 
   it("labels the section with the escaped, uppercased department and the headcount", () => {
@@ -374,7 +374,7 @@ describe("renderCompanyDigest", () => {
   const fixedAt = (b: Record<string, unknown>[]) => b.findIndex((x) => x.type === "section" && mrk(x).startsWith("*SEATS"));
 
   it("leads with the company header", () => {
-    expect(blocks[0]).toEqual({ type: "header", text: { type: "plain_text", text: "📊 Company AI spend · 21–27 Sep 2026", emoji: true } });
+    expect(blocks[0]).toEqual({ type: "header", text: { type: "plain_text", text: ":ai-spend: Company AI spend · 21–27 Sep 2026", emoji: true } });
   });
 
   it("labels the usage section with the headcount and draws its chart", () => {
@@ -473,5 +473,14 @@ describe("renderCompanyDigest", () => {
 describe("companyChartTitle", () => {
   it("names the company, its headcount, the basis and the headline's period", () => {
     expect(companyChartTitle(companyDigest())).toBe("COMPANY (142 PEOPLE) · USAGE, 21–27 SEP 2026");
+  });
+});
+
+describe("headerParts (the admin preview draws the app icon where Slack shows the emoji)", () => {
+  it("splits off the leading app-icon emoji", () => {
+    expect(headerParts(":ai-spend: Company AI spend · September 2026")).toEqual({ icon: true, text: "Company AI spend · September 2026" });
+  });
+  it("leaves any other header alone", () => {
+    expect(headerParts("Weekly updates · 12–18 Oct 2026")).toEqual({ icon: false, text: "Weekly updates · 12–18 Oct 2026" });
   });
 });
