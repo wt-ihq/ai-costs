@@ -1,4 +1,4 @@
-import { isMonthlyLevelFact, MONTHLY_SNAPSHOT_SOURCES, type ShapeFact, type SnapshotAsOf } from "./shape";
+import { isMonthlyLevelFact, type ShapeFact } from "./shape";
 import type { TrendPoint } from "./types";
 import type { Granularity } from "./period";
 
@@ -60,10 +60,8 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 const clamp = (n: number, [lo, hi]: readonly [number, number]) => Math.min(hi, Math.max(lo, n));
 /** Extrapolates from a daily run rate. */
 const isDailyVariable = (f: ShapeFact) => !isMonthlyLevelFact(f);
-/** Posts once per month at a known/assumed level: fixed cost types + monthly-snapshot usage. */
+/** Posts once per month at a known/assumed level: seats and subscriptions. */
 const isMonthlyLevel = isMonthlyLevelFact;
-/** A month-to-date paste (Claude Team usage): usage, but known only as one lump covering the 1st → its as-of day. */
-const isSnapshotUsage = (f: ShapeFact) => MONTHLY_SNAPSHOT_SOURCES.has(f.source) && f.costType !== "seat" && f.costType !== "subscription";
 const monthOf = (d: Date) => d.toISOString().slice(0, 7);
 const daysInMonth = (ym: string) => {
   const [y, m] = ym.split("-").map(Number);
@@ -91,7 +89,7 @@ const rateOf = (s: SourceRate, r: Reading) => (r === "low" ? s.lowRate : r === "
 
 interface MonthModel {
   month: string; // now's YYYY-MM
-  levelUsd: number; // monthly-level spend posted this month (fixed + snapshot lumps)
+  levelUsd: number; // monthly-level spend posted this month (seats and subscriptions)
   sources: SourceRate[];
   growth: number; // damped per-month trend factor (1 = flat)
   basis: PeriodProjection["basis"];
@@ -109,17 +107,14 @@ interface MonthModel {
  * not unknown. Without the map, the scope's own last fact day is the best
  * available horizon.
  */
-function monthModel(facts: ShapeFact[], now: Date, sourceHorizons?: Record<string, string>, snapshotAsOf?: SnapshotAsOf): MonthModel | null {
+function monthModel(facts: ShapeFact[], now: Date, sourceHorizons?: Record<string, string>): MonthModel | null {
   const month = monthOf(now);
   const prevMonth = addMonths(month, -1);
   const inMonth = facts.filter((f) => f.day.slice(0, 7) === month);
   const inPrevMonth = facts.filter((f) => f.day.slice(0, 7) === prevMonth);
   if (inMonth.length === 0 && inPrevMonth.length === 0) return null; // nothing to project
 
-  // With as-of days, a paste is usage with a known window, so its pace extrapolates; without them it
-  // stays a monthly level (the old reading: the paste IS the month).
-  const pacedSnapshots = snapshotAsOf !== undefined;
-  const levelUsd = sum(inMonth.filter((f) => isMonthlyLevel(f) && !(pacedSnapshots && isSnapshotUsage(f))));
+  const levelUsd = sum(inMonth.filter(isMonthlyLevel));
 
   const cutoff = new Date(now.getTime() - LAG_DAYS * 86_400_000);
   const cutoffDay = monthOf(cutoff) === month ? cutoff.toISOString().slice(0, 10) : `${month}-00`;
@@ -156,7 +151,6 @@ function monthModel(facts: ShapeFact[], now: Date, sourceHorizons?: Record<strin
       const prevDaily = prev.length ? sum(prev) / daysInMonth(prevMonth) : hasHistory ? 0 : null;
       return { mtdUsd, windowDays, windowUsd, ...blendedRate(windowUsd, windowDays, prevDaily) };
     });
-  if (pacedSnapshots) sources.push(...snapshotSources(facts, month, prevMonth, snapshotAsOf));
 
   const basis: PeriodProjection["basis"] = sources.some((s) => s.windowDays >= 3) ? "run-rate" : "previous-month";
 
@@ -174,31 +168,6 @@ function blendedRate(windowUsd: number, windowDays: number, prevDaily: number | 
   else rate = prevDaily ?? 0; // no current window: last month's pace, or a dead source
   const candidates = [rate, ...(windowDays > 0 ? [windowUsd / windowDays] : []), ...(prevDaily !== null ? [prevDaily] : [])];
   return { rate, lowRate: Math.min(...candidates), highRate: Math.max(...candidates) };
-}
-
-/**
- * Month-to-date pastes as variable sources: this month's paste covers the 1st → its as-of day (the
- * window), last month's covers ITS as-of span (the prior). No paste yet this month → last month's
- * pace carries it. A month with no known as-of day counts as fully covered.
- */
-function snapshotSources(facts: ShapeFact[], month: string, prevMonth: string, asOf: SnapshotAsOf): SourceRate[] {
-  const bySource = new Map<string, ShapeFact[]>();
-  for (const f of facts.filter(isSnapshotUsage)) bySource.set(f.source, [...(bySource.get(f.source) ?? []), f]);
-  return [...bySource.entries()]
-    .filter(([, rows]) => rows.some((f) => f.day >= `${prevMonth}-01`)) // dormant sources project nothing
-    .map(([source, rows]) => {
-      const covered = (m: string) => {
-        const day = asOf[`${source}:${m}`];
-        return day?.startsWith(m) ? Math.min(Number(day.slice(8, 10)), daysInMonth(m)) : daysInMonth(m);
-      };
-      const cur = rows.filter((f) => f.day.slice(0, 7) === month);
-      const prev = rows.filter((f) => f.day.slice(0, 7) === prevMonth);
-      const mtdUsd = sum(cur);
-      const windowDays = cur.length ? covered(month) : 0;
-      const hasHistory = rows.some((f) => f.day < `${prevMonth}-01`);
-      const prevDaily = prev.length ? sum(prev) / covered(prevMonth) : hasHistory ? 0 : null;
-      return { mtdUsd, windowDays, windowUsd: mtdUsd, ...blendedRate(mtdUsd, windowDays, prevDaily) };
-    });
 }
 
 /**
@@ -280,12 +249,11 @@ export function projectPeriodEnd(
   now: Date,
   period: ProjectionPeriod,
   sourceHorizons?: Record<string, string>,
-  snapshotAsOf?: SnapshotAsOf,
 ): PeriodProjection | null {
   // Nothing meaningful to project inside a day or a week: the model works in
   // months, and a few hours of run-rate is noise, not a forecast.
   if (period.granularity === "day" || period.granularity === "week") return null;
-  const m = monthModel(facts, now, sourceHorizons, snapshotAsOf);
+  const m = monthModel(facts, now, sourceHorizons);
   if (!m) return null;
   const { month, basis } = m;
 
@@ -351,10 +319,9 @@ export function projectTrendForPeriod(
   now: Date,
   period: ProjectionPeriod,
   sourceHorizons?: Record<string, string>,
-  snapshotAsOf?: SnapshotAsOf,
 ): TrendPoint[] {
   if (period.granularity !== "year" && period.granularity !== "all") return [];
-  const m = monthModel(facts, now, sourceHorizons, snapshotAsOf);
+  const m = monthModel(facts, now, sourceHorizons);
   if (!m) return [];
   if (period.granularity === "year" && period.from.slice(0, 4) !== m.month.slice(0, 4)) return []; // past year
 
@@ -386,9 +353,8 @@ export function projectTrend(
   now: Date,
   horizonMonths = 3,
   sourceHorizons?: Record<string, string>,
-  snapshotAsOf?: SnapshotAsOf,
 ): FutureMonth[] {
-  const m = monthModel(facts, now, sourceHorizons, snapshotAsOf);
+  const m = monthModel(facts, now, sourceHorizons);
   if (!m) return [];
   return futureMonths(m, horizonMonths);
 }

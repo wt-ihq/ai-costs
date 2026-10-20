@@ -30,7 +30,6 @@ export interface MemorySeed {
   companyRecipients?: { employeeId: string; cadence: Cadence }[];
   sends?: SeedSendRow[];
   fixedCosts?: FixedCostSettings;
-  snapshotAsOf?: Record<string, string>;
   /** dashboard_access emails. */
   dashboardAccess?: string[];
   /** Make dashboardAccess() throw (the table unreadable). */
@@ -77,7 +76,6 @@ export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.no
       return (seed.facts ?? []).filter((f) => f.day >= from && f.day < toExclusive);
     },
     sourceHorizons: async () => seed.sourceHorizons ?? {},
-    snapshotAsOf: async () => seed.snapshotAsOf ?? {},
     toolColors: async () => ({}),
     recentSyncRuns: async (since) => (seed.syncRuns ?? []).filter((r) => r.startedAt >= since),
     fixedCostSettings: async () => seed.fixedCosts ?? NO_FIXED_COST_SETTINGS,

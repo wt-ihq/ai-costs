@@ -1,4 +1,4 @@
-import { dimColorFor, dimLabel, isMonthlyLevelFact, UNATTRIBUTED, type ShapeFact, type SnapshotAsOf } from "@/lib/explore/shape";
+import { dimColorFor, dimLabel, SPREAD_SOURCES, UNATTRIBUTED, type ShapeFact } from "@/lib/explore/shape";
 import { vendorKeyOf } from "@/lib/explore/vendor-filter";
 import { projectPeriodEnd } from "@/lib/explore/project";
 import { caveatsFor, type MissingImport, type SourceFreshness } from "./freshness";
@@ -169,7 +169,6 @@ export interface SectionInput {
   /** Count seats & subscriptions (fixed-costs.ts resolves it for the recipient or team). */
   includeFixed: boolean;
   /** Month-to-date pastes' as-of days, so the month line projects a paste at its pace. */
-  snapshotAsOf?: SnapshotAsOf;
 }
 
 export interface DigestInput extends SectionInput {
@@ -229,7 +228,7 @@ function spreadOverMonth(f: ShapeFact): ShapeFact[] {
 /**
  * The facts a section counts:
  *  - seats & subscriptions only when included — as posted for a monthly, spread by day for a daily/weekly;
- *  - Claude Team's monthly usage lump only in a monthly (it can't be split by day);
+ *  - Claude Team's spread pastes in weekly and monthly, never daily (an even split is invented for a single day);
  *  - everything else always.
  * Only months touching the chart span are spread: nothing outside it is ever read.
  */
@@ -244,12 +243,12 @@ function counted(facts: ShapeFact[], { period, includeFixed }: Pick<SectionInput
       const month = f.day.slice(0, 7);
       return month < spanFrom || `${month}-01` >= spanTo ? [] : spreadOverMonth(f);
     }
-    if (isMonthlyLevelFact(f)) return monthly ? [f] : [];
+    if (SPREAD_SOURCES.has(f.source)) return period.cadence === "daily" ? [] : [f];
     return [f];
   });
 }
 
-function monthContext(all: ShapeFact[], { period, now, sourceHorizons, includeFixed, snapshotAsOf }: SectionInput): MonthContext {
+function monthContext(all: ShapeFact[], { period, now, sourceHorizons, includeFixed }: SectionInput): MonthContext {
   // The month as posted (a seat in full on the 1st), on the section's basis.
   const pop = includeFixed ? all : all.filter((f) => !isFixed(f));
   const lastDay = new Date(Date.parse(`${period.toExclusive}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
@@ -262,7 +261,7 @@ function monthContext(all: ShapeFact[], { period, now, sourceHorizons, includeFi
   const projection =
     complete || pop.length === 0
       ? null
-      : projectPeriodEnd(pop, now, { granularity: "month", from, toExclusive, label: `${MONTHS[m - 1]} ${y}` }, sourceHorizons, snapshotAsOf);
+      : projectPeriodEnd(pop, now, { granularity: "month", from, toExclusive, label: `${MONTHS[m - 1]} ${y}` }, sourceHorizons);
   return {
     monthLabel: MONTHS[m - 1],
     soFarUsd: round2(total(pop.filter((f) => inRange(f, from, toExclusive)))),

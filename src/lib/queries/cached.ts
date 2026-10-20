@@ -29,7 +29,7 @@ export const FACTS_TAG = "facts";
  * bump a new build can read an old-shaped entry and crash (this bit us when
  * scopes switched to the packed format).
  */
-const CACHE_VERSION = "v7"; // v7: Explore scopes gained snapshotAsOf (month-to-date paste coverage)
+const CACHE_VERSION = "v8"; // v8: Explore scopes lost snapshotAsOf (Claude Team is daily-spread now)
 
 const OPTS = { tags: [FACTS_TAG], revalidate: 3600 };
 

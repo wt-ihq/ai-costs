@@ -1,8 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ShapeFact } from "@/lib/explore/shape";
 import { fetchEmployeesAll, fetchFactsInRange } from "@/lib/queries/common";
-import { getSnapshotAsOf, getSourceHorizons, getToolColors } from "@/lib/queries/explore";
-import type { SnapshotAsOf } from "@/lib/explore/shape";
+import { getSourceHorizons, getToolColors } from "@/lib/queries/explore";
 import { buildImportCoverage, getImportCoverageScope, type CoverageMonthRow } from "@/lib/queries/import-coverage";
 import { fetchAccessList } from "@/lib/queries/dashboard-access";
 import { NO_FIXED_COST_SETTINGS, type FixedCostSettings } from "./fixed-costs";
@@ -33,7 +32,6 @@ export interface NotifyStore {
   employees(): Promise<NotifyEmployee[]>;
   facts(from: string, toExclusive: string): Promise<ShapeFact[]>;
   sourceHorizons(): Promise<Record<string, string>>;
-  snapshotAsOf(): Promise<SnapshotAsOf>;
   toolColors(): Promise<Record<string, string>>;
   recentSyncRuns(sinceIso: string): Promise<SyncRunRow[]>;
   importCoverage(nowMonth: string): Promise<CoverageMonthRow[]>;
@@ -119,7 +117,6 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
       return fetchFactsInRange(supabase, from, toExclusive);
     },
     sourceHorizons: () => getSourceHorizons(supabase),
-    snapshotAsOf: () => getSnapshotAsOf(supabase),
     toolColors: () => getToolColors(supabase),
     async recentSyncRuns(sinceIso) {
       const rows = await pageAll<{ source: string; status: string; started_at: string }>(

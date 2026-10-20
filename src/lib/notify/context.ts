@@ -1,4 +1,4 @@
-import type { ShapeFact, SnapshotAsOf } from "@/lib/explore/shape";
+import type { ShapeFact } from "@/lib/explore/shape";
 import type { CoverageMonthRow } from "@/lib/queries/import-coverage";
 import { buildCompanyDigest, buildDigest, buildTeamDigest, type CompanyDigest, type Digest, type SectionInput, type TeamDigest } from "./digest";
 import { fixedCostsFor, fixedCostsForTeam, type FixedCostSettings } from "./fixed-costs";
@@ -17,7 +17,6 @@ export interface NotifyContext {
   tree: ReportingTree;
   facts: ShapeFact[];
   sourceHorizons: Record<string, string>;
-  snapshotAsOf: SnapshotAsOf;
   toolColors: Record<string, string>;
   freshness: SourceFreshness[];
   coverage: CoverageMonthRow[];
@@ -47,11 +46,10 @@ export async function loadNotifyContext(
   opts: { earliest?: string; coverage?: CoverageMonthRow[]; syncRuns?: SyncRunRow[]; employees?: NotifyEmployee[] } = {},
 ): Promise<NotifyContext> {
   const w = factsWindow(now, opts.earliest);
-  const [employees, facts, sourceHorizons, snapshotAsOf, toolColors, coverage, syncRuns, fixedCosts] = await Promise.all([
+  const [employees, facts, sourceHorizons, toolColors, coverage, syncRuns, fixedCosts] = await Promise.all([
     opts.employees ?? store.employees(),
     store.facts(w.from, w.toExclusive),
     store.sourceHorizons(),
-    store.snapshotAsOf(),
     store.toolColors(),
     opts.coverage ?? store.importCoverage(now.toISOString().slice(0, 7)),
     opts.syncRuns ?? store.recentSyncRuns(syncRunsSince(now)),
@@ -65,7 +63,6 @@ export async function loadNotifyContext(
     tree: buildReportingTree(employees),
     facts,
     sourceHorizons,
-    snapshotAsOf,
     toolColors,
     freshness: sourceFreshness(syncRuns),
     coverage,
@@ -81,7 +78,6 @@ function sectionInput(ctx: NotifyContext, period: DigestPeriod, includeFixed: bo
     period,
     now: ctx.now,
     sourceHorizons: ctx.sourceHorizons,
-    snapshotAsOf: ctx.snapshotAsOf,
     toolColors: ctx.toolColors,
     freshness: ctx.freshness,
     missingImports: period.cadence === "monthly" ? monthlyReadiness(ctx.coverage, period.key).missing : [],
