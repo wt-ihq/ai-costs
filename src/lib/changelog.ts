@@ -11,6 +11,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-10-21",
+    title: "Weekly summaries wait for complete figures",
+    items: [
+      "Weekly Slack summaries now wait until the week's figures are complete — including Claude Team spend, which now counts in weekly summaries — and monthly recaps wait for their imports instead of going out with warnings.",
+      "Admins can get a Monday Slack reminder of what's left to update, and a month-end reminder to paste Claude Team spend. Add people on Data → Notifications.",
+      "Claude Team spend now shows on the days it was used in Explore, instead of all on the 1st.",
+    ],
+  },
+  {
     date: "2026-10-20",
     title: "A welcome with the first Slack summary",
     items: [
