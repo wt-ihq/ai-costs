@@ -5,6 +5,7 @@ import type { Dim, TrendPoint, TreemapNode, RankRow, RankSegment, Scorecard } fr
 import { enumerateBuckets, type Period, type Bucket } from "./period";
 import { UNASSIGNED_PREFIX } from "@/lib/ingest/seat-months";
 import { formatPeople } from "@/lib/utils";
+import { modelLabel } from "@/lib/model-labels";
 import { isPseudoEntity } from "@/lib/pseudo-entities";
 
 export interface ShapeFact {
@@ -200,7 +201,7 @@ export function treemapByDim(rows: ShapeFact[], dim: Dim | "model", topN = 12, t
   const rest = totals.slice(topN).reduce((s, [, v]) => s + v, 0);
   const nodes: TreemapNode[] = head.map(([key, value]) => ({
     key,
-    label: dim === "model" ? key : dimLabel(dim, key),
+    label: dim === "model" ? modelLabel(key) : dimLabel(dim, key),
     value: Math.round(value * 100) / 100,
     color: dim === "model" ? "#6ea8fe" : dimColorFor(dim, key, toolColors),
   }));
@@ -381,6 +382,13 @@ export function rankAllStaff(
     .sort((a, b) => b.total - a.total);
 }
 
+/** A line item's model shown by its display name, without repeating the vendor it already names ("Cursor - Bugbot" → "Bugbot"). */
+const lineDetail = (source: Vendor, detail: string): string => {
+  const label = modelLabel(detail);
+  const prefix = `${VENDOR_LABEL[source]} - `;
+  return label.startsWith(prefix) ? label.slice(prefix.length) : label;
+};
+
 /** Individual leaf line items: vendor · cost-type · model/entity. */
 export function lineItems(rows: ShapeFact[], toolColors?: ToolColors): RankRow[] {
   const agg = new Map<string, number>();
@@ -397,7 +405,7 @@ export function lineItems(rows: ShapeFact[], toolColors?: ToolColors): RankRow[]
       const value = Math.round(total * 100) / 100;
       return {
         id: k,
-        label: `${VENDOR_LABEL[m.source]} · ${COST_TYPE_LABEL[m.costType] ?? m.costType} · ${m.detail}`,
+        label: `${VENDOR_LABEL[m.source]} · ${COST_TYPE_LABEL[m.costType] ?? m.costType} · ${lineDetail(m.source, m.detail)}`,
         total: value,
         // One-segment bars so line items wear the same colors as the charts.
         segments: {

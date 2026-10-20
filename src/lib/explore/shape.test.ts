@@ -158,6 +158,18 @@ describe("trendForPeriod", () => {
     expect(total).toBeCloseTo(40, 6);
   });
 
+  describe("display names for models", () => {
+    const bugbot: ShapeFact[] = [
+      { day: "2026-06-03", source: "cursor", costType: "overage", costUsd: 70, employeeId: null, department: "Eng", fullName: null, entityKey: "cursor service account sa_1", model: "github_bugbot" },
+    ];
+    it("the model treemap names Bugbot", () => {
+      expect(treemapByDim(bugbot, "model")[0].label).toBe("Cursor - Bugbot");
+    });
+    it("a line item names Bugbot without repeating the vendor", () => {
+      expect(lineItems(bugbot)[0].label).toMatch(/^Cursor · .+ · Bugbot$/);
+    });
+  });
+
   describe("Claude Team usage (a daily spread of its pastes)", () => {
     const spread: ShapeFact[] = [
       { day: "2026-06-03", source: "claude_team", costType: "overage", costUsd: 70, employeeId: "b", department: "Eng", fullName: "B", entityKey: "b@x", model: "" },

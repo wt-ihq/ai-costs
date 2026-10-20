@@ -10,6 +10,7 @@ import { Panel } from "@/components/ui";
 import { ShowAllList } from "@/components/show-all-list";
 import { ModelBars } from "./model-bars";
 import { modelColor } from "@/lib/cursor-models/shape";
+import { modelLabel } from "@/lib/model-labels";
 import { formatCount, formatUsd } from "@/lib/utils";
 
 export function TeamsModelView({
@@ -122,7 +123,7 @@ export function TeamsModelView({
               <ul className="space-y-1.5">
                 {spendData.byModel.map((m) => (
                   <li key={m.model} className="flex items-center gap-3 text-sm">
-                    <span className="w-48 shrink-0 truncate font-mono text-xs text-muted">{m.model}</span>
+                    <span className="w-48 shrink-0 truncate font-mono text-xs text-muted" title={m.model}>{modelLabel(m.model)}</span>
                     <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-2">
                       <div
                         className="h-full rounded-full"
