@@ -40,6 +40,9 @@ export function cadencePhrase(cadences: Cadence[], report: ReportKind): string {
   return andList(CADENCES.filter((c) => cadences.includes(c)).map((c) => words[c]));
 }
 
+/** #tech-help. app_redirect opens a channel by ID in the clicker's own workspace — no workspace URL needed. */
+const HELP_LINK = "https://slack.com/app_redirect?channel=C02ND4XRSLR";
+
 // Slack mrkdwn control characters (render.ts:escapeMrkdwn, inlined to keep this module free of the renderer).
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -60,12 +63,10 @@ export function introFor(i: IntroInput): { blocks: SlackBlock[]; text: string } 
       : [
           `👋 *Hi ${hi},* this is your first ${what}.`,
           `You'll get ${cadencePhrase(i.cadences, "personal")}, showing what your use of AI tools costs and how it compares with the period before:`,
-          "• *You:* your own usage, by tool.",
+          "• *You:* your own spend, by tool.",
           ...(i.reports === "none" ? [] : [REPORTS_LINE[i.reports]]),
         ];
-  const footer =
-    `Figures come from each tool's own billing data, updated overnight.${i.links ? " Use *Open in dashboard* for the detail." : ""}\n` +
-    "Questions, or want these more or less often? Ask Workplace Tech.";
+  const footer = `${i.links ? "Use *Open in dashboard* for the detail. " : ""}Questions? Ask <${HELP_LINK}|Workplace Tech>.`;
   return {
     blocks: [
       ...(i.bannerFileId ? [{ type: "image", slack_file: { id: i.bannerFileId }, alt_text: BANNER_ALT }] : []),

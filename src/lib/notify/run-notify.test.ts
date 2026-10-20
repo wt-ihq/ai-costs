@@ -88,7 +88,7 @@ describe("runNotify", () => {
     const to = (id: string) => slack.posts.find((p) => p.channel === `D-U-${id}`)!;
     expect(hasButton(to("a").blocks)).toBe(true);
     expect(hasButton(to("m").blocks)).toBe(false);
-    expect(JSON.stringify(to("m").blocks)).not.toContain("https://");
+    expect(JSON.stringify(to("m").blocks)).not.toContain("https://x.test"); // the #tech-help link isn't the dashboard
     expect(store.sends.find((s) => s.employeeId === "a")!.dashboardLink).toBe(true);
     expect(store.sends.find((s) => s.employeeId === "m")!.dashboardLink).toBe(false);
   });

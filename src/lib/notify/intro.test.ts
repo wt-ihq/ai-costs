@@ -39,13 +39,13 @@ describe("introFor", () => {
         text:
           "👋 *Hi Priya,* this is your first AI spend summary.\n" +
           "You'll get a weekly summary each Monday and a monthly recap early each month, showing what your use of AI tools costs and how it compares with the period before:\n" +
-          "• *You:* your own usage, by tool.\n" +
+          "• *You:* your own spend, by tool.\n" +
           "• *Your reports:* the total for the people who report to you, and who uses the most.",
       },
     });
     expect(i.blocks[1]).toEqual({
       type: "context",
-      elements: [{ type: "mrkdwn", text: "Figures come from each tool's own billing data, updated overnight. Use *Open in dashboard* for the detail.\nQuestions, or want these more or less often? Ask Workplace Tech." }],
+      elements: [{ type: "mrkdwn", text: "Use *Open in dashboard* for the detail. Questions? Ask <https://slack.com/app_redirect?channel=C02ND4XRSLR|Workplace Tech>." }],
     });
     expect(i.blocks.at(-1)).toEqual({ type: "divider" });
     expect(i.text).toBe("Hi Priya — your first AI spend summary. ");
@@ -61,7 +61,7 @@ describe("introFor", () => {
     const i = text(introFor({ ...base, cadences: ["weekly"], reports: "none", links: false }));
     expect(i).not.toContain("Your reports");
     expect(i).not.toContain("Open in dashboard");
-    expect(i).toContain("Figures come from each tool's own billing data, updated overnight.\\nQuestions");
+    expect(i).toContain('"text":"Questions? Ask <https://slack.com/app_redirect?channel=C02ND4XRSLR|Workplace Tech>."');
   });
 
   it("introduces the company report on its own terms", () => {
