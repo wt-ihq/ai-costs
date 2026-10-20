@@ -8,6 +8,8 @@ export type NotifyMode = "off" | "preview" | "live";
 export type SendMode = Exclude<NotifyMode, "off">;
 /** Which DM a send is: the person's own digest, or the whole-company report. */
 export type ReportKind = "personal" | "company";
+/** A send-log row's message: a digest, or an update reminder (run-reminders.ts). */
+export type SendReport = ReportKind | "reminder";
 
 /** Fails safe: anything but an explicit preview/live is off. */
 export function notifyMode(env: Record<string, string | undefined> = process.env): NotifyMode {

@@ -7,14 +7,14 @@ import { fetchAccessList } from "@/lib/queries/dashboard-access";
 import { NO_FIXED_COST_SETTINGS, type FixedCostSettings } from "./fixed-costs";
 import type { SyncRunRow } from "./freshness";
 import type { ManualImportRow } from "./readiness";
-import { NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence, type NotifyEmployee, type ReportKind, type SendMode } from "./types";
+import { NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence, type NotifyEmployee, type ReportKind, type SendMode, type SendReport } from "./types";
 
 export interface SendKey {
   employeeId: string;
   cadence: Cadence;
   periodKey: string;
   mode: SendMode;
-  report: ReportKind;
+  report: SendReport;
 }
 
 export interface SendResult {
@@ -28,6 +28,8 @@ export interface SendResult {
 /** Everything runNotify / the admin preview need from the database — injectable for tests (memory-store.ts). */
 export interface NotifyStore {
   subscriptions(cadences: Cadence[]): Promise<{ employeeId: string; cadence: Cadence }[]>;
+  /** notification_reminder_recipients: who gets the update reminders. */
+  reminderRecipients(): Promise<string[]>;
   /** notification_company_recipients: who gets the whole-company report, on which cadences. */
   companyRecipients(cadences: Cadence[]): Promise<{ employeeId: string; cadence: Cadence }[]>;
   employees(): Promise<NotifyEmployee[]>;
@@ -47,6 +49,7 @@ export interface NotifyStore {
   /**
    * Of these people, who has had a live message, or may have: a live row that was sent, is still
    * pending, or ended "interrupted" (it may have gone out). They never get the first-message intro.
+   * Update reminders don't count.
    */
   everLive(employeeIds: string[]): Promise<ReadonlySet<string>>;
   /** Insert a pending row; its id = this run owns the send (the id carries the DM's tracked open link), null = it doesn't. */
@@ -113,6 +116,13 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
   return {
     subscriptions: (cadences) => cadenceRows(supabase, "notification_subscriptions", cadences),
     companyRecipients: (cadences) => cadenceRows(supabase, "notification_company_recipients", cadences),
+    async reminderRecipients() {
+      const rows = await pageAll<{ employee_id: string }>(
+        (a, b) => supabase.from("notification_reminder_recipients").select("employee_id").order("employee_id").range(a, b),
+        "notification_reminder_recipients",
+      );
+      return rows.map((r) => r.employee_id);
+    },
     async employees() {
       return (await fetchEmployeesAll(supabase, NOTIFY_EMPLOYEE_COLUMNS)).map(toNotifyEmployee);
     },
@@ -150,7 +160,7 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
     },
     async sendStates(periodKeys, mode) {
       if (!periodKeys.length) return [];
-      const rows = await pageAll<{ employee_id: string; cadence: Cadence; period_key: string; report: ReportKind; status: string; attempts: number }>(
+      const rows = await pageAll<{ employee_id: string; cadence: Cadence; period_key: string; report: SendReport; status: string; attempts: number }>(
         (a, b) =>
           supabase
             .from("notification_sends")
@@ -181,6 +191,7 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
             .from("notification_sends")
             .select("employee_id")
             .eq("mode", "live")
+            .in("report", ["personal", "company"])
             .in("employee_id", employeeIds)
             .or("status.in.(sent,pending),detail.eq.interrupted")
             .order("id")
@@ -208,7 +219,7 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
     async markOpened(sendId) {
       const { data: send, error } = await supabase.from("notification_sends").select("employee_id, opened_at, report").eq("id", sendId).maybeSingle();
       if (error) throw new Error(`markOpened: ${error.message}`);
-      if (!send) return null;
+      if (!send || send.report === "reminder") return null; // reminders carry no tracked link
       if (!send.opened_at) {
         // First open only: a later click (or a forwarded link) never moves it.
         const { error: upErr } = await supabase.from("notification_sends").update({ opened_at: new Date().toISOString() }).eq("id", sendId).is("opened_at", null);

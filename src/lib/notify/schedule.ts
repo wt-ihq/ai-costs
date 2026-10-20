@@ -64,13 +64,51 @@ function localClock(now: Date, tz: string): { day: string; minutes: number } {
  * day there and 10:30 or later — else null. An unknown or invalid zone counts as London.
  */
 export function sendDay(now: Date, tz: string | null): string | null {
-  let local: { day: string; minutes: number };
-  try {
-    local = localClock(now, tz ?? DEFAULT_TZ);
-  } catch {
-    local = localClock(now, DEFAULT_TZ); // RangeError: Slack handed us a zone this runtime doesn't know
-  }
+  const local = localSafe(now, tz);
   return isWorkingDay(local.day) && local.minutes >= SEND_AT_MINUTES ? local.day : null;
+}
+
+/** The recipient's local day and time; an unknown or invalid zone counts as London. */
+function localSafe(now: Date, tz: string | null): { day: string; minutes: number } {
+  try {
+    return localClock(now, tz ?? DEFAULT_TZ);
+  } catch {
+    return localClock(now, DEFAULT_TZ); // RangeError: Slack handed us a zone this runtime doesn't know
+  }
+}
+
+/** Update reminders: Monday 09:30 (an hour before summaries) and the month's last working day 15:00, local time. */
+export const WEEKLY_REMINDER_AT = 9 * 60 + 30;
+export const MONTH_END_REMINDER_AT = 15 * 60;
+
+/** The month's last working day ("YYYY-MM" → "YYYY-MM-DD"). */
+export function lastWorkingDay(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  let d = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+  while (!isWorkingDay(d)) d = addDays(d, -1);
+  return d;
+}
+
+export interface DueReminder {
+  kind: "weekly" | "monthEnd";
+  cadence: "weekly" | "monthly"; // the send log's cadence column
+  periodKey: string; // the week's ISO key / the month
+  day: string; // the recipient's local day
+}
+
+/** The reminders due to someone now, in their own time zone (run-reminders.ts). `anyTime`: a ?date= replay. */
+export function dueReminders(now: Date, tz: string | null, opts: { anyTime?: boolean } = {}): DueReminder[] {
+  const local = localSafe(now, tz);
+  if (!isWorkingDay(local.day)) return [];
+  const at = (min: number) => opts.anyTime || local.minutes >= min;
+  const out: DueReminder[] = [];
+  if (weekday(local.day) === 1 && at(WEEKLY_REMINDER_AT)) {
+    out.push({ kind: "weekly", cadence: "weekly", periodKey: latestCompleteKey("weekly", new Date(`${local.day}T12:00:00Z`)), day: local.day });
+  }
+  if (local.day === lastWorkingDay(local.day.slice(0, 7)) && at(MONTH_END_REMINDER_AT)) {
+    out.push({ kind: "monthEnd", cadence: "monthly", periodKey: local.day.slice(0, 7), day: local.day });
+  }
+  return out;
 }
 
 const SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

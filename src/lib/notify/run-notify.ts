@@ -231,7 +231,7 @@ const sendKey = (deps: RunNotifyDeps, w: { recipient: NotifyEmployee; cadence: C
 });
 
 /** A send's ids for a log line. Personal sends keep their established shape; company ones say so. */
-const who = (k: SendKey) => `employee=${k.employeeId} cadence=${k.cadence}${k.report === "company" ? " report=company" : ""}`;
+const who = (k: SendKey) => `employee=${k.employeeId} cadence=${k.cadence}${k.report !== "personal" ? ` report=${k.report}` : ""}`;
 
 /**
  * Claim the send row; its id when ours, null when not (already handled, or the claim errored). A claim

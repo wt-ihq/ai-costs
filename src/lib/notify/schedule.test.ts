@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultPreviewKey, dueDigests, latestCompleteKey, periodFor, previousWorkingDay, resolveRunDate, sendDay, stepKey } from "./schedule";
+import { defaultPreviewKey, dueDigests, dueReminders, lastWorkingDay, latestCompleteKey, periodFor, previousWorkingDay, resolveRunDate, sendDay, stepKey } from "./schedule";
 
 const at = (iso: string) => new Date(`${iso}T07:00:00Z`);
 const due = (day: string, ready = { week: true, month: true }) => dueDigests(day, ready).map((d) => `${d.period.cadence}:${d.period.key}`);
@@ -118,5 +118,29 @@ describe("resolveRunDate", () => {
     expect(resolveRunDate("2026-09-28", "preview", real)).toEqual({ now: new Date("2026-09-28T07:00:00Z"), replay: true });
     expect(resolveRunDate("2026-02-30", "preview", real)).toHaveProperty("error");
     expect(resolveRunDate("yesterday", "preview", real)).toHaveProperty("error");
+  });
+});
+
+describe("dueReminders", () => {
+  const keys = (now: string, tz: string | null = "Europe/London") => dueReminders(new Date(now), tz).map((r) => `${r.kind}:${r.periodKey}`);
+  it("Monday from 09:30 local: the weekly reminder for the week just ended", () => {
+    expect(keys("2026-10-19T08:29:00Z")).toEqual([]); // 09:29 BST
+    expect(keys("2026-10-19T08:30:00Z")).toEqual(["weekly:2026-W42"]);
+    expect(keys("2026-10-20T08:30:00Z")).toEqual([]); // Tuesday
+  });
+  it("east of UTC, Monday 09:30 is still Sunday in UTC — the week is the recipient's", () => {
+    expect(keys("2026-10-18T22:30:00Z", "Australia/Sydney")).toEqual(["weekly:2026-W42"]); // Mon 09:30 AEDT
+  });
+  it("the month's last working day from 15:00: the Claude Team month-end reminder", () => {
+    expect(keys("2026-10-30T14:59:00Z")).toEqual([]); // 14:59 GMT, Fri 30 Oct (31st is a Saturday)
+    expect(keys("2026-10-30T15:00:00Z")).toEqual(["monthEnd:2026-10"]);
+    expect(keys("2026-11-30T15:00:00Z")).toEqual(["weekly:2026-W48", "monthEnd:2026-11"]); // a Monday: both
+  });
+  it("lastWorkingDay skips a weekend end", () => {
+    expect(lastWorkingDay("2026-10")).toBe("2026-10-30");
+    expect(lastWorkingDay("2026-11")).toBe("2026-11-30");
+  });
+  it("anyTime (a ?date= replay) ignores the clock", () => {
+    expect(dueReminders(new Date("2026-10-19T00:05:00Z"), "Europe/London", { anyTime: true }).map((r) => r.kind)).toEqual(["weekly"]);
   });
 });

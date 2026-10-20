@@ -4,6 +4,7 @@ import { parseAdminEmails } from "@/lib/dashboard-access";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { renderChartPng, renderWelcomeBannerPng } from "@/lib/notify/chart-image";
 import { runNotify } from "@/lib/notify/run-notify";
+import { runReminders } from "@/lib/notify/run-reminders";
 import { resolveRunDate } from "@/lib/notify/schedule";
 import { supabaseNotifyStore } from "@/lib/notify/store";
 import { notifyMode } from "@/lib/notify/types";
@@ -14,8 +15,9 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 /**
- * Slack spend digests. Vercel Cron runs this hourly at :30; each run DMs whoever
- * it's now 10:30+ for on a working day in their own Slack time zone (runNotify).
+ * Slack spend digests. Vercel Cron runs this hourly at :30; each run first sends the update
+ * reminders that are due (Monday 09:30 / the month's last working day 15:00 — runReminders), then
+ * DMs whoever it's now 10:30+ for on a working day in their own Slack time zone (runNotify).
  * CRON_SECRET-gated (fails closed). SLACK_NOTIFY_MODE off|preview|live — off
  * (the default) returns without touching anything. ?date=YYYY-MM-DD replays
  * that day straight away (no 10:30 wait), preview mode only.
@@ -31,7 +33,7 @@ export async function GET(req: Request) {
   if ("error" in runDate) return NextResponse.json({ error: runDate.error }, { status: 400 });
 
   try {
-    const result = await runNotify({
+    const deps = {
       store: supabaseNotifyStore(getSupabaseAdminClient()),
       slack: slackClientFromEnv(),
       renderChart: renderChartPng,
@@ -42,8 +44,11 @@ export async function GET(req: Request) {
       replay: runDate.replay,
       baseUrl: appBaseUrl(),
       adminEmails: parseAdminEmails(process.env.ADMIN_EMAILS),
-    });
-    return NextResponse.json({ ranAt: new Date().toISOString(), mode, ...result });
+    };
+    // Reminders first: tiny, and their 09:30 slot is before the digests' 10:30.
+    const reminders = await runReminders(deps);
+    const result = await runNotify(deps);
+    return NextResponse.json({ ranAt: new Date().toISOString(), mode, ...result, reminders });
   } catch (err) {
     return NextResponse.json({ mode, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
   }
