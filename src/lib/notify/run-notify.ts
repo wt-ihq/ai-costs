@@ -128,8 +128,18 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
   //    manual-source fact, so it's read only when someone's monthly could be due.
   const days = [...new Set(candidates.map((c) => c.day))].sort();
   const wants = (day: string, cadence: Cadence) => candidates.some((c) => c.day === day && c.cadence === cadence);
-  const monthlyWanted = days.some((d) => inMonthlyWindow(d) && wants(d, "monthly"));
-  const coverage = monthlyWanted ? await store.importCoverage(now.toISOString().slice(0, 7)) : [];
+  // A monthly is due from the 3rd to month end, so check who still needs it BEFORE reading import
+  // coverage: once it's gone out, the rest of the month's hourly runs stay cheap.
+  const monthKeyOn = (day: string) => latestCompleteKey("monthly", new Date(`${day}T12:00:00Z`));
+  const monthlyCands = candidates.filter((c) => c.cadence === "monthly" && inMonthlyWindow(c.day));
+  const monthlyStates = monthlyCands.length ? await store.sendStates([...new Set(monthlyCands.map((c) => monthKeyOn(c.day)))], deps.mode) : [];
+  const monthlyOpen = (c: (typeof candidates)[number]) => {
+    const row = monthlyStates.find((s) => s.employeeId === c.recipient.id && s.cadence === "monthly" && s.periodKey === monthKeyOn(c.day) && s.report === c.report);
+    return !row || (c.slackUser !== null && canRetakeClaim(row));
+  };
+  const monthlyHandled = monthlyCands.filter((c) => !monthlyOpen(c)).length;
+  const wantsMonthly = (day: string) => monthlyCands.some((c) => c.day === day && monthlyOpen(c));
+  const coverage = days.some(wantsMonthly) ? await store.importCoverage(now.toISOString().slice(0, 7)) : [];
   const syncRuns = await store.recentSyncRuns(readinessSyncSince(now));
   const imports = days.some((d) => wants(d, "weekly")) ? await store.manualImports(importsInUseSince(addDays(days[0], -7))) : [];
   const dueByDay = new Map<string, DueDigest[]>();
@@ -138,10 +148,9 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
     const week = periodFor("weekly", latestCompleteKey("weekly", at), at);
     const prevMonth = latestCompleteKey("monthly", at);
     const weekReady = wants(day, "weekly") && weekReadiness({ week, syncRuns, imports }).ready;
-    const monthReady =
-      wants(day, "monthly") && inMonthlyWindow(day) && monthlyReadiness(coverage, prevMonth).ready && syncsOutstanding(syncRuns, `${day.slice(0, 7)}-01`).length === 0;
+    const monthReady = wantsMonthly(day) && monthlyReadiness(coverage, prevMonth).ready && syncsOutstanding(syncRuns, `${day.slice(0, 7)}-01`).length === 0;
     if (wants(day, "weekly") && !weekReady) result.held.push(`weekly:${week.key}`);
-    if (wants(day, "monthly") && inMonthlyWindow(day) && !monthReady) result.held.push(`monthly:${prevMonth}`);
+    if (wantsMonthly(day) && !monthReady) result.held.push(`monthly:${prevMonth}`);
     let due = dueDigests(day, { week: weekReady, month: monthReady });
     if (!syncSucceededSince(syncRuns, day)) {
       // The daily covers yesterday: it waits for today's sync. Weeklies/monthlies have their own check.
@@ -154,10 +163,13 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
   result.held = [...new Set(result.held)];
   result.due = [...new Set([...dueByDay.values()].flat().map((d) => `${d.period.cadence}:${d.period.key}`))];
 
-  const work = candidates.flatMap((c) => {
+  // Monthlies already handled were counted above; leave them out so step 3 doesn't count them again.
+  const work = candidates.filter((c) => !(c.cadence === "monthly" && monthlyCands.includes(c) && !monthlyOpen(c))).flatMap((c) => {
     const due = dueByDay.get(c.day)!.find((d) => d.period.cadence === c.cadence);
     return due ? [{ ...c, period: due.period }] : [];
   });
+
+  result.alreadyHandled += monthlyHandled; // sent monthlies, found before the coverage read
 
   // 3. Drop what's already handled, so a run with nothing left to send never loads the spend data.
   //    A missing Slack account isn't retried: Slack's answer is cached for a week.

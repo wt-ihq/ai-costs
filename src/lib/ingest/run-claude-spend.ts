@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { spreadClaudeSnapshots, type ClaudeSnapshotRow } from "./claude-spread";
-import { replaceWindowFacts } from "./persist";
+import { resolveSnapshotEmployees, spreadClaudeSnapshots, type ClaudeSnapshotRow } from "./claude-spread";
+import { loadEmployees, replaceWindowFacts } from "./persist";
 
 /** One person's line of a Claude Team paste (only non-zero rows are pasted in). */
 export interface ClaudePasteRow {
@@ -72,14 +72,43 @@ export async function saveClaudePaste(supabase: SupabaseClient, asOf: string, ro
   return (await rebuildClaudeSpend(supabase, [asOf.slice(0, 7)])).rowsWritten;
 }
 
-/** Rebuild these months' Claude Team usage facts from their pastes. A month with no pastes is left alone. */
+/** Admin assignments for Claude Team emails (identities), paged (gotcha #1). */
+async function claudeIdentities(supabase: SupabaseClient): Promise<Map<string, string>> {
+  const PAGE = 1000;
+  const out = new Map<string, string>();
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from("identities")
+      .select("external_email, employee_id")
+      .eq("vendor", "claude_team")
+      .not("external_email", "is", null)
+      .order("external_email")
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(`identities(claude_team): ${error.message}`);
+    for (const r of (data ?? []) as { external_email: string; employee_id: string | null }[]) {
+      if (r.employee_id) out.set(r.external_email.toLowerCase(), r.employee_id);
+    }
+    if (!data || data.length < PAGE) return out;
+  }
+}
+
+/**
+ * Rebuild these months' Claude Team usage facts from their pastes. A month with no pastes is left
+ * alone. Attribution is re-resolved each time (resolveSnapshotEmployees), so a rebuild keeps admins'
+ * assignments rather than reverting them to the paste-time match.
+ */
 export async function rebuildClaudeSpend(supabase: SupabaseClient, months: string[]): Promise<{ rowsWritten: number }> {
   let rowsWritten = 0;
+  let known: { identities: Map<string, string>; employees: { id: string; email: string }[] } | null = null;
   for (const month of months) {
     const window = monthWindow(month);
     const rows = await readSnapshots(supabase, window);
     if (!rows.length) continue;
-    const snaps: ClaudeSnapshotRow[] = rows.map((r) => ({ asOf: r.as_of, email: r.email, employeeId: r.employee_id, mtdUsd: Number(r.mtd_usd) }));
+    known ??= { identities: await claudeIdentities(supabase), employees: await loadEmployees(supabase) };
+    const snaps: ClaudeSnapshotRow[] = resolveSnapshotEmployees(
+      rows.map((r) => ({ asOf: r.as_of, email: r.email, employeeId: r.employee_id, mtdUsd: Number(r.mtd_usd) })),
+      known,
+    );
     // The month HAS pastes, so an empty spread means every increase was zero: prune is right.
     rowsWritten += await replaceWindowFacts(supabase, "claude_team", window, spreadClaudeSnapshots(snaps, month), { costType: "overage", pruneWhenEmpty: true });
   }

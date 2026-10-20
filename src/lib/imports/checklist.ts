@@ -65,15 +65,15 @@ const latest = (days: string[]): string | null => (days.length ? days.reduce((a,
 
 /**
  * Claude spend's state. This month it's due weekly: a paste dated on or after the Sunday just gone
- * (the weekly summary waits for it — notify/readiness.ts); before the month's first Sunday nothing is
- * due yet. An earlier month needs one paste.
+ * (the weekly summary waits for it — notify/readiness.ts). An earlier month needs one paste.
  */
-function claudeSpendState(month: string, current: boolean, asOf: string | null, today: string): { done: boolean; status: string } {
+function claudeSpendState(month: string, current: boolean, asOf: string | null, latestAny: string | null, today: string): { done: boolean; status: string } {
   if (!current) return { done: !!asOf, status: asOf ? `As of ${shortDay(asOf)}` : "Not pasted" };
   const due = lastSunday(today);
-  if (due < `${month}-01`) return { done: true, status: asOf ? `Pasted as of ${shortDay(asOf)}` : "First paste due Monday" };
-  if (asOf && asOf >= due) return { done: true, status: `Pasted as of ${shortDay(asOf)}` };
-  return { done: false, status: asOf ? `Pasted as of ${shortDay(asOf)} · due as of ${shortDay(due)}` : `Due: paste as of ${shortDay(due)}` };
+  if (latestAny && latestAny >= due) return { done: true, status: `Pasted as of ${shortDay(latestAny)}` };
+  if (asOf) return { done: false, status: `Pasted as of ${shortDay(asOf)} · due as of ${shortDay(due)}` };
+  // The Sunday just gone was last month's: Claude's table has reset, so this month's table is what's due.
+  return { done: false, status: due < `${month}-01` ? "Due: paste this month's table" : `Due: paste as of ${shortDay(due)}` };
 }
 
 /**
@@ -102,7 +102,8 @@ function tasksFor(month: string, current: boolean, input: ChecklistInput): Check
   };
 
   const spendAsOf = latest(input.imports.filter((r) => ok(r) && r.source === "claude_team" && r.kind === "clipboard" && r.dataAsOf.startsWith(month)).map((r) => r.dataAsOf));
-  const { done: spendDone, status: spendStatus } = claudeSpendState(month, current, spendAsOf, input.today);
+  const latestPaste = latest(input.imports.filter((r) => ok(r) && r.source === "claude_team" && r.kind === "clipboard").map((r) => r.dataAsOf));
+  const { done: spendDone, status: spendStatus } = claudeSpendState(month, current, spendAsOf, latestPaste, input.today);
   const spend: ChecklistItem = {
     key: "claudeSpend", vendor: "claude_team", label: "Claude spend", done: spendDone,
     status: spendStatus,

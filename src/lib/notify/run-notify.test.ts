@@ -430,6 +430,34 @@ describe("runNotify", () => {
       expect(oct.coverageCalls).toHaveLength(1);
     });
 
+    it("doesn't read import coverage once someone's monthly has gone out (the cron runs 24×/day)", async () => {
+      const store = memoryStore(
+        seed({
+          subscriptions: [{ employeeId: "a", cadence: "monthly" }],
+          syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-10-20T06:00:03Z" }],
+          sends: [{ employeeId: "a", cadence: "monthly", periodKey: "2026-09", mode: "live", status: "sent", attempts: 1, slackTs: "ts", detail: null, updatedAt: "2026-10-05T09:30:00Z" }],
+        }),
+        () => MONDAY.getTime(),
+      );
+      const r = await runNotify(deps(store, fakeSlack().client, at("2026-10-20T09:30:00Z")));
+      expect(store.coverageCalls).toHaveLength(0);
+      expect(r).toMatchObject({ sent: 0, alreadyHandled: 1 });
+    });
+
+    it("counts a handled monthly once when someone else's is still due that day", async () => {
+      const store = memoryStore(
+        seed({
+          subscriptions: [{ employeeId: "a", cadence: "monthly" }, { employeeId: "m", cadence: "monthly" }],
+          syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-10-20T06:00:03Z" }],
+          sends: [{ employeeId: "a", cadence: "monthly", periodKey: "2026-09", mode: "live", status: "sent", attempts: 1, slackTs: "ts", detail: null, updatedAt: "2026-10-05T09:30:00Z" }],
+        }),
+        () => MONDAY.getTime(),
+      );
+      const r = await runNotify(deps(store, fakeSlack().client, at("2026-10-20T09:30:00Z")));
+      expect(r.alreadyHandled).toBe(1);
+      expect(store.coverageCalls).toHaveLength(1);
+    });
+
     it("stops resolving Slack users past the time budget, leaving the rest for the next run", async () => {
       const store = memoryStore(seed(), () => MONDAY.getTime());
       let t = MONDAY.getTime();

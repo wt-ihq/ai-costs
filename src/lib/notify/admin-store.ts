@@ -1,13 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchEmployeesAll } from "@/lib/queries/common";
 import { fixedCostsForTeam, type FixedCostChoice, type FixedCostSettings } from "./fixed-costs";
-import { importsInUseSince, readinessSyncSince, weekReadiness } from "./readiness";
+import { monthlyReadiness } from "./freshness";
+import { importsInUseSince, outstandingShort, readinessSyncSince, syncsOutstanding, weekReadiness } from "./readiness";
 import { latestCompleteKey, periodFor } from "./schedule";
 import { pageAll, supabaseNotifyStore } from "./store";
 import { buildReportingTree } from "./tree";
 import { buildOrgTree, type OrgTree } from "./org-tree";
 import { activeDepartments, CADENCES, isActiveEmployee, notifyMode, NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence, type ReportKind, type SendMode, type SendReport } from "./types";
-import { weekStatus } from "./week-status";
+import { monthStatus, weekStatus } from "./week-status";
 
 export interface RecipientRow {
   employeeId: string;
@@ -63,6 +64,8 @@ export interface NotificationsAdminData {
   reminderPeople: PersonOption[]; // active, not on the reminder list: its add-a-person picker
   /** The latest complete week's weekly: waiting / ready / sent / skipped (week-status.ts). */
   weekStatus: ReturnType<typeof weekStatus>;
+  /** Last month's recap, when anyone gets one (week-status.ts:monthStatus). */
+  monthStatus: ReturnType<typeof monthStatus>;
 }
 
 export const OPEN_RATE_DAYS = 30;
@@ -140,7 +143,7 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
     RECIPIENT_TABLE.company,
   );
   const opensSince = new Date(Date.now() - OPEN_RATE_DAYS * 86_400_000).toISOString();
-  const [subs, companyRows, lastSent, empRows, slackRows, sendRes, fixedCosts, recentSent, reminderRows, weekStatusNow] = await Promise.all([
+  const [subs, companyRows, lastSent, empRows, slackRows, sendRes, fixedCosts, recentSent, reminderRows, statusNow] = await Promise.all([
     subsP,
     companyP,
     subsP.then((rows) => loadLastSent(supabase, [...new Set(rows.map((r) => r.employee_id))])),
@@ -161,7 +164,7 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
       (a, b) => supabase.from("notification_reminder_recipients").select("employee_id").order("employee_id").range(a, b),
       "notification_reminder_recipients",
     ),
-    loadWeekStatus(supabase, new Date()),
+    loadStatus(supabase, new Date()),
   ]);
   if (sendRes.error) throw new Error(`notification_sends: ${sendRes.error.message}`);
 
@@ -232,31 +235,49 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
     opens: openRate(recentSent),
     reminderRecipients,
     reminderPeople: activePeople.filter((p) => !reminderSet.has(p.id)),
-    weekStatus: weekStatusNow,
+    weekStatus: statusNow.week,
+    monthStatus: statusNow.month,
   };
 }
 
-/** The latest complete week's status for Data → Notifications (same readiness rule as the cron). */
-async function loadWeekStatus(supabase: SupabaseClient, now: Date) {
+/** This week's and last month's status for Data → Notifications (the cron's readiness rules). */
+async function loadStatus(supabase: SupabaseClient, now: Date) {
   const store = supabaseNotifyStore(supabase);
+  const today = now.toISOString().slice(0, 10);
   const week = periodFor("weekly", latestCompleteKey("weekly", now), now);
+  const month = periodFor("monthly", latestCompleteKey("monthly", now), now);
   const lastDay = new Date(Date.parse(`${week.toExclusive}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
   const mode: SendMode = notifyMode() === "preview" ? "preview" : "live";
-  const [syncRuns, imports, personal, company, states] = await Promise.all([
+  const [syncRuns, imports, personal, company, states, coverage] = await Promise.all([
     store.recentSyncRuns(readinessSyncSince(now)),
     store.manualImports(importsInUseSince(lastDay)),
-    store.subscriptions(["weekly"]),
-    store.companyRecipients(["weekly"]),
-    store.sendStates([week.key], mode),
+    store.subscriptions(["weekly", "monthly"]),
+    store.companyRecipients(["weekly", "monthly"]),
+    store.sendStates([week.key, month.key], mode),
+    store.importCoverage(today.slice(0, 7)),
   ]);
-  return weekStatus({
-    label: week.label,
-    readiness: weekReadiness({ week, syncRuns, imports }),
-    recipients: personal.length + company.length,
-    sent: states.filter((s) => s.report !== "reminder" && s.status === "sent").length,
-    today: now.toISOString().slice(0, 10),
-    weekToExclusive: week.toExclusive,
-  });
+  const recipients = (cadence: Cadence) => [...personal, ...company].filter((s) => s.cadence === cadence).length;
+  const sent = (key: string) => states.filter((s) => s.periodKey === key && s.report !== "reminder" && s.status === "sent").length;
+  return {
+    week: weekStatus({
+      label: week.label,
+      readiness: weekReadiness({ week, syncRuns, imports }),
+      recipients: recipients("weekly"),
+      sent: sent(week.key),
+      today,
+      weekToExclusive: week.toExclusive,
+    }),
+    month: monthStatus({
+      label: month.label,
+      recipients: recipients("monthly"),
+      sent: sent(month.key),
+      missing: [
+        ...monthlyReadiness(coverage, month.key).missing.map((m) => m.label),
+        ...syncsOutstanding(syncRuns, `${today.slice(0, 7)}-01`).map(outstandingShort),
+      ],
+      today,
+    }),
+  };
 }
 
 export async function addReminderRecipients(supabase: SupabaseClient, employeeIds: string[], createdBy: string): Promise<number> {

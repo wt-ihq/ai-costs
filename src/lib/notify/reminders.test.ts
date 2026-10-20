@@ -35,6 +35,11 @@ describe("weeklyReminder", () => {
     expect(text(r)).toContain("October's monthly recap is waiting too: ⬜ Claude Team seats");
   });
 
+  it("when the week ended on the month's last day, asks for today's table (it has reset)", () => {
+    const r = weeklyReminder({ ...base, week: { label: "25–31 Jan 2027", lastDay: "2027-01-31" }, outstanding: [{ kind: "claudeSpend", asOf: "2027-01-29" }] });
+    expect(text(r)).toContain("⬜ *Claude Team spend* — pasted as of 29 Jan. Paste this morning's table (dated today).");
+  });
+
   it("one summary reads in the singular", () => {
     expect(text(weeklyReminder({ ...base, waiting: 1, outstanding: [{ kind: "claudeSpend", asOf: "2026-10-11" }] }))).toContain("1 weekly summary goes out automatically");
   });

@@ -162,6 +162,11 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
             {data.weekStatus.state === "sent" ? "Sent" : data.weekStatus.state === "ready" ? "Ready" : data.weekStatus.state === "skipped" ? "Skipped" : "Waiting"}
           </p>
           <p className="text-xs text-muted">{data.weekStatus.text}</p>
+          {data.monthStatus && (
+            <p className="mt-2 text-xs text-muted">
+              <span className={data.monthStatus.state === "waiting" ? "text-amber-300" : "text-foreground"}>{data.monthStatus.title}:</span> {data.monthStatus.text}
+            </p>
+          )}
         </Panel>
         <Panel>
           <p className="text-[10.5px] uppercase tracking-wide text-muted">Mode</p>

@@ -18,8 +18,14 @@ const header = (text: string): SlackBlock => ({ type: "header", text: { type: "p
 const section = (text: string): SlackBlock => ({ type: "section", text: { type: "mrkdwn", text } });
 const button = (url: string): SlackBlock => ({ type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "Open Data → Imports" }, url }] });
 
+const nextDay = (day: string) => new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+
 function line(o: Outstanding, lastDay: string): string {
-  if (o.kind === "claudeSpend") return `⬜ *Claude Team spend* — pasted as of ${d(o.asOf)}. Paste this morning's table (dated ${d(lastDay)}).`;
+  if (o.kind === "claudeSpend") {
+    // A week ending on the month's last day: Claude's table has reset by Monday, so it's dated today.
+    const dated = nextDay(lastDay).slice(0, 7) === lastDay.slice(0, 7) ? d(lastDay) : "today";
+    return `⬜ *Claude Team spend* — pasted as of ${d(o.asOf)}. Paste this morning's table (dated ${dated}).`;
+  }
   if (o.kind === "chatgptCredits") return `⬜ *ChatGPT credits* — imported through ${d(o.through)}. Import a file through ${d(lastDay)}.`;
   return `⬜ *${VENDOR_LABEL[o.source]}* hasn't synced since the week ended${o.lastSuccessDay ? ` (last ${d(o.lastSuccessDay)})` : ""}. Re-run it on Data → Sync.`;
 }

@@ -22,7 +22,7 @@ const SYNC_NOTE: Partial<Record<string, string>> = {
   other: "materializes the recurring entries",
 };
 const LATEST_NOTE: Partial<Record<string, string>> = {
-  claude_team: "monthly — stamped to the 1st",
+  claude_team: "pasted weekly — spread over the days since the last paste",
   chatgpt_business: "seats monthly · credits CSV self-dated",
   other: "monthly — stamped to the 1st",
   vercel: "billing periods — can post dated to the period end",

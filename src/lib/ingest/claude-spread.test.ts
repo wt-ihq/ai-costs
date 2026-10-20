@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultPasteDate, spreadClaudeSnapshots, type ClaudeSnapshotRow } from "./claude-spread";
+import { defaultPasteDate, resolveSnapshotEmployees, spreadClaudeSnapshots, type ClaudeSnapshotRow } from "./claude-spread";
 
 const snap = (asOf: string, email: string, mtdUsd: number, employeeId: string | null = `e-${email}`): ClaudeSnapshotRow => ({ asOf, email, employeeId, mtdUsd });
 const byDay = (facts: ReturnType<typeof spreadClaudeSnapshots>, email: string) =>
@@ -59,5 +59,19 @@ describe("defaultPasteDate", () => {
     expect(defaultPasteDate("2026-10-19")).toBe("2026-10-18");
     expect(defaultPasteDate("2026-10-20")).toBe("2026-10-20");
     expect(defaultPasteDate("2026-10-30")).toBe("2026-10-30");
+  });
+  it("never steps back into last month: on Monday the 1st Claude's table has already reset", () => {
+    expect(defaultPasteDate("2027-02-01")).toBe("2027-02-01");
+  });
+});
+
+describe("resolveSnapshotEmployees", () => {
+  const rows = [snap("2026-10-04", "a@x", 10, null), snap("2026-10-04", "b@x", 10, "e-paste"), snap("2026-10-04", "c@x", 10, null)];
+  it("an admin's assignment (identities) wins, then today's staff list, then the paste-time match", () => {
+    const r = resolveSnapshotEmployees(rows, { identities: new Map([["a@x", "e-assigned"]]), employees: [{ id: "e-roster", email: "C@x" }] });
+    expect(r.map((x) => [x.email, x.employeeId])).toEqual([["a@x", "e-assigned"], ["b@x", "e-paste"], ["c@x", "e-roster"]]);
+  });
+  it("a rebuild never un-assigns: nothing to resolve leaves the paste-time match", () => {
+    expect(resolveSnapshotEmployees(rows, { identities: new Map(), employees: [] }).map((x) => x.employeeId)).toEqual([null, "e-paste", null]);
   });
 });

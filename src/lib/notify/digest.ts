@@ -168,7 +168,6 @@ export interface SectionInput {
   baseUrl: string;
   /** Count seats & subscriptions (fixed-costs.ts resolves it for the recipient or team). */
   includeFixed: boolean;
-  /** Month-to-date pastes' as-of days, so the month line projects a paste at its pace. */
 }
 
 export interface DigestInput extends SectionInput {

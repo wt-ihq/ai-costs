@@ -44,7 +44,28 @@ export function spreadClaudeSnapshots(rows: ClaudeSnapshotRow[], month: string):
   return out;
 }
 
-/** The paste form's default date: Sunday on a Monday (the table includes Monday morning), else today. */
+/**
+ * Who each pasted email is, at rebuild time: an admin's assignment (identities, vendor claude_team)
+ * wins, then today's staff list by email, then the match made when it was pasted — so the nightly
+ * rebuild keeps manual assignments and late roster fixes instead of reverting them to Unmatched.
+ */
+export function resolveSnapshotEmployees(
+  rows: ClaudeSnapshotRow[],
+  known: { identities: ReadonlyMap<string, string>; employees: { id: string; email: string }[] },
+): ClaudeSnapshotRow[] {
+  const byEmail = new Map(known.employees.map((e) => [e.email.toLowerCase(), e.id]));
+  return rows.map((r) => {
+    const email = r.email.toLowerCase();
+    return { ...r, employeeId: known.identities.get(email) ?? byEmail.get(email) ?? r.employeeId };
+  });
+}
+
+/**
+ * The paste form's default date: Sunday on a Monday (the table includes Monday morning), else today —
+ * but never last month: on Monday the 1st Claude's table has already reset, and a paste dated the
+ * 31st would overwrite last month's total with a day of the new one.
+ */
 export function defaultPasteDate(today: string): string {
-  return new Date(`${today}T00:00:00Z`).getUTCDay() === 1 ? addDays(today, -1) : today;
+  const yesterday = addDays(today, -1);
+  return new Date(`${today}T00:00:00Z`).getUTCDay() === 1 && yesterday.slice(0, 7) === today.slice(0, 7) ? yesterday : today;
 }

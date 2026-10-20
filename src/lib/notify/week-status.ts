@@ -11,3 +11,16 @@ export function weekStatus(i: { label: string; readiness: Readiness; recipients:
   if (i.readiness.ready) return { state: "ready" as const, title, text: "Ready — going out from 10:30" };
   return { state: "waiting" as const, title, text: `Waiting for ${i.readiness.outstanding.map(outstandingShort).join(" · ")}` };
 }
+
+/**
+ * The same line for last month's recap (spec §5: "same for a pending monthly"): due from the 3rd,
+ * then waiting for its imports and syncs, ready, or sent. Null when nobody gets a monthly.
+ */
+export function monthStatus(i: { label: string; recipients: number; sent: number; missing: string[]; today: string }) {
+  if (i.recipients === 0) return null;
+  const title = `Monthly ${i.label}`;
+  if (i.sent > 0) return { state: "sent" as const, title, text: `Sent to ${i.sent} of ${i.recipients}` };
+  if (Number(i.today.slice(8, 10)) < 3) return { state: "waiting" as const, title, text: "Due from the 3rd" };
+  if (i.missing.length) return { state: "waiting" as const, title, text: `Waiting for ${i.missing.join(" · ")}` };
+  return { state: "ready" as const, title, text: "Ready — going out from 10:30" };
+}
