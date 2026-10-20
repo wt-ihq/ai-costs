@@ -1,10 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchEmployeesAll } from "@/lib/queries/common";
 import { fixedCostsForTeam, type FixedCostChoice, type FixedCostSettings } from "./fixed-costs";
+import { importsInUseSince, readinessSyncSince, weekReadiness } from "./readiness";
+import { latestCompleteKey, periodFor } from "./schedule";
 import { pageAll, supabaseNotifyStore } from "./store";
 import { buildReportingTree } from "./tree";
 import { buildOrgTree, type OrgTree } from "./org-tree";
-import { activeDepartments, CADENCES, isActiveEmployee, NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence, type ReportKind, type SendMode } from "./types";
+import { activeDepartments, CADENCES, isActiveEmployee, notifyMode, NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence, type ReportKind, type SendMode, type SendReport } from "./types";
+import { weekStatus } from "./week-status";
 
 export interface RecipientRow {
   employeeId: string;
@@ -27,7 +30,7 @@ export interface CompanyRecipientRow {
   slack: RecipientRow["slack"];
   left: boolean;
 }
-export interface SendLogRow { at: string; name: string; report: ReportKind; cadence: string; periodKey: string; mode: string; status: string; detail: string | null; openedAt: string | null }
+export interface SendLogRow { at: string; name: string; report: SendReport; cadence: string; periodKey: string; mode: string; status: string; detail: string | null; openedAt: string | null }
 export interface LastRun {
   day: string;
   mode: SendMode; // live if any live row that day, else preview
@@ -37,6 +40,8 @@ export interface LastRun {
   failed: number;
   plusPreview: number; // preview rows the same day when mode is live
 }
+/** Someone on the update-reminder list. */
+export interface ReminderRecipientRow { employeeId: string; name: string; team: string | null; slack: RecipientRow["slack"]; left: boolean }
 /** A pickable employee: `label` is "Name — Team (email)". */
 export interface PersonOption { id: string; label: string; name: string }
 export interface NotificationsAdminData {
@@ -54,6 +59,10 @@ export interface NotificationsAdminData {
   fixedCosts: FixedCostSettings;
   /** Live digests with the "Open in dashboard" button sent in the last OPEN_RATE_DAYS, and how many were opened from it. */
   opens: { sent: number; opened: number };
+  reminderRecipients: ReminderRecipientRow[];
+  reminderPeople: PersonOption[]; // active, not on the reminder list: its add-a-person picker
+  /** The latest complete week's weekly: waiting / ready / sent / skipped (week-status.ts). */
+  weekStatus: ReturnType<typeof weekStatus>;
 }
 
 export const OPEN_RATE_DAYS = 30;
@@ -79,7 +88,8 @@ export function lastSentLabels(rows: Pick<SendRowLite, "employee_id" | "cadence"
 }
 
 /** Rows newest first. The latest day's run: its mode, cadences and that mode's outcome counts. */
-export function summariseLastRun(sends: Pick<SendRowLite, "cadence" | "mode" | "status" | "updated_at">[]): LastRun | null {
+export function summariseLastRun(rows: (Pick<SendRowLite, "cadence" | "mode" | "status" | "updated_at"> & { report?: string })[]): LastRun | null {
+  const sends = rows.filter((s) => s.report !== "reminder"); // update reminders aren't digests
   const day = sends[0]?.updated_at.slice(0, 10);
   if (!day) return null;
   const ofDay = sends.filter((s) => s.updated_at.startsWith(day));
@@ -130,7 +140,7 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
     RECIPIENT_TABLE.company,
   );
   const opensSince = new Date(Date.now() - OPEN_RATE_DAYS * 86_400_000).toISOString();
-  const [subs, companyRows, lastSent, empRows, slackRows, sendRes, fixedCosts, recentSent] = await Promise.all([
+  const [subs, companyRows, lastSent, empRows, slackRows, sendRes, fixedCosts, recentSent, reminderRows, weekStatusNow] = await Promise.all([
     subsP,
     companyP,
     subsP.then((rows) => loadLastSent(supabase, [...new Set(rows.map((r) => r.employee_id))])),
@@ -147,6 +157,11 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
       (a, b) => supabase.from("notification_sends").select("mode, status, opened_at").eq("mode", "live").eq("status", "sent").eq("dashboard_link", true).gte("updated_at", opensSince).order("id").range(a, b),
       "notification_sends(opens)",
     ),
+    pageAll<{ employee_id: string }>(
+      (a, b) => supabase.from("notification_reminder_recipients").select("employee_id").order("employee_id").range(a, b),
+      "notification_reminder_recipients",
+    ),
+    loadWeekStatus(supabase, new Date()),
   ]);
   if (sendRes.error) throw new Error(`notification_sends: ${sendRes.error.message}`);
 
@@ -154,7 +169,7 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
   const byId = new Map(employees.map((e) => [e.id, e]));
   const tree = buildReportingTree(employees);
   const slack = new Map(slackRows.map((r) => [r.employee_id, r.slack_user_id]));
-  const sends = (sendRes.data ?? []) as (SendRowLite & { period_key: string; detail: string | null; report: ReportKind })[];
+  const sends = (sendRes.data ?? []) as (SendRowLite & { period_key: string; detail: string | null; report: SendReport })[];
 
   const byPerson = (rows: { employee_id: string; cadence: Cadence }[]) => {
     const m = new Map<string, Cadence[]>();
@@ -179,6 +194,14 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
       fixedCosts: { override: id in fixedCosts.employees ? fixedCosts.employees[id] : null, inherited: fixedCostsForTeam(fixedCosts, e?.department ?? null) },
     };
   }).sort((a, b) => a.name.localeCompare(b.name));
+
+  const reminderSet = new Set(reminderRows.map((r) => r.employee_id));
+  const reminderRecipients: ReminderRecipientRow[] = [...reminderSet]
+    .map((id) => {
+      const e = byId.get(id);
+      return { employeeId: id, name: e?.fullName ?? "Unknown", team: e?.department ?? null, slack: slackStatus(id), left: e ? !isActiveEmployee(e) : true };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const companyRecipients: CompanyRecipientRow[] = [...companyBy].map(([id, cadences]): CompanyRecipientRow => {
     const e = byId.get(id);
@@ -207,7 +230,47 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
     departments: activeDepartments(employees),
     fixedCosts,
     opens: openRate(recentSent),
+    reminderRecipients,
+    reminderPeople: activePeople.filter((p) => !reminderSet.has(p.id)),
+    weekStatus: weekStatusNow,
   };
+}
+
+/** The latest complete week's status for Data → Notifications (same readiness rule as the cron). */
+async function loadWeekStatus(supabase: SupabaseClient, now: Date) {
+  const store = supabaseNotifyStore(supabase);
+  const week = periodFor("weekly", latestCompleteKey("weekly", now), now);
+  const lastDay = new Date(Date.parse(`${week.toExclusive}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+  const mode: SendMode = notifyMode() === "preview" ? "preview" : "live";
+  const [syncRuns, imports, personal, company, states] = await Promise.all([
+    store.recentSyncRuns(readinessSyncSince(now)),
+    store.manualImports(importsInUseSince(lastDay)),
+    store.subscriptions(["weekly"]),
+    store.companyRecipients(["weekly"]),
+    store.sendStates([week.key], mode),
+  ]);
+  return weekStatus({
+    label: week.label,
+    readiness: weekReadiness({ week, syncRuns, imports }),
+    recipients: personal.length + company.length,
+    sent: states.filter((s) => s.report !== "reminder" && s.status === "sent").length,
+    today: now.toISOString().slice(0, 10),
+    weekToExclusive: week.toExclusive,
+  });
+}
+
+export async function addReminderRecipients(supabase: SupabaseClient, employeeIds: string[], createdBy: string): Promise<number> {
+  const { data, error } = await supabase
+    .from("notification_reminder_recipients")
+    .upsert(employeeIds.map((employee_id) => ({ employee_id, created_by: createdBy })), { onConflict: "employee_id", ignoreDuplicates: true })
+    .select("employee_id");
+  if (error) throw new Error(`addReminderRecipients: ${error.message}`);
+  return data?.length ?? 0;
+}
+
+export async function removeReminderRecipient(supabase: SupabaseClient, employeeId: string): Promise<void> {
+  const { error } = await supabase.from("notification_reminder_recipients").delete().eq("employee_id", employeeId);
+  if (error) throw new Error(`removeReminderRecipient: ${error.message}`);
 }
 
 export type FixedCostScope = "org" | "department" | "employee";

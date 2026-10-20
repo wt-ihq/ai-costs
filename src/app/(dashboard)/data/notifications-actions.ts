@@ -5,7 +5,7 @@ import { actorEmail, requireAdmin } from "@/lib/auth-guard";
 import { parseAdminEmails } from "@/lib/dashboard-access";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchEmployeesAll } from "@/lib/queries/common";
-import { addSubscriptions, removeSubscriptions, setFixedCostSetting, setSubscription } from "@/lib/notify/admin-store";
+import { addReminderRecipients, addSubscriptions, removeReminderRecipient, removeSubscriptions, setFixedCostSetting, setSubscription } from "@/lib/notify/admin-store";
 import { renderChartPng } from "@/lib/notify/chart-image";
 import type { TestSubject, TestTarget } from "@/lib/notify/subject";
 import { supabaseNotifyStore } from "@/lib/notify/store";
@@ -78,6 +78,21 @@ export async function removeCompanyRecipient(employeeId: string): Promise<void> 
   await requireAdmin();
   if (!isUuid(employeeId)) throw new Error("Invalid input");
   await removeSubscriptions(getSupabaseAdminClient(), employeeId, "company");
+  revalidatePath("/data");
+}
+
+/** Adds someone to the update reminders (Monday 09:30 and the month's last working day). */
+export async function addReminderRecipient(employeeId: string): Promise<void> {
+  await requireAdmin();
+  if (!isUuid(employeeId)) throw new Error("Invalid input");
+  await addReminderRecipients(getSupabaseAdminClient(), [employeeId], await actorEmail());
+  revalidatePath("/data");
+}
+
+export async function removeReminderRecipientAction(employeeId: string): Promise<void> {
+  await requireAdmin();
+  if (!isUuid(employeeId)) throw new Error("Invalid input");
+  await removeReminderRecipient(getSupabaseAdminClient(), employeeId);
   revalidatePath("/data");
 }
 
