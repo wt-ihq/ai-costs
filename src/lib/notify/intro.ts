@@ -46,9 +46,10 @@ const HELP_LINK = "https://slack.com/app_redirect?channel=C02ND4XRSLR";
 // Slack mrkdwn control characters (render.ts:escapeMrkdwn, inlined to keep this module free of the renderer).
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-const REPORTS_LINE: Record<Exclude<IntroInput["reports"], "none">, string> = {
-  direct: "• *Your reports:* the total for the people who report to you, and who uses the most.",
-  byTeam: "• *Your reports:* everyone below you, split by team (each of your direct reports and their people), and who uses the most.",
+const REPORTS_PHRASE: Record<IntroInput["reports"], string> = {
+  none: "",
+  direct: " and the total for the people who report to you",
+  byTeam: " and a team-by-team total for everyone below you",
 };
 
 export function introFor(i: IntroInput): { blocks: SlackBlock[]; text: string } {
@@ -62,9 +63,8 @@ export function introFor(i: IntroInput): { blocks: SlackBlock[]; text: string } 
         ]
       : [
           `👋 *Hi ${hi},* this is your first ${what}.`,
-          `You'll get ${cadencePhrase(i.cadences, "personal")}, showing what your use of AI tools costs and how it compares with the period before:`,
-          "• *You:* your own spend, by tool.",
-          ...(i.reports === "none" ? [] : [REPORTS_LINE[i.reports]]),
+          `You'll get ${cadencePhrase(i.cadences, "personal")}. Each shows your own AI spend by tool${REPORTS_PHRASE[i.reports]}, ` +
+            `compared with the period before${i.reports === "none" ? "" : ", and who uses the most"}.`,
         ];
   const footer = `${i.links ? "Use *Open in dashboard* for the detail. " : ""}Questions? Ask <${HELP_LINK}|Workplace Tech>.`;
   return {
