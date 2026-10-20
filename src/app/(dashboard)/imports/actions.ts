@@ -13,6 +13,7 @@ import { parseSeatRoster } from "@/lib/ingest/parsers/seat-roster";
 import { parseOpenAiCreditsCsv, coveredWindow, type CreditUsageFact } from "@/lib/ingest/parsers/openai-credits";
 import { loadEmployeesFull, replaceWindowFacts, type ResolvedFact } from "@/lib/ingest/persist";
 import { claudeSnapshotMonths, rebuildClaudeSpend, saveClaudePaste } from "@/lib/ingest/run-claude-spend";
+import { cleanServiceAccountInput, serviceAccountEntity } from "@/lib/ingest/cursor-service-accounts";
 import { isTieredVendor, rebuildSeatMonth, type TieredVendor } from "@/lib/ingest/seat-months";
 import {
   fetchRecurringEntries,
@@ -755,6 +756,30 @@ export async function rebuildCursorMonth(month: unknown): Promise<CursorRebuildR
   updateTag(FACTS_TAG);
   revalidatePath("/data");
   return { month, written: r.rowsWritten, notPeople: r.unmatched.filter((k) => k.startsWith("cursor service account")).length };
+}
+
+/**
+ * Name a Cursor service account and give it a team (Data → Tools). The team applies to its spend
+ * history too, in place — still not tied to a person; the nightly sync tags new spend the same way.
+ */
+export async function setCursorServiceAccount(accountId: unknown, label: unknown, department: unknown): Promise<{ factsUpdated: number }> {
+  await requireAdmin();
+  const input = cleanServiceAccountInput(accountId, label, department);
+  const supabase = getSupabaseAdminClient();
+  const { error } = await supabase
+    .from("cursor_service_accounts")
+    .upsert({ account_id: input.accountId, label: input.label, department: input.department, updated_by: await actorEmail(), updated_at: new Date().toISOString() }, { onConflict: "account_id" });
+  if (error) throw new Error(`setCursorServiceAccount: ${error.message}`);
+  const { error: factErr, count } = await supabase
+    .from("spend_facts")
+    .update({ department: input.department }, { count: "exact" })
+    .eq("source", "cursor")
+    .eq("entity_key", serviceAccountEntity(input.accountId))
+    .is("employee_id", null);
+  if (factErr) throw new Error(`setCursorServiceAccount facts: ${factErr.message}`);
+  updateTag(FACTS_TAG);
+  revalidatePath("/data");
+  return { factsUpdated: count ?? 0 };
 }
 
 /**

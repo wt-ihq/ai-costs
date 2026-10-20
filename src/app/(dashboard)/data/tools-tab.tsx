@@ -3,16 +3,18 @@ import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { RecurringCosts, type RecurringCostRow } from "@/components/recurring-costs";
 import { VercelProjects, type VercelProjectRow } from "@/components/vercel-projects";
 import { OpenRouterWorkspaces, type OpenRouterWorkspaceRow } from "@/components/openrouter-workspaces";
+import { CursorServiceAccounts } from "@/components/cursor-service-accounts";
+import { loadCursorServiceAccountRows } from "@/lib/queries/cursor-service-accounts";
 import { fetchRecurringEntries, monthsBetween } from "@/lib/ingest/recurring";
 import { OTHER_TOOL_PALETTE } from "@/lib/colors";
 import { fetchEmployeesAll } from "@/lib/queries/common";
 import { latestEcbRates } from "@/lib/queries/fx";
 import { isActiveEmployee, NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee } from "@/lib/notify/types";
 
-/** Department-attributed tool costs (admin): recurring subscriptions + Vercel project mapping. */
+/** Department-attributed tool costs (admin): recurring subscriptions, OpenRouter workspaces, Cursor service accounts, Vercel projects. */
 export async function ToolsTab() {
   const supabase = getSupabaseAdminClient();
-  const [recurringRaw, emps, { data: vercelRows }, { data: workspaceRows }, ecbRates] = await Promise.all([
+  const [recurringRaw, emps, { data: vercelRows }, { data: workspaceRows }, ecbRates, serviceAccounts] = await Promise.all([
     fetchRecurringEntries(supabase),
     fetchEmployeesAll(supabase, NOTIFY_EMPLOYEE_COLUMNS),
     supabase
@@ -26,6 +28,7 @@ export async function ToolsTab() {
       .order("name")
       .limit(200), // bounded: grows by workspaces
     latestEcbRates(supabase),
+    loadCursorServiceAccountRows(supabase),
   ]);
   const recurringRows: RecurringCostRow[] = recurringRaw.map((e) => {
     const months = e.kind === "contract" ? monthsBetween(e.startMonth, e.endMonth!).length : 1;
@@ -78,6 +81,16 @@ export async function ToolsTab() {
           Member usage always follows the member&rsquo;s own department.
         </p>
         <OpenRouterWorkspaces workspaces={openRouterWorkspaces} departments={departments} people={ownerOptions} />
+      </Panel>
+
+      <Panel>
+        <h2 className="mb-1 text-sm font-medium">Cursor service accounts</h2>
+        <p className="mb-4 text-xs text-muted">
+          Cursor automations with no user behind them, such as Bugbot reviewing pull requests or agents run from scripts.
+          Name each one and pick the team its spend counts toward; saving updates its past spend too. It still shows as
+          &ldquo;not tied to a person&rdquo;. New accounts appear after the nightly Cursor sync.
+        </p>
+        <CursorServiceAccounts accounts={serviceAccounts} departments={departments} />
       </Panel>
 
       <Panel>

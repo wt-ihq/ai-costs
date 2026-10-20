@@ -123,6 +123,19 @@ describe("syncCursorEvents", () => {
     expect(db.rows.find((x) => x.entity_key === "a@intenthq.com" && x.day === "2026-10-12")!.employee_id).toBe("e1");
   });
 
+  it("puts a named service account's spend on its team, and registers accounts it hasn't seen", async () => {
+    const db = fakeDb([]);
+    const registered: string[] = [];
+    const registry = {
+      teams: () => new Map([["sa_1", "Engineering"]]),
+      register: async (facts: { entityKey: string }[]) => { registered.push(...facts.map((f) => f.entityKey)); },
+    };
+    await syncCursorEvents(db.client, "run1", { startDate: "2026-10-12", endDate: "2026-10-13" }, fetcher, employees, registry);
+    expect(db.rows.find((x) => x.entity_key === "cursor service account sa_1")!.department).toBe("Engineering");
+    expect(db.rows.find((x) => x.entity_key === "a@intenthq.com")!.department ?? null).toBeNull();
+    expect(registered).toContain("cursor service account sa_1");
+  });
+
   it("saves each chunk's raw response", async () => {
     const db = fakeDb([]);
     await syncCursorEvents(db.client, "run1", { startDate: "2026-10-11", endDate: "2026-10-17" }, fetcher, employees);

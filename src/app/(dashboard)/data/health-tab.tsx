@@ -9,6 +9,7 @@ import { UnmatchedQueue } from "@/components/unmatched-queue";
 import { VENDOR_LABEL } from "@/lib/types";
 import { VENDOR_COLORS } from "@/lib/colors";
 import { staleness, formatUsd } from "@/lib/utils";
+import { loadServiceAccounts, serviceAccountLabel } from "@/lib/ingest/cursor-service-accounts";
 
 /**
  * Per-source annotations that defuse "conflicting" dates: a sync that ran
@@ -75,12 +76,14 @@ function LatestData({ s }: { s: SourceHealth }) {
 
 export async function HealthTab() {
   const supabase = getSupabaseAdminClient();
-  const [{ identity, sources, otherTools, unmatched, pseudo, employees, noDepartment }, reconciliation, deptRows] = await Promise.all([
+  const [{ identity, sources, otherTools, unmatched, pseudo, employees, noDepartment }, reconciliation, deptRows, serviceAccounts] = await Promise.all([
     getDataHealthCached(),
     getCursorReconciliation(supabase),
     // Read separately (not in the cached payload) so the cached shape is unchanged.
     fetchEmployeesAll(supabase, "department"),
+    loadServiceAccounts(supabase),
   ]);
+  const serviceAccountNames = new Map([...serviceAccounts].flatMap(([id, s]) => (s.label ? [[id, s.label] as const] : [])));
   const departments = [...new Set(deptRows.map((e) => e.department as string | null).filter((d): d is string => !!d))].sort();
   const now = new Date();
   // Flag a drift > $1 and > 2% as worth a look; otherwise it reconciles.
@@ -243,7 +246,7 @@ export async function HealthTab() {
                       {VENDOR_LABEL[p.source]}
                     </span>
                   </td>
-                  <td className="py-2 pr-4 font-mono text-xs">{p.entityKey}</td>
+                  <td className="py-2 pr-4 font-mono text-xs">{serviceAccountLabel(p.entityKey, serviceAccountNames)}</td>
                   <td className="py-2 pr-4 text-xs text-muted">{pseudoExplanation(p.entityKey)}</td>
                   <td className="py-2 text-right tabular-nums">{formatUsd(p.total)}</td>
                 </tr>
