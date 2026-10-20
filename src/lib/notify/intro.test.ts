@@ -14,11 +14,9 @@ describe("firstName", () => {
 
 describe("cadencePhrase", () => {
   it("names each cadence the person is on, in order", () => {
-    expect(cadencePhrase(["weekly", "monthly"], "personal")).toBe("a weekly summary each Monday and a monthly recap early each month");
-    expect(cadencePhrase(["monthly", "daily", "weekly"], "personal")).toBe(
-      "a daily summary each working day, a weekly summary each Monday and a monthly recap early each month",
-    );
-    expect(cadencePhrase(["daily"], "personal")).toBe("a daily summary each working day");
+    expect(cadencePhrase(["weekly", "monthly"], "personal")).toBe("weekly and monthly");
+    expect(cadencePhrase(["monthly", "daily", "weekly"], "personal")).toBe("daily, weekly and monthly");
+    expect(cadencePhrase(["daily"], "personal")).toBe("daily");
   });
   it("speaks of when, for the company report", () => {
     expect(cadencePhrase(["weekly", "monthly"], "company")).toBe("each Monday and early each month");
@@ -38,7 +36,7 @@ describe("introFor", () => {
         type: "mrkdwn",
         text:
           "👋 *Hi Priya,* this is your first AI spend summary.\n" +
-          "You'll get a weekly summary each Monday and a monthly recap early each month. Each shows your own AI spend by tool and the total spend for the people who report to you, with comparisons to the previous period.",
+          "From now on you'll get weekly and monthly recaps. Each shows your own AI spend by tool and the total spend for the people who report to you, with comparisons to the previous period.",
       },
     });
     expect(i.blocks[1]).toEqual({

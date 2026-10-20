@@ -539,7 +539,7 @@ describe("runNotify: company report", () => {
       const store = memoryStore(seed({ subscriptions: [{ employeeId: "a", cadence: "daily" }, { employeeId: "a", cadence: "monthly" }] }), () => MONDAY.getTime());
       const slack = fakeSlack();
       await runNotify(deps(store, slack.client));
-      expect(JSON.stringify(to(slack.posts, "a")[0].blocks)).toContain("a daily summary each working day and a monthly recap early each month");
+      expect(JSON.stringify(to(slack.posts, "a")[0].blocks)).toContain("From now on you'll get daily and monthly recaps.");
     });
 
     it("ignores preview-only history, and counts a send that may have gone out", async () => {

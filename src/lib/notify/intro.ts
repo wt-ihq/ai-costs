@@ -25,16 +25,12 @@ export function firstName(fullName: string): string | null {
   return fullName.trim().split(/\s+/)[0] || null;
 }
 
-const PERSONAL: Record<Cadence, string> = {
-  daily: "a daily summary each working day",
-  weekly: "a weekly summary each Monday",
-  monthly: "a monthly recap early each month",
-};
+const PERSONAL: Record<Cadence, string> = { daily: "daily", weekly: "weekly", monthly: "monthly" };
 const COMPANY: Record<Cadence, string> = { daily: "each working day", weekly: "each Monday", monthly: "early each month" };
 
 const andList = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
 
-/** When the messages come, in cadence order: "a weekly summary each Monday and a monthly recap early each month". */
+/** Which messages come, in cadence order: "weekly and monthly" (personal) or "each Monday and early each month" (company). */
 export function cadencePhrase(cadences: Cadence[], report: ReportKind): string {
   const words = report === "company" ? COMPANY : PERSONAL;
   return andList(CADENCES.filter((c) => cadences.includes(c)).map((c) => words[c]));
@@ -63,7 +59,7 @@ export function introFor(i: IntroInput): { blocks: SlackBlock[]; text: string } 
         ]
       : [
           `👋 *Hi ${hi},* this is your first ${what}.`,
-          `You'll get ${cadencePhrase(i.cadences, "personal")}. Each shows your own AI spend by tool${REPORTS_PHRASE[i.reports]}.`,
+          `From now on you'll get ${cadencePhrase(i.cadences, "personal")} recaps. Each shows your own AI spend by tool${REPORTS_PHRASE[i.reports]}.`,
         ];
   const footer = `${i.links ? "Use *Open in dashboard* for the detail. " : ""}Questions? Ask <${HELP_LINK}|Workplace Tech>.`;
   return {
