@@ -132,9 +132,20 @@ describe("dueReminders", () => {
     expect(keys("2026-10-18T22:30:00Z", "Australia/Sydney")).toEqual(["weekly:2026-W42"]); // Mon 09:30 AEDT
   });
   it("the month's last working day from 15:00: the Claude Team month-end reminder", () => {
-    expect(keys("2026-10-30T14:59:00Z")).toEqual([]); // 14:59 GMT, Fri 30 Oct (31st is a Saturday)
+    expect(keys("2026-10-30T14:59:00Z")).toEqual(["monthEnd:2026-10:0930"]); // 14:59 GMT, Fri 30 Oct (31st is a Saturday): still the morning slot
     expect(keys("2026-10-30T15:00:00Z")).toEqual(["monthEnd:2026-10"]);
     expect(keys("2026-11-30T15:00:00Z")).toEqual(["weekly:2026-W48", "monthEnd:2026-11"]); // a Monday: both
+  });
+
+  it("month end comes in three slots — 09:30, 15:00, 17:30 local — each its own claim, only the latest due one per run", () => {
+    expect(keys("2026-10-30T09:29:00Z")).toEqual([]);
+    expect(keys("2026-10-30T09:35:00Z")).toEqual(["monthEnd:2026-10:0930"]);
+    expect(keys("2026-10-30T15:05:00Z")).toEqual(["monthEnd:2026-10"]); // the long-standing 15:00 key, so earlier claims still match
+    expect(keys("2026-10-30T17:35:00Z")).toEqual(["monthEnd:2026-10:1730"]);
+    expect(dueReminders(new Date("2026-10-30T17:35:00Z"), "Europe/London").map((r) => r.slot)).toEqual(["lastCall"]);
+    // Review focus: the last working day on a Monday — the weekly plus the month-end slot, distinct keys.
+    expect(keys("2026-11-30T17:35:00Z")).toEqual(["weekly:2026-W48", "monthEnd:2026-11:1730"]);
+    expect(keys("2026-11-03T17:35:00Z")).toEqual([]); // the 1st and later (a Tuesday here): nothing, the table has reset
   });
   it("lastWorkingDay skips a weekend end", () => {
     expect(lastWorkingDay("2026-10")).toBe("2026-10-30");

@@ -52,3 +52,29 @@ describe("monthEndReminder", () => {
     expect(r.text).toBe("Paste Claude Team spend today");
   });
 });
+
+describe("monthEndReminder slots", () => {
+  const url = "https://x.test/data?tab=imports";
+  it("09:30: a heads-up that the table resets after today", () => {
+    const r = monthEndReminder({ monthName: "October", importsUrl: url, slot: "morning" });
+    expect(text(r)).toContain("Claude Team's table resets after today");
+    expect(text(r)).toContain("Paste it before you finish.");
+    expect(r.text).toBe("Claude Team's table resets after today — paste it before you finish");
+  });
+  it("17:30: a last call", () => {
+    const r = monthEndReminder({ monthName: "October", importsUrl: url, slot: "lastCall" });
+    expect(text(r)).toContain("Still not pasted");
+    expect(text(r)).toContain("After midnight October's figures can't be recovered.");
+    expect(r.text).toBe("Still not pasted: after midnight October's figures can't be recovered");
+  });
+});
+
+describe("weeklyReminder in the month's final week", () => {
+  it("says when the month-end paste is due", () => {
+    const r = weeklyReminder({ ...base, outstanding: [], monthEndDue: "2026-10-30" });
+    expect(text(r)).toContain("Month-end paste for Claude Team is due on Fri 30 Oct.");
+  });
+  it("says nothing about it in other weeks", () => {
+    expect(text(weeklyReminder({ ...base, outstanding: [] }))).not.toContain("Month-end paste");
+  });
+});

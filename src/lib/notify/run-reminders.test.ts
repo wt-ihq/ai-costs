@@ -60,6 +60,35 @@ describe("runReminders", () => {
     expect(slack.posts[0].text).toBe("Paste Claude Team spend today");
   });
 
+  it("month-end slots are skipped once the paste is dated the last working day", async () => {
+    const fri = new Date("2026-10-30T15:00:00Z");
+    const pasted = seed({ manualImports: [{ source: "claude_team", kind: "clipboard", dataAsOf: "2026-10-30" }] });
+    const slack = fakeSlack();
+    const store = memoryStore(pasted, () => fri.getTime());
+    expect(await runReminders(deps(store, slack.client, { now: fri, clock: () => fri.getTime() }))).toMatchObject({ due: ["monthEnd:2026-10"], sent: 0, skipped: 1 });
+    expect(slack.posts).toHaveLength(0);
+    expect(store.sends).toHaveLength(0); // nothing claimed: no row, no history
+
+    const notYet = seed({ manualImports: [{ source: "claude_team", kind: "clipboard", dataAsOf: "2026-10-29" }] });
+    expect(await runReminders(deps(memoryStore(notYet, () => fri.getTime()), fakeSlack().client, { now: fri, clock: () => fri.getTime() }))).toMatchObject({ sent: 1, skipped: 0 });
+  });
+
+  it("the last call at 17:30 goes out with its own claim", async () => {
+    const late = new Date("2026-10-30T17:30:00Z");
+    const slack = fakeSlack();
+    const store = memoryStore(seed(), () => late.getTime());
+    expect(await runReminders(deps(store, slack.client, { now: late, clock: () => late.getTime() }))).toMatchObject({ due: ["monthEnd:2026-10:1730"], sent: 1 });
+    expect(slack.posts[0].text).toBe("Still not pasted: after midnight October's figures can't be recovered");
+    expect(store.sends[0]).toMatchObject({ cadence: "monthly", periodKey: "2026-10:1730", report: "reminder", status: "sent" });
+  });
+
+  it("the Monday reminder in the month's final week says when the month-end paste is due", async () => {
+    const mon = new Date("2026-10-26T09:30:00Z");
+    const slack = fakeSlack();
+    await runReminders(deps(memoryStore(seed(), () => mon.getTime()), slack.client, { now: mon, clock: () => mon.getTime() }));
+    expect(JSON.stringify(slack.posts[0].blocks)).toContain("Month-end paste for Claude Team is due on Fri 30 Oct.");
+  });
+
   it("a reminder doesn't use up someone's first-message intro", async () => {
     const store = memoryStore(seed(), () => MON.getTime());
     await runReminders(deps(store, fakeSlack().client));
