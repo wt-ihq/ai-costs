@@ -120,7 +120,7 @@ export const BANNER_H = 288;
 
 /**
  * The welcome banner (a person's first message, intro.ts): one image for everyone, on brand — a
- * Truffle band, "Your AI spend, in Slack" in Warm Cream, a Sky Blue label and rising bars.
+ * Truffle band, "AI Spend" in Warm Cream, a Sky Blue label and rising bars.
  */
 export async function renderWelcomeBannerPng(): Promise<Uint8Array<ArrayBuffer>> {
   const bars = [0.34, 0.52, 0.7, 1];
@@ -129,12 +129,8 @@ export async function renderWelcomeBannerPng(): Promise<Uint8Array<ArrayBuffer>>
       <div style={{ width: BANNER_W, height: BANNER_H, display: "flex", backgroundColor: BRAND.truffle, fontFamily: FONT }}>
         <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", flexGrow: 1, flexShrink: 1, minWidth: 0, paddingLeft: 48 }}>
           <div style={{ fontSize: 24, fontWeight: 500, letterSpacing: 3, color: BRAND.sky }}>INTENT HQ</div>
-          {/* Satori over-spaces "r A" at this size, so that one gap is set explicitly. */}
-          <div style={{ display: "flex", fontSize: 72, fontWeight: 700, lineHeight: 1.05, color: BRAND.cream, marginTop: 10 }}>
-            <span>Your</span>
-            <span style={{ marginLeft: 2 }}>AI spend, in Slack</span>
-          </div>
-          <div style={{ fontSize: 32, fontWeight: 500, color: BRAND.creamMuted, marginTop: 14 }}>What your AI tools cost, and how it&apos;s changing</div>
+          <div style={{ display: "flex", fontSize: 72, fontWeight: 700, lineHeight: 1.05, color: BRAND.cream, marginTop: 10 }}>AI Spend</div>
+          <div style={{ fontSize: 32, fontWeight: 500, color: BRAND.creamMuted, marginTop: 14 }}>A regular summary of spending on AI tools</div>
         </div>
         <div style={{ display: "flex", alignItems: "flex-end", width: 200, flexShrink: 0, paddingTop: 64, paddingBottom: 56, paddingRight: 48 }}>
           {bars.map((h, i) => (

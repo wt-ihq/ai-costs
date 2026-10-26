@@ -95,7 +95,7 @@ describe("deliverTeamDigest", () => {
     const s = fakeSlack();
     await deliverCompanyDigest({ ...args(s.client), digest: companyDigest, renderBanner: png, intro: { name: "Ashley", cadences: ["weekly"] } });
     expect(s.uploads.map((u) => u.name)).toEqual(["ai-spend-banner.png", "ai-spend-company.png"]);
-    expect(s.posts[0].blocks[0]).toMatchObject({ type: "image", alt_text: expect.stringContaining("Your AI spend, in Slack") });
+    expect(s.posts[0].blocks[0]).toMatchObject({ type: "image", alt_text: expect.stringContaining("Welcome banner") });
 
     const later = fakeSlack();
     await deliverCompanyDigest({ ...args(later.client), digest: companyDigest, renderBanner: png });

@@ -76,7 +76,7 @@ describe("introFor", () => {
   });
 
   it("describes the welcome banner plainly for anyone who can't see it", () => {
-    expect(BANNER_ALT).toBe("Welcome banner: a rising bar chart beside the words \"Your AI spend, in Slack\"");
+    expect(BANNER_ALT).toBe("Welcome banner: a rising bar chart beside the words \"AI Spend\"");
   });
 
   it("opens with the welcome banner when one was uploaded", () => {
