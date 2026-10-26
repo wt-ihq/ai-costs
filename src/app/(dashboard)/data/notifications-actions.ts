@@ -9,7 +9,7 @@ import { addReminderRecipients, addSubscriptions, removeAllSubscriptions, remove
 import { renderChartPng, renderWelcomeBannerPng } from "@/lib/notify/chart-image";
 import { currentMode, writeStoredMode } from "@/lib/notify/mode-store";
 import { periodFor } from "@/lib/notify/schedule";
-import { catchUp, sendNow, type SendNowDeps, type SendNowResult } from "@/lib/notify/send-now";
+import { catchUp, sendLiveTest, sendNow, type SendNowDeps, type SendNowResult } from "@/lib/notify/send-now";
 import type { TestSubject, TestTarget } from "@/lib/notify/subject";
 import { supabaseNotifyStore } from "@/lib/notify/store";
 import { sendTest, type TestSendResult } from "@/lib/notify/test-send";
@@ -65,6 +65,24 @@ export async function sendDigestNow(cadence: string, periodKey: string, force: b
     return { ok: false, error: "Invalid period" };
   }
   const result = await sendNow(await sendNowDeps(), { cadence, periodKey, force, expectedMode });
+  revalidatePath("/data");
+  return result;
+}
+
+/**
+ * Live test before going live: real DMs to the chosen people now, whatever mode is stored
+ * (send-now.ts:sendLiveTest). Public POST endpoint: validates every argument.
+ */
+export async function sendLiveTestDigests(employeeIds: string[], forceWeekly: boolean): Promise<SendNowResult> {
+  await requireAdmin();
+  if (typeof forceWeekly !== "boolean") return { ok: false, error: "Invalid input" };
+  let ids: string[];
+  try {
+    ids = idsOrThrow(employeeIds);
+  } catch {
+    return { ok: false, error: "Choose at least one person" };
+  }
+  const result = await sendLiveTest(await sendNowDeps(), { employeeIds: ids, forceWeekly });
   revalidatePath("/data");
   return result;
 }

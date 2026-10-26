@@ -57,12 +57,12 @@ export async function sendNow(deps: SendNowDeps, req: SendNowRequest): Promise<S
  * last month's recap (if they have Monthly and it is ready). Anyone who already had one is skipped by
  * the claim. A held monthly is reported in `held`, not as an error.
  */
-export async function catchUp(deps: SendNowDeps, employeeIds: string[], expectedMode?: NotifyMode): Promise<SendNowResult> {
+export async function catchUp(deps: SendNowDeps, employeeIds: string[], expectedMode?: NotifyMode, opts: { forceWeekly?: boolean } = {}): Promise<SendNowResult> {
   // One time budget for both runs: the action runs inside one function invocation.
   const clock = deps.clock ?? Date.now;
   const start = clock();
   const budget = deps.budgetMs ?? DEFAULT_BUDGET_MS;
-  const weekly = await sendNow({ ...deps, budgetMs: budget }, { cadence: "weekly", periodKey: latestCompleteKey("weekly", deps.now), employeeIds, expectedMode });
+  const weekly = await sendNow({ ...deps, budgetMs: budget }, { cadence: "weekly", periodKey: latestCompleteKey("weekly", deps.now), employeeIds, expectedMode, force: opts.forceWeekly });
   if (!weekly.ok) return weekly;
   const left = budget - (clock() - start);
   let monthly: SendNowResult;
@@ -83,4 +83,15 @@ export async function catchUp(deps: SendNowDeps, employeeIds: string[], expected
     notReached: [...weekly.notReached, ...monthly.notReached],
     held: weekly.held ?? monthly.held,
   };
+}
+
+/**
+ * A live test before going live: the chosen people get their first real messages now — the latest
+ * complete week and last month's recap, as the catch-up sends them — whatever mode is stored (the
+ * admin's press is the authorisation; the mode panel is not consulted). The sends are claimed as
+ * LIVE, so switching to Live later neither repeats the period nor the welcome for them.
+ */
+export async function sendLiveTest(deps: SendNowDeps, req: { employeeIds: string[]; forceWeekly?: boolean }): Promise<SendNowResult> {
+  if (!req.employeeIds.length) return { ok: false, error: "Choose at least one person" };
+  return catchUp({ ...deps, mode: "live" }, req.employeeIds, undefined, { forceWeekly: req.forceWeekly });
 }
