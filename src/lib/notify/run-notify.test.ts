@@ -644,3 +644,69 @@ describe("runNotify: company report", () => {
   });
 });
 
+
+describe("runNotify only (Data → Notifications Send now / catch-up)", () => {
+  const SAT = new Date("2026-10-03T14:00:00Z"); // a Saturday afternoon: the schedule itself would send nothing
+  const synced = [{ source: "cursor", status: "success", startedAt: "2026-10-03T06:00:03Z" }];
+  const stale = [{ source: "cursor", status: "success", startedAt: "2026-09-25T06:00:03Z" }]; // not since the week ended
+  const sat = (store: ReturnType<typeof memoryStore>, slack: SlackClient, over: Partial<RunNotifyDeps> = {}) =>
+    deps(store, slack, { now: SAT, clock: () => SAT.getTime(), ...over });
+
+  it("sends the named week to its weekly subscribers now, on a Saturday, and the cron then finds it handled", async () => {
+    const store = memoryStore(seed({ syncRuns: synced }), () => SAT.getTime());
+    const slack = fakeSlack();
+    const r = await runNotify(sat(store, slack.client, { only: { cadence: "weekly", periodKey: "2026-W39" } }));
+    expect(r).toMatchObject({ due: ["weekly:2026-W39"], sent: 1, waiting: 0, held: [] });
+    expect(r.people).toEqual([{ employeeId: "m", report: "personal", status: "sent" }]);
+    expect(slack.posts.map((p) => p.channel)).toEqual(["D-U-m"]);
+
+    const cron = await runNotify(deps(store, slack.client)); // Monday 28 Sep's run: W39 is due, m already has it
+    expect(cron.alreadyHandled).toBe(1);
+    expect(slack.posts.filter((p) => p.channel === "D-U-m")).toHaveLength(1);
+  });
+
+  it("holds a weekly that isn't ready unless forced", async () => {
+    const store = memoryStore(seed({ syncRuns: stale }), () => SAT.getTime());
+    const held = await runNotify(sat(store, fakeSlack().client, { only: { cadence: "weekly", periodKey: "2026-W39" } }));
+    expect(held).toMatchObject({ sent: 0, held: ["weekly:2026-W39"], due: [] });
+    const forced = await runNotify(sat(store, fakeSlack().client, { only: { cadence: "weekly", periodKey: "2026-W39", force: true } }));
+    expect(forced).toMatchObject({ sent: 1, held: [] });
+  });
+
+  it("never forces a monthly", async () => {
+    const store = memoryStore(seed({ syncRuns: stale, subscriptions: [{ employeeId: "m", cadence: "monthly" }] }), () => SAT.getTime());
+    const r = await runNotify(sat(store, fakeSlack().client, { only: { cadence: "monthly", periodKey: "2026-09", force: true } }));
+    expect(r).toMatchObject({ sent: 0, held: ["monthly:2026-09"] });
+  });
+
+  it("limits to the given people", async () => {
+    const store = memoryStore(seed({ syncRuns: synced, subscriptions: [{ employeeId: "m", cadence: "weekly" }, { employeeId: "a", cadence: "weekly" }] }), () => SAT.getTime());
+    const slack = fakeSlack();
+    const r = await runNotify(sat(store, slack.client, { only: { cadence: "weekly", periodKey: "2026-W39", employeeIds: ["m"] } }));
+    expect(r.sent).toBe(1);
+    expect(r.people).toEqual([{ employeeId: "m", report: "personal", status: "sent" }]);
+  });
+
+  it("a pending claim (the cron mid-send) blocks send-now for that person", async () => {
+    const store = memoryStore(
+      seed({ syncRuns: synced, sends: [{ employeeId: "m", cadence: "weekly", periodKey: "2026-W39", mode: "live", status: "pending", attempts: 1, slackTs: null, detail: null, updatedAt: SAT.toISOString() }] }),
+      () => SAT.getTime(),
+    );
+    const slack = fakeSlack();
+    const r = await runNotify(sat(store, slack.client, { only: { cadence: "weekly", periodKey: "2026-W39" } }));
+    expect(r).toMatchObject({ sent: 0, alreadyHandled: 1 });
+    expect(r.people).toEqual([{ employeeId: "m", report: "personal", status: "alreadyHandled" }]);
+    expect(slack.posts).toHaveLength(0);
+  });
+
+  it("sends the company report too, and names a failed send", async () => {
+    const store = memoryStore(seed({ syncRuns: synced, companyRecipients: [{ employeeId: "a", cadence: "weekly" }] }), () => SAT.getTime());
+    const slack = fakeSlack({ postMessage: async (channel) => { if (channel === "D-U-a") throw new Error("boom"); return "ts1"; } });
+    const r = await runNotify(sat(store, slack.client, { only: { cadence: "weekly", periodKey: "2026-W39" } }));
+    expect(r).toMatchObject({ sent: 1, failed: 1 });
+    expect(r.people).toEqual(expect.arrayContaining([
+      { employeeId: "m", report: "personal", status: "sent" },
+      { employeeId: "a", report: "company", status: "failed", detail: expect.stringContaining("boom") }, // a post that threw: outcome unknown
+    ]));
+  });
+});

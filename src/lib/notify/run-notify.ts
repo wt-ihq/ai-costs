@@ -21,6 +21,13 @@ export interface RunNotifyDeps {
   now: Date; // the moment being run (?date= replays in preview)
   /** A ?date= replay: everyone's day is that date and nobody waits for 10:30. */
   replay?: boolean;
+  /**
+   * Send one digest now (Data → Notifications "Send now" / catch-up on add): this cadence and period
+   * only, today is the send day for everyone (no 10:30 wait, weekends included), the weekly optionally
+   * forced past its readiness hold (a monthly never is), optionally limited to these people. The claim
+   * key is unchanged, so the hourly run then finds it handled.
+   */
+  only?: { cadence: Cadence; periodKey: string; force?: boolean; employeeIds?: string[] };
   baseUrl: string;
   /** ADMIN_EMAILS: with the access list, who gets the dashboard button and links. */
   adminEmails: readonly string[];
@@ -43,6 +50,15 @@ export interface RunNotifyResult {
   /** Weeklies/monthlies someone is waiting for whose data isn't complete yet ("weekly:2026-W42"). */
   held: string[];
   note?: string;
+  /** One line per (recipient, report) this run considered — what happened to each. */
+  people: PersonOutcome[];
+}
+
+export interface PersonOutcome {
+  employeeId: string;
+  report: ReportKind;
+  status: "sent" | "skipped" | "failed" | "alreadyHandled" | "notReached";
+  detail?: string;
 }
 
 const CADENCES: Cadence[] = ["daily", "weekly", "monthly"];
@@ -69,7 +85,10 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
   const log = deps.log ?? console.log;
   const start = clock();
   const budget = deps.budgetMs ?? DEFAULT_BUDGET_MS;
-  const result: RunNotifyResult = { due: [], sent: 0, skipped: 0, failed: 0, alreadyHandled: 0, notReached: 0, expired: 0, waiting: 0, held: [] };
+  const result: RunNotifyResult = { due: [], sent: 0, skipped: 0, failed: 0, alreadyHandled: 0, notReached: 0, expired: 0, waiting: 0, held: [], people: [] };
+  const only = deps.only;
+  const note = (w: { recipient: NotifyEmployee; report: ReportKind }, status: PersonOutcome["status"], detail?: string) =>
+    result.people.push(detail ? { employeeId: w.recipient.id, report: w.report, status, detail } : { employeeId: w.recipient.id, report: w.report, status });
   const done = () => {
     log(`[notify] mode=${deps.mode} due=${result.due.join(",")} sent=${result.sent} skipped=${result.skipped} failed=${result.failed} waiting=${result.waiting} held=${result.held.join(",")} notReached=${result.notReached} expired=${result.expired}`);
     return result;
@@ -82,7 +101,7 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
   const subs: { employeeId: string; cadence: Cadence; report: ReportKind }[] = [
     ...personal.map((s) => ({ ...s, report: "personal" as const })),
     ...company.map((s) => ({ ...s, report: "company" as const })),
-  ];
+  ].filter((s) => !only || (s.cadence === only.cadence && (!only.employeeIds || only.employeeIds.includes(s.employeeId))));
   if (!subs.length) return done();
   const employees = await store.employees();
   const employeesById = new Map(employees.map((e) => [e.id, e]));
@@ -98,6 +117,7 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
     if (!recipient || !isActiveEmployee(recipient)) continue;
     if (clock() - start > budget) {
       result.notReached++; // nothing claimed: the next hourly run carries on from the cache
+      note({ recipient, report: sub.report }, "notReached");
       continue;
     }
     const target = previewTarget ?? recipient;
@@ -114,7 +134,7 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
       }
     }
     const slackUser = slackUsers.get(target.id) ?? null;
-    const day = deps.replay ? now.toISOString().slice(0, 10) : sendDay(now, slackUser?.tz ?? null);
+    const day = deps.replay || only ? now.toISOString().slice(0, 10) : sendDay(now, slackUser?.tz ?? null);
     if (!day) {
       result.waiting++;
       continue;
@@ -131,7 +151,7 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
   // A monthly is due from the 3rd to month end, so check who still needs it BEFORE reading import
   // coverage: once it's gone out, the rest of the month's hourly runs stay cheap.
   const monthKeyOn = (day: string) => latestCompleteKey("monthly", new Date(`${day}T12:00:00Z`));
-  const monthlyCands = candidates.filter((c) => c.cadence === "monthly" && inMonthlyWindow(c.day));
+  const monthlyCands = candidates.filter((c) => c.cadence === "monthly" && (only || inMonthlyWindow(c.day)));
   const monthlyStates = monthlyCands.length ? await store.sendStates([...new Set(monthlyCands.map((c) => monthKeyOn(c.day)))], deps.mode) : [];
   const monthlyOpen = (c: (typeof candidates)[number]) => {
     const row = monthlyStates.find((s) => s.employeeId === c.recipient.id && s.cadence === "monthly" && s.periodKey === monthKeyOn(c.day) && s.report === c.report);
@@ -145,12 +165,19 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
   const dueByDay = new Map<string, DueDigest[]>();
   for (const day of days) {
     const at = new Date(`${day}T12:00:00Z`);
-    const week = periodFor("weekly", latestCompleteKey("weekly", at), at);
-    const prevMonth = latestCompleteKey("monthly", at);
-    const weekReady = wants(day, "weekly") && weekReadiness({ week, syncRuns, imports }).ready;
+    // The named period for a send-now; the latest complete one for the schedule.
+    const week = periodFor("weekly", only?.cadence === "weekly" ? only.periodKey : latestCompleteKey("weekly", at), at);
+    const prevMonth = only?.cadence === "monthly" ? only.periodKey : latestCompleteKey("monthly", at);
+    const weekReady = wants(day, "weekly") && (weekReadiness({ week, syncRuns, imports }).ready || (only?.force ?? false));
     const monthReady = wantsMonthly(day) && monthlyReadiness(coverage, prevMonth).ready && syncsOutstanding(syncRuns, `${day.slice(0, 7)}-01`).length === 0;
     if (wants(day, "weekly") && !weekReady) result.held.push(`weekly:${week.key}`);
     if (wantsMonthly(day) && !monthReady) result.held.push(`monthly:${prevMonth}`);
+    if (only) {
+      // Send now: just the named digest, if it may go — never the day's daily, no working-day rule.
+      const ready = only.cadence === "weekly" ? weekReady : only.cadence === "monthly" ? monthReady : true;
+      dueByDay.set(day, ready ? [{ period: periodFor(only.cadence, only.periodKey, at) }] : []);
+      continue;
+    }
     let due = dueDigests(day, { week: weekReady, month: monthReady });
     if (!syncSucceededSince(syncRuns, day)) {
       // The daily covers yesterday: it waits for today's sync. Weeklies/monthlies have their own check.
@@ -170,22 +197,30 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
   });
 
   result.alreadyHandled += monthlyHandled; // sent monthlies, found before the coverage read
+  for (const c of monthlyCands.filter((c) => !monthlyOpen(c))) note(c, "alreadyHandled");
 
   // 3. Drop what's already handled, so a run with nothing left to send never loads the spend data.
   //    A missing Slack account isn't retried: Slack's answer is cached for a week.
   const states = await store.sendStates([...new Set(work.map((w) => w.period.key))], deps.mode);
   const open = work.filter((w) => {
     const row = states.find((s) => s.employeeId === w.recipient.id && s.cadence === w.cadence && s.periodKey === w.period.key && s.report === w.report);
-    return !row || (w.slackUser !== null && canRetakeClaim(row));
+    if (!row || (w.slackUser !== null && canRetakeClaim(row))) return true;
+    note(w, "alreadyHandled");
+    return false;
   });
   result.alreadyHandled += work.length - open.length;
 
   // No Slack account: log it without loading any spend data.
   for (const w of open.filter((o) => !o.slackUser)) {
     const key = sendKey(deps, w);
-    if (!(await claim(store, key, result, log))) continue;
+    const before = { handled: result.alreadyHandled, failed: result.failed };
+    if (!(await claim(store, key, result, log))) {
+      note(w, result.failed > before.failed ? "failed" : "alreadyHandled", result.failed > before.failed ? "claim failed" : undefined);
+      continue;
+    }
     await store.finishSend(key, { status: "failed", detail: "no Slack account" }).catch(() => undefined);
     result.failed++;
+    note(w, "failed", "no Slack account");
   }
   const sendable = open.filter((o): o is typeof o & { slackUser: SlackRecipient } => o.slackUser !== null);
   if (!sendable.length) return done();
@@ -207,9 +242,10 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
   for (const w of sendable) {
     if (clock() - start > budget) {
       result.notReached++;
+      note(w, "notReached");
       continue;
     }
-    await sendOne(deps, w, ctx, result, { log, previewTarget, companyDigests, canOpenDashboard, intros });
+    await sendOne(deps, w, ctx, result, { log, previewTarget, companyDigests, canOpenDashboard, intros, note });
   }
   return done();
 }
@@ -268,23 +304,29 @@ async function sendOne(
   w: { recipient: NotifyEmployee; cadence: Cadence; report: ReportKind; slackUser: SlackRecipient; period: DigestPeriod },
   ctx: NotifyContext,
   result: RunNotifyResult,
-  { log, previewTarget, companyDigests, canOpenDashboard, intros }: {
+  { log, previewTarget, companyDigests, canOpenDashboard, intros, note }: {
     log: (m: string) => void;
     previewTarget: NotifyEmployee | undefined;
     companyDigests: Map<string, CompanyDigest | null>;
     canOpenDashboard: (email: string) => boolean;
     intros: IntroState;
+    note: (w: { recipient: NotifyEmployee; report: ReportKind }, status: PersonOutcome["status"], detail?: string) => void;
   },
 ): Promise<void> {
   const { store, slack } = deps;
   const { recipient, cadence, period } = w;
   const key = sendKey(deps, w);
+  const before = { failed: result.failed };
   const sendId = await claim(store, key, result, log);
-  if (!sendId) return;
+  if (!sendId) {
+    note(w, result.failed > before.failed ? "failed" : "alreadyHandled", result.failed > before.failed ? "claim failed" : undefined);
+    return;
+  }
 
   const skip = async () => {
     await store.finishSend(key, { status: "skipped", detail: "no usage" });
     result.skipped++;
+    note(w, "skipped", "no usage");
   };
   // Decided by the person it's for — in preview too, so the preview shows what they would get.
   const links = canOpenDashboard(recipient.email);
@@ -320,18 +362,22 @@ async function sendOne(
     posted = true;
     await store.finishSend(key, { status: "sent", slackTs: ts, dashboardLink: links });
     result.sent++;
+    note(w, "sent");
   } catch (err) {
     if (posted) {
       // The DM went out; leave the row pending → it expires as "interrupted" and is never retried.
       result.sent++;
+      note(w, "sent");
       log(`[notify] sent but not recorded ${who(key)}: ${errorDetail(err)}`);
     } else if (err instanceof PostOutcomeUnknownError) {
       // Slack may have accepted the DM. Leave the row pending (no finishSend) → the stale sweep
       // marks it "interrupted", which is never retried. Counted failed so the run is flagged.
       result.failed++;
+      note(w, "failed", `Slack ${err.code}: outcome unknown`);
       log(`[notify] post outcome unknown ${who(key)}: ${err.code}`);
     } else {
       result.failed++;
+      note(w, "failed", errorDetail(err));
       log(`[notify] send failed ${who(key)}: ${errorDetail(err)}`);
       await store.finishSend(key, { status: "failed", detail: errorDetail(err) }).catch(() => undefined);
     }
