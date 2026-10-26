@@ -632,7 +632,7 @@ describe("runNotify: company report", () => {
       await runNotify(deps(store, slack.client, { renderBanner: png }));
       expect(slack.uploads.filter((u) => u === "ai-spend-banner.png")).toHaveLength(1); // a's first; m had one before
       expect(to(slack.posts, "a")[0].blocks[0]).toMatchObject({ type: "image" });
-      expect(to(slack.posts, "m")[0].blocks.some((b) => JSON.stringify(b).includes("Your AI spend, in Slack"))).toBe(false);
+      expect(to(slack.posts, "m")[0].blocks.some((b) => JSON.stringify(b).includes("Welcome banner"))).toBe(false);
     });
 
     it("sends no intros when the send history can't be read (a missed welcome beats a second one)", async () => {

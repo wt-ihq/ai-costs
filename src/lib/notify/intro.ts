@@ -19,7 +19,7 @@ export interface IntroInput {
 }
 
 /** Alt text: what the picture IS, for anyone who can't see it — not a slogan. */
-export const BANNER_ALT = 'Welcome banner: a rising bar chart beside the words "Your AI spend, in Slack"';
+export const BANNER_ALT = 'Welcome banner: a rising bar chart beside the words "AI Spend"';
 
 /** The first word of an Okta name ("Jerry Marcel Lieveld" → "Jerry"); null when there's none. */
 export function firstName(fullName: string): string | null {
