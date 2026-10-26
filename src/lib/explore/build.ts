@@ -1,3 +1,4 @@
+import type { LastUpdated } from "./last-updated";
 import type { Dim, ExploreData } from "./types";
 import type { Period } from "./period";
 import { packFacts, unpackFacts, type PackedFacts } from "./pack";
@@ -13,9 +14,9 @@ import {
  * which re-derives the per-period views in-memory (no refetch on period change).
  */
 export type RawScope =
-  | { kind: "company"; title: string; earliest: string; facts: ShapeFact[]; headcounts: Record<string, number>; employees: { id: string; fullName: string | null; department: string | null }[]; toolColors: Record<string, string>; horizons: Record<string, string> }
-  | { kind: "team"; title: string; earliest: string; facts: ShapeFact[]; team: string; employees: { id: string; fullName: string | null }[]; toolColors: Record<string, string>; horizons: Record<string, string> }
-  | { kind: "person"; title: string; earliest: string; facts: ShapeFact[]; toolColors: Record<string, string>; horizons: Record<string, string> };
+  | { kind: "company"; title: string; earliest: string; facts: ShapeFact[]; headcounts: Record<string, number>; employees: { id: string; fullName: string | null; department: string | null }[]; toolColors: Record<string, string>; horizons: Record<string, string>; lastUpdated: LastUpdated }
+  | { kind: "team"; title: string; earliest: string; facts: ShapeFact[]; team: string; employees: { id: string; fullName: string | null }[]; toolColors: Record<string, string>; horizons: Record<string, string>; lastUpdated: LastUpdated }
+  | { kind: "person"; title: string; earliest: string; facts: ShapeFact[]; toolColors: Record<string, string>; horizons: Record<string, string>; lastUpdated: LastUpdated };
 
 /**
  * The wire/cache form of a RawScope: facts packed into string tables + index
