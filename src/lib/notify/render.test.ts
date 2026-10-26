@@ -151,7 +151,7 @@ describe("renderDigest", () => {
     const r = renderDigest(digest(), {}, { intro: { name: "Priya", cadences: ["weekly", "monthly"] }, previewFor: "Priya Nair (weekly)", links: true });
     expect(r.blocks[0]).toMatchObject({ type: "context" }); // the cron's preview line stays on top
     expect(mrk(r.blocks[1])).toContain("👋 *Hi Priya,* this is your first AI spend summary.");
-    expect(mrk(r.blocks[1])).toContain("and the total spend for the people who report to you");
+    expect(mrk(r.blocks[1])).toContain("and the total for the people who report to you");
     expect(r.blocks[3]).toEqual({ type: "divider" });
     expect(r.blocks[4]).toMatchObject({ type: "header" });
     expect(r.text.startsWith("[Preview for Priya Nair (weekly)] Hi Priya — your first AI spend summary. Your AI spend · ")).toBe(true);
@@ -159,7 +159,7 @@ describe("renderDigest", () => {
 
   it("matches the intro to the summary: teams for a manager of managers, nothing about reports without them", () => {
     const senior = renderDigest(digest({ reports: { ...digest().reports!, branches: [] } }), {}, { intro: { name: "Dana", cadences: ["weekly"] } });
-    expect(mrk(senior.blocks[0])).toContain("the total spend for the teams who report to you");
+    expect(mrk(senior.blocks[0])).toContain("the total for the teams who report to you");
     const solo = renderDigest(digest({ reports: null }), {}, { intro: { name: "Sam", cadences: ["weekly"] } });
     expect(mrk(solo.blocks[0])).not.toContain("report to you");
   });

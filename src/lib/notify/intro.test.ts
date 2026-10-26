@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cadencePhrase, firstName, introFor } from "./intro";
+import { BANNER_ALT, cadencePhrase, firstName, introFor } from "./intro";
 
 describe("firstName", () => {
   it("is the first word of the Okta name", () => {
@@ -35,9 +35,9 @@ describe("introFor", () => {
       text: {
         type: "mrkdwn",
         text:
-          "👋 *Hi Priya,* this is your first AI spend summary.\n" +
-          "From now on you'll get weekly and monthly recaps. Each shows your own AI spend by tool and the total spend for the people who report to you, with comparisons to the previous period.\n" +
-          "To start with, these go to department heads and the people with the highest AI spend.",
+          "👋 *Hi Priya,* this is your first AI spend summary.\n\n" +
+          "From now on you'll get weekly and monthly recaps. Each one shows what you spent on each AI tool, and the total for the people who report to you, compared with the period before.\n\n" +
+          "_To start with, only department heads and the people with the highest AI spend get these._",
       },
     });
     expect(i.blocks[1]).toEqual({
@@ -50,19 +50,19 @@ describe("introFor", () => {
 
   it("speaks of teams to someone who manages managers", () => {
     expect(text(introFor({ ...base, cadences: ["weekly"], reports: "byTeam" }))).toContain(
-      "Each shows your own AI spend by tool and the total spend for the teams who report to you, with comparisons to the previous period.",
+      "Each one shows what you spent on each AI tool, and the total for the teams who report to you, compared with the period before.",
     );
   });
 
   it("leaves out reports for someone without any, and the dashboard for someone who can't open it", () => {
     const i = text(introFor({ ...base, cadences: ["weekly"], reports: "none", links: false }));
-    expect(i).toContain("Each shows your own AI spend by tool.\\nTo start with");
+    expect(i).toContain("Each one shows what you spent on each AI tool, compared with the period before.\\n\\n_To start with");
     expect(i).not.toContain("Open in dashboard");
     expect(i).toContain('"text":"Questions? Ask <https://slack.com/app_redirect?channel=C02ND4XRSLR|Workplace Tech>."');
   });
 
   it("tells the personal list who gets these to start with, but not the company list", () => {
-    const line = "To start with, these go to department heads and the people with the highest AI spend.";
+    const line = "_To start with, only department heads and the people with the highest AI spend get these._";
     expect(text(introFor({ ...base, cadences: ["weekly"], reports: "none", links: false }))).toContain(line);
     expect(text(introFor({ ...base, report: "company", cadences: ["weekly"] }))).not.toContain(line);
   });
@@ -70,14 +70,18 @@ describe("introFor", () => {
   it("introduces the company report on its own terms", () => {
     const i = introFor({ ...base, report: "company", cadences: ["weekly", "monthly"] });
     expect(text(i)).toContain(
-      "👋 *Hi Priya,* this is your first company AI spend report.\\nYou'll get the whole company's AI spend each Monday and early each month: usage by team and person, then seats and subscriptions, compared with the period before.",
+      "👋 *Hi Priya,* this is your first company AI spend report.\\n\\nYou'll get the whole company's AI spend each Monday and early each month: usage by team and person, then seats and subscriptions, compared with the period before.",
     );
     expect(i.text).toBe("Hi Priya — your first company AI spend report. ");
   });
 
+  it("describes the welcome banner plainly for anyone who can't see it", () => {
+    expect(BANNER_ALT).toBe("Welcome banner: a rising bar chart beside the words \"Your AI spend, in Slack\"");
+  });
+
   it("opens with the welcome banner when one was uploaded", () => {
     const i = introFor({ ...base, cadences: ["weekly"], bannerFileId: "F9" });
-    expect(i.blocks[0]).toEqual({ type: "image", slack_file: { id: "F9" }, alt_text: "Your AI spend, in Slack: what your AI tools cost, and how it's changing" });
+    expect(i.blocks[0]).toEqual({ type: "image", slack_file: { id: "F9" }, alt_text: BANNER_ALT });
     expect(i.blocks[1]).toMatchObject({ type: "section" });
   });
 
