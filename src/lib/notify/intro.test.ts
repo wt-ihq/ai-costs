@@ -36,8 +36,8 @@ describe("introFor", () => {
         type: "mrkdwn",
         text:
           "👋 *Hi Priya,* this is your first AI spend summary.\n\n" +
-          "From now on you'll get weekly and monthly recaps. Each one shows what you spent on each AI tool, and the total for the people who report to you, compared with the period before.\n\n" +
-          "_To start with, only department heads and the people with the highest AI spend get these._",
+          "From now on you'll get weekly and monthly recaps. Each shows your AI spend by tool and your team's total, compared with the previous period.\n\n" +
+          "_Initially, only team leads and the highest spenders get these._",
       },
     });
     expect(i.blocks[1]).toEqual({
@@ -48,21 +48,24 @@ describe("introFor", () => {
     expect(i.text).toBe("Hi Priya — your first AI spend summary. ");
   });
 
-  it("speaks of teams to someone who manages managers", () => {
+  it("says the same to someone who manages managers, and 'the whole company' to the top of the chain", () => {
     expect(text(introFor({ ...base, cadences: ["weekly"], reports: "byTeam" }))).toContain(
-      "Each one shows what you spent on each AI tool, and the total for the teams who report to you, compared with the period before.",
+      "Each shows your AI spend by tool and your team's total, compared with the previous period.",
+    );
+    expect(text(introFor({ ...base, cadences: ["weekly"], reports: "company" }))).toContain(
+      "Each shows your AI spend by tool and the whole company's, compared with the previous period.",
     );
   });
 
   it("leaves out reports for someone without any, and the dashboard for someone who can't open it", () => {
     const i = text(introFor({ ...base, cadences: ["weekly"], reports: "none", links: false }));
-    expect(i).toContain("Each one shows what you spent on each AI tool, compared with the period before.\\n\\n_To start with");
+    expect(i).toContain("Each shows your AI spend by tool, compared with the previous period.\\n\\n_Initially");
     expect(i).not.toContain("Open in dashboard");
     expect(i).toContain('"text":"Questions? Ask <https://slack.com/app_redirect?channel=C02ND4XRSLR|Workplace Tech>."');
   });
 
   it("tells the personal list who gets these to start with, but not the company list", () => {
-    const line = "_To start with, only department heads and the people with the highest AI spend get these._";
+    const line = "_Initially, only team leads and the highest spenders get these._";
     expect(text(introFor({ ...base, cadences: ["weekly"], reports: "none", links: false }))).toContain(line);
     expect(text(introFor({ ...base, report: "company", cadences: ["weekly"] }))).not.toContain(line);
   });

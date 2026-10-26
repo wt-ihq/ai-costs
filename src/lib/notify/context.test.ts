@@ -43,6 +43,25 @@ describe("loadNotifyContext / digestFor", () => {
   });
 });
 
+describe("digestFor at the top of the chain", () => {
+  it("gives the top person the company report's sections in place of their reports", async () => {
+    const store = memoryStore({
+      employees: [emp("ceo"), emp("a", { managerRef: "00uceo" }), emp("b", { managerRef: "00ua" })],
+      facts: [fact("2026-09-22", 10, "ceo"), fact("2026-09-23", 25, "a"), fact("2026-09-23", 5, "b")],
+    });
+    const ctx = await loadNotifyContext(store, now, "https://x.test");
+    const period = periodFor("weekly", "2026-W39", now);
+    const top = digestFor(ctx, "ceo", period)!;
+    expect(top.you.headlineUsd).toBe(10);
+    expect(top.reports).toBeNull();
+    expect(top.company!.usage.headlineUsd).toBe(40); // everyone, the top person included
+    expect(top.company!.usage.headcount).toBe(3);
+    const mid = digestFor(ctx, "a", period)!;
+    expect(mid.reports!.headlineUsd).toBe(5);
+    expect(mid.company).toBeUndefined();
+  });
+});
+
 describe("teamDigestFor", () => {
   const store = memoryStore({
     employees: [emp("m"), emp("a", { managerRef: "00um" }), emp("s", { department: "Data" })],

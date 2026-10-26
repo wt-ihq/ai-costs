@@ -116,7 +116,9 @@ export interface Digest {
   recipient: { employeeId: string; name: string; team: string | null };
   period: DigestPeriod;
   you: DigestSection;
-  reports: ReportsSection | null; // present iff the recipient has descendants
+  reports: ReportsSection | null; // present iff the recipient has descendants (and they aren't the top of the chain)
+  /** The top of the chain only (tree.ts:topOfChain): the company report's sections in place of reports. */
+  company?: Pick<CompanyDigest, "usage" | "fixed" | "totalUsd">;
   caveats: string[];
   dashboardUrl: string;
 }
