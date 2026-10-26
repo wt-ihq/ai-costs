@@ -6,7 +6,8 @@ import { SYNC_SOURCE_LABEL, syncSourceLabel } from "./sync-sources";
 describe("sync source names", () => {
   it("names every source the sync runs", () => {
     const src = readFileSync(join(process.cwd(), "src/lib/ingest/run-all.ts"), "utf8");
-    const sources = [...src.matchAll(/run\("([a-z_]+)"/g)].map((m) => m[1]);
+    // Okta is `run("okta", …)`; the rest are `["name", () => …]` lane entries.
+    const sources = [...src.matchAll(/(?:run\(|\[)"([a-z_]+)", /g)].map((m) => m[1]);
     expect(sources.length).toBeGreaterThanOrEqual(11);
     expect(sources.filter((s) => !(s in SYNC_SOURCE_LABEL))).toEqual([]);
   });

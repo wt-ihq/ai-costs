@@ -11,6 +11,13 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-10-26",
+    title: "A steadier nightly sync",
+    items: [
+      "The nightly sync no longer overloads the database late in the month. Vercel (and some nights Cursor and OpenAI) had been left half-finished since 20 October and showed as not synced on Data → Sync and in the Monday reminder; the heavy sources now take turns and write in smaller pieces.",
+    ],
+  },
+  {
     date: "2026-10-21",
     title: "Weekly summaries wait for complete figures",
     items: [

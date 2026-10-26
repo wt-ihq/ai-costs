@@ -34,6 +34,21 @@ async function loadVercelDepartments(supabase: SupabaseClient): Promise<Map<stri
  * stale map read, and heals on the next run (assignments re-attach history
  * in place; syncs re-derive the current month from the committed map).
  */
+/**
+ * Days of charges kept in the nightly raw payload. The window is month-to-date,
+ * so a full payload would re-store the whole month every night (that insert
+ * was in flight when the DB crash-restarted at 06:02 UTC on 20–26 Oct 2026).
+ * Each day still lands in a week of consecutive payloads for replay.
+ */
+export const RAW_PAYLOAD_DAYS = 7;
+
+/** The window's last RAW_PAYLOAD_DAYS days (exclusive end), clamped to the window start. */
+export function rawPayloadWindow(window: DateWindow): DateWindow {
+  const end = new Date(`${window.endDate}T00:00:00Z`);
+  const tail = new Date(end.getTime() - RAW_PAYLOAD_DAYS * 86_400_000).toISOString().slice(0, 10);
+  return { startDate: tail > window.startDate ? tail : window.startDate, endDate: window.endDate };
+}
+
 export async function syncVercel(
   supabase: SupabaseClient,
   window: DateWindow,
@@ -42,7 +57,14 @@ export async function syncVercel(
   const runId = await startSyncRun(supabase, "vercel");
   try {
     const charges = await fetcher(window);
-    await saveRawPayload(supabase, "vercel", runId, { charges });
+    const kept = rawPayloadWindow(window);
+    await saveRawPayload(supabase, "vercel", runId, {
+      window: kept,
+      charges: charges.filter((c) => {
+        const day = c.ChargePeriodStart?.slice(0, 10) ?? "";
+        return day >= kept.startDate && day < kept.endDate;
+      }),
+    });
     await upsertVercelProjects(supabase, charges);
     const departments = await loadVercelDepartments(supabase);
     const facts: ResolvedFact[] = normalizeVercel(charges).map((f) => ({

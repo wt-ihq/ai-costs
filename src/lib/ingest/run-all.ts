@@ -43,21 +43,45 @@ export async function runAllSyncs(
     }
   };
 
+  // Lanes: which sources may run at the same time. Ten sources writing at once
+  // crash-restarted the (1 GB) production database at ~06:02 UTC on 20–26 Oct
+  // 2026, just as the Vercel sync — the heaviest writer, after an ~85 s
+  // month-to-date fetch — started its writes. The heavy writers share a lane so
+  // their write phases never overlap; OpenAI sits alone because its time is
+  // mostly spent waiting out the 06:00 rate limit, not writing; the light
+  // sources take a few seconds each. Worst case stays inside the 300 s cron:
+  // Cursor (~90 s) + Vercel (~100 s) alongside OpenAI (≤ ~190 s of backoff).
+  type Source = [name: string, fn: () => Promise<{ rowsWritten: number }>];
+  const lanes: Source[][] = [
+    [
+      ["cursor", () => syncCursor(supabase, { ...window, eventsDays: opts.cursorEventsDays })],
+      ["vercel", () => syncVercel(supabase, window)],
+    ],
+    [["openai", () => syncOpenAI(supabase, window)]],
+    [
+      ["anthropic", () => syncAnthropic(supabase, window)],
+      ["openrouter", () => syncOpenRouter(supabase, window)],
+      ["chatgpt_seats", () => syncChatGptSeats(supabase)],
+      ["claude_seats", () => syncClaudeSeats(supabase)],
+      ["claude_spend", () => rebuildClaudeSpend(supabase, recentClaudeMonths(new Date()))],
+      ["recurring", () => syncRecurring(supabase)],
+      ["ecb", () => syncEcb(supabase)],
+      ["cursor_models", () => syncCursorModels(supabase, window)],
+    ],
+  ];
+
   await run("okta", () => syncOkta(supabase));
-  await Promise.all([
-    run("cursor", () => syncCursor(supabase, { ...window, eventsDays: opts.cursorEventsDays })),
-    run("cursor_models", () => syncCursorModels(supabase, window)),
-    run("anthropic", () => syncAnthropic(supabase, window)),
-    run("openai", () => syncOpenAI(supabase, window)),
-    run("vercel", () => syncVercel(supabase, window)),
-    run("openrouter", () => syncOpenRouter(supabase, window)),
-    run("chatgpt_seats", () => syncChatGptSeats(supabase)),
-    run("claude_seats", () => syncClaudeSeats(supabase)),
-    run("claude_spend", () => rebuildClaudeSpend(supabase, recentClaudeMonths(new Date()))),
-    run("recurring", () => syncRecurring(supabase)),
-    run("ecb", () => syncEcb(supabase)),
-  ]);
+  await runLanes(lanes, ([name, fn]) => run(name, fn));
   return results;
+}
+
+/** Run each lane's items in order; lanes run concurrently. `run` must not throw (runAllSyncs' `run` catches). */
+export async function runLanes<T>(lanes: T[][], run: (item: T) => Promise<void>): Promise<void> {
+  await Promise.all(
+    lanes.map(async (lane) => {
+      for (const item of lane) await run(item);
+    }),
+  );
 }
 
 /** Trailing-N-day window ending today. */
