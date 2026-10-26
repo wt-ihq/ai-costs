@@ -43,6 +43,29 @@ describe("upsertSpendFacts", () => {
     expect(written).toBe(1);
     expect(sent).toHaveLength(1);
   });
+
+  // The nightly Vercel sync sends 9–13k rows late in the month; one statement
+  // that size has hit Postgres' statement timeout and coincides with the DB
+  // crash-restarts seen at 06:02 UTC. Batches keep each statement small.
+  it("sends large fact sets in batches of at most 1000 rows", async () => {
+    const batches: number[] = [];
+    const fake = {
+      from: () => ({
+        upsert: (rows: Record<string, unknown>[]) => {
+          batches.push(rows.length);
+          return Promise.resolve({ error: null });
+        },
+      }),
+    } as unknown as SupabaseClient;
+
+    const facts: ResolvedFact[] = Array.from({ length: 2500 }, (_, i) => ({
+      source: "vercel", day: "2026-10-01", costType: "metered", entityKey: `project-${i}`, model: "Compute", costUsd: 1, employeeId: null,
+    }));
+    const written = await upsertSpendFacts(fake, facts);
+
+    expect(written).toBe(2500);
+    expect(batches).toEqual([1000, 1000, 500]);
+  });
 });
 
 /** Stateful in-memory spend_facts table supporting the exact call chains replaceWindowFacts makes. */

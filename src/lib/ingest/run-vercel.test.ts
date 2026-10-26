@@ -16,6 +16,7 @@ function fakeVercelDb(
   const spendRows: Record<string, unknown>[] = initialSpendFacts.map((r, i) => ({ id: `seed${i}`, ...r }));
   const projectRows: Record<string, unknown>[] = [...initialVercelProjects];
   const projectUpsertCalls: Record<string, unknown>[][] = [];
+  const rawPayloads: Record<string, unknown>[] = [];
   let nextId = 0;
   let runId = 0;
 
@@ -81,7 +82,12 @@ function fakeVercelDb(
             update: () => ({ eq: () => Promise.resolve({ error: null }) }),
           };
         case "raw_payloads":
-          return { insert: () => Promise.resolve({ error: null }) };
+          return {
+            insert: (row: Record<string, unknown>) => {
+              rawPayloads.push(row.payload as Record<string, unknown>);
+              return Promise.resolve({ error: null });
+            },
+          };
         case "vercel_projects":
           return vercelProjectsTable();
         case "spend_facts":
@@ -92,7 +98,7 @@ function fakeVercelDb(
     },
   } as unknown as SupabaseClient;
 
-  return { client, spendRows, projectRows, projectUpsertCalls };
+  return { client, spendRows, projectRows, projectUpsertCalls, rawPayloads };
 }
 
 const window = { startDate: "2026-07-01", endDate: "2026-08-01" };
@@ -130,6 +136,31 @@ describe("syncVercel", () => {
     expect(written).toBeDefined();
     expect(written?.department).toBe("Technology");
     expect(written?.cost_usd).toBe(12.5);
+  });
+
+  // The nightly window is month-to-date, so a full raw payload re-stores the
+  // whole month every night (and that insert is what was in flight when the
+  // DB crash-restarted at 06:02). Keep only the window's last 7 days: each day
+  // still lands in a week of consecutive payloads, so a normalizer fix can be
+  // replayed, but the nightly write stays small. Facts are still written for
+  // the whole window.
+  it("saves only the window's last 7 days of charges as the raw payload, but writes facts for the whole window", async () => {
+    const { client, spendRows, rawPayloads } = fakeVercelDb([]);
+    const charge = (day: string) => ({
+      BilledCost: 1, ChargeCategory: "Usage", ChargePeriodStart: `${day}T00:00:00Z`, ServiceName: "Compute",
+      Tags: { ProjectId: "prj_abc", ProjectName: "ai-costs" },
+    });
+    const fetcher: VercelFetcher = async () => [charge("2026-07-02"), charge("2026-07-24"), charge("2026-07-25"), charge("2026-07-31")];
+
+    const result = await syncVercel(client, window, fetcher);
+
+    expect(result.rowsWritten).toBe(4);
+    expect(spendRows.map((r) => r.day).sort()).toEqual(["2026-07-02", "2026-07-24", "2026-07-25", "2026-07-31"]);
+    expect(rawPayloads).toHaveLength(1);
+    expect(rawPayloads[0]).toEqual({
+      window: { startDate: "2026-07-25", endDate: "2026-08-01" },
+      charges: [charge("2026-07-25"), charge("2026-07-31")],
+    });
   });
 
   // Regression lock: gotcha #4 — a transient empty fetch must never wipe an

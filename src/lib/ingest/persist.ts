@@ -243,6 +243,9 @@ export async function upsertEmployees(
 }
 
 /** Idempotent upsert on the (source, day, cost_type, entity_key, model) key. */
+/** Rows per spend_facts upsert statement. */
+const UPSERT_BATCH = 1000;
+
 export async function upsertSpendFacts(
   supabase: SupabaseClient,
   facts: ResolvedFact[],
@@ -270,10 +273,17 @@ export async function upsertSpendFacts(
     byKey.set(`${r.source}|${r.day}|${r.cost_type}|${r.entity_key}|${r.model}`, r);
   }
   const rows = [...byKey.values()];
-  const { error } = await supabase
-    .from("spend_facts")
-    .upsert(rows, { onConflict: "source,day,cost_type,entity_key,model" });
-  if (error) throw new Error(`upsertSpendFacts: ${error.message}`);
+  // Batched: a month-to-date Vercel snapshot is 9–13k rows late in the month,
+  // and one statement that size has hit the 2-minute statement timeout and
+  // coincides with the nightly DB crash-restarts. Upsert order doesn't matter
+  // (keys are collapsed above), and a crash between batches leaves a partial
+  // but valid snapshot that the next run completes.
+  for (let i = 0; i < rows.length; i += UPSERT_BATCH) {
+    const { error } = await supabase
+      .from("spend_facts")
+      .upsert(rows.slice(i, i + UPSERT_BATCH), { onConflict: "source,day,cost_type,entity_key,model" });
+    if (error) throw new Error(`upsertSpendFacts: ${error.message}`);
+  }
   return rows.length;
 }
 
