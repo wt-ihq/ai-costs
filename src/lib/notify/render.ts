@@ -81,7 +81,8 @@ export function teamChartTitle(d: TeamDigest): string {
 }
 
 export function companyChartTitle(d: Pick<CompanyDigest, "usage" | "period">): string {
-  return `COMPANY (${people(d.usage.headcount)}) · ${d.usage.basis.toUpperCase()}, ${d.period.label.toUpperCase()}`;
+  // No headcount: Okta's active count includes stale and never-activated rows, and the number isn't the point.
+  return `COMPANY · ${d.usage.basis.toUpperCase()}, ${d.period.label.toUpperCase()}`;
 }
 
 /** The bars' span, captioned just above them. */
@@ -153,12 +154,15 @@ function companyLines(u: CompanyUsageSection, unit: string, links: boolean): str
 }
 
 /** With a chart, the headline is drawn big into the image, so the text is just the label; without one it stays as text. */
+/**
+ * A section: its chart (title and headline drawn in — a label above it would only repeat the
+ * title), or, when the chart didn't upload, the label and headline as text.
+ */
 function sectionBlocks(label: string, s: DigestSection, fileId: string | undefined, title: string, compareTo: string, extra?: string): SlackBlock[] {
   const change = deltaText(s, compareTo);
-  const out: SlackBlock[] = [
-    { type: "section", text: { type: "mrkdwn", text: fileId ? `*${label}*` : `*${label}*\n*${formatUsd(s.headlineUsd)}* ${s.basis} · ${change}` } },
-  ];
-  if (fileId) out.push({ type: "image", slack_file: { id: fileId }, alt_text: `${title}: ${formatUsd(s.headlineUsd)} · ${change}` });
+  const out: SlackBlock[] = fileId
+    ? [{ type: "image", slack_file: { id: fileId }, alt_text: `${title}: ${formatUsd(s.headlineUsd)} · ${change}` }]
+    : [{ type: "section", text: { type: "mrkdwn", text: `*${label}*\n*${formatUsd(s.headlineUsd)}* ${s.basis} · ${change}` } }];
   if (extra) out.push({ type: "section", text: { type: "mrkdwn", text: extra } });
   const lines = [toolsLine(s.byTool), monthLine(s)].filter((l): l is string => l !== null);
   if (lines.length) out.push(context(lines));
@@ -262,7 +266,7 @@ export function renderTeamDigest(d: TeamDigest, files: TeamChartFileIds, opts: R
 /** The company's usage (chart, by team, top people), then seats & subscriptions, then a monthly's total: the company report's body. */
 function companyBlocks(d: Pick<CompanyDigest, "usage" | "fixed" | "totalUsd">, period: DigestPeriod, fileId: string | undefined, unit: string, links: boolean): SlackBlock[] {
   const blocks: SlackBlock[] = [
-    ...sectionBlocks(`COMPANY · ${people(d.usage.headcount)}`, d.usage, fileId, companyChartTitle({ usage: d.usage, period }), period.compareTo, companyLines(d.usage, unit, links)),
+    ...sectionBlocks("COMPANY", d.usage, fileId, companyChartTitle({ usage: d.usage, period }), period.compareTo, companyLines(d.usage, unit, links)),
     { type: "divider" },
     ...fixedBlocks(d.fixed, period),
   ];
