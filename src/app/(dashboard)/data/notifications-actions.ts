@@ -220,6 +220,7 @@ export async function sendTestDigest(subject: TestSubject, cadence: string, peri
         store: supabaseNotifyStore(getSupabaseAdminClient()),
         slack: slackClientFromEnv(),
         renderChart: renderChartPng,
+        renderBanner: renderWelcomeBannerPng,
         now: new Date(),
         baseUrl: appBaseUrl(),
         actorEmail: await actorEmail(),

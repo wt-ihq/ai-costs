@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ShapeFact } from "@/lib/explore/shape";
-import { memoryStore } from "./memory-store";
+import { memoryStore, type MemorySeed } from "./memory-store";
 import { SlackApiError, type SlackClient } from "./slack-client";
 import { companyTestBanner, sendTest, testBanner, type TestSendDeps } from "./test-send";
 import type { NotifyEmployee } from "./types";
@@ -30,8 +30,8 @@ const employees = [
 ];
 const facts = [fact("2026-09-22", 30, ID.mgr), fact("2026-09-23", 50, ID.rep), fact("2026-09-24", 96.5, ID.ds, "Data Science")];
 
-function setup(over: { employees?: NotifyEmployee[]; slack?: Partial<SlackClient>; access?: string[] } = {}) {
-  const inner = memoryStore({ employees: over.employees ?? employees, facts, dashboardAccess: over.access }, () => NOW.getTime());
+function setup(over: { employees?: NotifyEmployee[]; slack?: Partial<SlackClient>; access?: string[]; seed?: Partial<MemorySeed> } = {}) {
+  const inner = memoryStore({ employees: over.employees ?? employees, facts, dashboardAccess: over.access, ...over.seed }, () => NOW.getTime());
   const calls: string[] = [];
   // Any write to the send log is a bug: a test must neither block nor duplicate the scheduled send.
   const store = {
@@ -54,6 +54,7 @@ function setup(over: { employees?: NotifyEmployee[]; slack?: Partial<SlackClient
   const deps: TestSendDeps = {
     store, slack, renderChart: async () => new Uint8Array([1]) as Uint8Array<ArrayBuffer>, now: NOW, baseUrl: "https://x.test",
     actorEmail: "gareth@x.com", adminEmails: ["gareth@x.com"], log: (m) => logs.push(m), sleep: async () => {},
+    renderBanner: async () => new Uint8Array([2]) as Uint8Array<ArrayBuffer>,
   };
   return { deps, posts, calls, logs, inner };
 }
@@ -78,7 +79,8 @@ describe("sendTest — a person's digest", () => {
     expect(t.posts).toHaveLength(1);
     expect(t.posts[0].channel).toBe("D-U-priya");
     expect(first(t.posts[0].blocks)).toContain("🧪 Test message from Gareth Admin — not a scheduled digest");
-    expect(t.posts[0].text).toContain("[🧪 Test message from Gareth Admin — not a scheduled digest] Your AI spend");
+    // Priya has never had a live message, so the test greets her first, as her real first one will.
+    expect(t.posts[0].text).toContain("[🧪 Test message from Gareth Admin — not a scheduled digest] Hi Priya — your first AI spend summary. Your AI spend");
     expect(JSON.stringify(t.posts[0].blocks)).toContain("$30.00"); // Priya's own figure
   });
 
@@ -287,5 +289,41 @@ describe("sendTest — safety", () => {
     const r = await sendTest(t.deps, ok);
     expect(r).toMatchObject({ ok: false });
     expect((r as { error: string }).error).toContain("outcome unknown");
+  });
+});
+
+describe("sendTest — the first-message intro", () => {
+  const all = (posts: { blocks: unknown[] }[]) => JSON.stringify(posts[0].blocks);
+  const liveSend = (employeeId: string) => ({ employeeId, cadence: "weekly" as const, periodKey: "2026-W38", mode: "live" as const, status: "sent", attempts: 1, slackTs: "t", detail: null, updatedAt: "2026-09-21T10:30:00Z" });
+
+  it("a test to the person themself opens with the intro and the welcome banner while they've never had a live message", async () => {
+    const t = setup({ seed: { subscriptions: [{ employeeId: ID.mgr, cadence: "weekly" }, { employeeId: ID.mgr, cadence: "monthly" }] } });
+    await sendTest(t.deps, { subject: person(ID.mgr), cadence: "weekly", periodKey: "2026-W39", to: { kind: "subject" } });
+    const b = all(t.posts);
+    expect(b).toContain("🧪 Test message from Gareth Admin"); // the test line stays on top
+    expect(b).toContain("*Hi Priya,* this is your first AI spend summary");
+    expect(b).toContain("you'll get weekly and monthly recaps"); // her own cadences
+    expect(t.posts[0].blocks.some((x) => JSON.stringify(x).includes("Welcome banner"))).toBe(true);
+    expect(t.calls).toEqual([]); // still never written to the send log
+  });
+
+  it("no intro once they've had a live message", async () => {
+    const t = setup({ seed: { sends: [liveSend(ID.mgr)] } });
+    await sendTest(t.deps, { subject: person(ID.mgr), cadence: "weekly", periodKey: "2026-W39", to: { kind: "subject" } });
+    expect(all(t.posts)).not.toContain("your first AI spend summary");
+    expect(all(t.posts)).not.toContain("Welcome banner");
+  });
+
+  it("no intro on someone else's digest: it isn't the receiver's own summary", async () => {
+    const t = setup();
+    await sendTest(t.deps, { subject: person(ID.mgr), cadence: "weekly", periodKey: "2026-W39", to: { kind: "me" } });
+    expect(all(t.posts)).not.toContain("first AI spend summary");
+  });
+
+  it("the company report to someone who's never had a live message opens with the company intro", async () => {
+    const t = setup({ seed: { companyRecipients: [{ employeeId: ID.admin, cadence: "monthly" }] } });
+    await sendTest(t.deps, { subject: company, cadence: "weekly", periodKey: "2026-W39", to: { kind: "me" } });
+    expect(all(t.posts)).toContain("*Hi Gareth,* this is your first company AI spend report");
+    expect(all(t.posts)).toContain("early each month");
   });
 });
