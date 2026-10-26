@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ShapeFact } from "@/lib/explore/shape";
 import { memoryStore, type MemorySeed } from "./memory-store";
-import { catchUp, sendNow, type SendNowDeps } from "./send-now";
+import { catchUp, sendLiveTest, sendNow, type SendNowDeps } from "./send-now";
 import type { SlackClient } from "./slack-client";
 import type { NotifyEmployee } from "./types";
 
@@ -122,5 +122,49 @@ describe("catchUp (people just added to the Pilot list)", () => {
     expect(r).toMatchObject({ ok: true, sent: 1, alreadyHandled: 1, failed: [] });
     expect(r.ok && r.held).toBe("Waiting for ChatGPT Business credits");
     expect(slack.posts).toEqual([{ channel: "D-U-a" }]);
+  });
+});
+
+describe("sendLiveTest (real messages to a few people before going live)", () => {
+  const MON = new Date("2026-10-05T12:00:00Z"); // latest complete week W40
+  const liveSeed = (over: MemorySeed = {}) =>
+    seed({
+      facts: [fact("2026-10-01", 30, "m"), fact("2026-10-02", 50, "a")],
+      syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-10-05T06:00:03Z" }],
+      subscriptions: [{ employeeId: "m", cadence: "weekly" }, { employeeId: "a", cadence: "weekly" }],
+      ...over,
+    });
+
+  it("DMs the chosen people themselves while the mode is still preview, recording the sends as live", async () => {
+    const store = memoryStore(liveSeed(), () => MON.getTime());
+    const slack = fakeSlack();
+    const r = await sendLiveTest(deps(store, slack.client, { mode: "preview", now: MON, clock: () => MON.getTime() }), { employeeIds: ["m"] });
+    expect(r).toMatchObject({ ok: true, sent: 1, failed: [] });
+    expect(slack.posts).toEqual([{ channel: "D-U-m" }]); // not the preview inbox, and not "a"
+    expect(store.sends.map((s) => [s.employeeId, s.mode, s.periodKey])).toEqual([["m", "live", "2026-W40"]]);
+  });
+
+  it("works from Off too — pressing the button is the authorisation", async () => {
+    const store = memoryStore(liveSeed(), () => MON.getTime());
+    const slack = fakeSlack();
+    const r = await sendLiveTest(deps(store, slack.client, { mode: "off", now: MON, clock: () => MON.getTime() }), { employeeIds: ["a"] });
+    expect(r).toMatchObject({ ok: true, sent: 1 });
+    expect(slack.posts).toEqual([{ channel: "D-U-a" }]);
+  });
+
+  it("holds a weekly whose data isn't complete unless asked to send it anyway", async () => {
+    const stale = liveSeed({ syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-10-01T06:00:03Z" }] });
+    const held = await sendLiveTest(deps(memoryStore(stale, () => MON.getTime()), fakeSlack().client, { mode: "preview", now: MON, clock: () => MON.getTime() }), { employeeIds: ["m"] });
+    expect(held).toMatchObject({ ok: true, sent: 0, held: "Waiting for Cursor sync" });
+    const store = memoryStore(stale, () => MON.getTime());
+    const slack = fakeSlack();
+    const forced = await sendLiveTest(deps(store, slack.client, { mode: "preview", now: MON, clock: () => MON.getTime() }), { employeeIds: ["m"], forceWeekly: true });
+    expect(forced).toMatchObject({ ok: true, sent: 1 });
+    expect(slack.posts).toEqual([{ channel: "D-U-m" }]);
+  });
+
+  it("refuses with nobody chosen", async () => {
+    const r = await sendLiveTest(deps(memoryStore(liveSeed()), fakeSlack().client, { mode: "preview", now: MON }), { employeeIds: [] });
+    expect(r).toEqual({ ok: false, error: "Choose at least one person" });
   });
 });

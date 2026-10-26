@@ -6,6 +6,7 @@ import { DigestsTable } from "@/components/notifications/digests-table";
 import { ReminderRecipients } from "@/components/notifications/reminder-recipients";
 import { FixedCostsPanel } from "@/components/notifications/fixed-costs-panel";
 import { ModePanel } from "@/components/notifications/mode-panel";
+import { LiveTestPanel } from "@/components/notifications/live-test-panel";
 import { RecipientsTable } from "@/components/notifications/recipients-table";
 import { ReportingLines } from "@/components/notifications/reporting-lines";
 import { PreviewPicker } from "@/components/notifications/preview-picker";
@@ -188,6 +189,9 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
               <p className="mt-1">They still get their own digest but don&apos;t roll up to anyone: {data.tree.unresolved.join(", ")}</p>
             </details>
           )}
+        </Panel>
+        <Panel>
+          <LiveTestPanel people={data.recipients.filter((r) => !r.left).map((r) => ({ employeeId: r.employeeId, name: r.name, cadences: r.cadences }))} />
         </Panel>
       </div>
 
