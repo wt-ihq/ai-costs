@@ -6,8 +6,8 @@ import { renderChartPng, renderWelcomeBannerPng } from "@/lib/notify/chart-image
 import { runNotify } from "@/lib/notify/run-notify";
 import { runReminders } from "@/lib/notify/run-reminders";
 import { resolveRunDate } from "@/lib/notify/schedule";
+import { currentMode } from "@/lib/notify/mode-store";
 import { supabaseNotifyStore } from "@/lib/notify/store";
-import { notifyMode } from "@/lib/notify/types";
 import { appBaseUrl, slackClientFromEnv } from "@/lib/notify/wiring";
 
 export const dynamic = "force-dynamic";
@@ -18,23 +18,24 @@ export const maxDuration = 300;
  * Slack spend digests. Vercel Cron runs this hourly at :30; each run first sends the update
  * reminders that are due (Monday 09:30 / the month's last working day 15:00 — runReminders), then
  * DMs whoever it's now 10:30+ for on a working day in their own Slack time zone (runNotify).
- * CRON_SECRET-gated (fails closed). SLACK_NOTIFY_MODE off|preview|live — off
- * (the default) returns without touching anything. ?date=YYYY-MM-DD replays
- * that day straight away (no 10:30 wait), preview mode only.
+ * CRON_SECRET-gated (fails closed). Mode off|preview|live as chosen on Data → Notifications
+ * (mode-store.ts; SLACK_NOTIFY_MODE when nothing is chosen) — off (the default) returns without
+ * touching anything. ?date=YYYY-MM-DD replays that day straight away (no 10:30 wait), preview mode only.
  */
 export async function GET(req: Request) {
   if (!isCronAuthorized(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  const mode = notifyMode();
-  if (mode === "off") return NextResponse.json({ mode, skipped: "SLACK_NOTIFY_MODE is off" });
+  const supabase = getSupabaseAdminClient();
+  const mode = await currentMode(supabase);
+  if (mode === "off") return NextResponse.json({ mode, skipped: "mode is off" });
 
   const runDate = resolveRunDate(new URL(req.url).searchParams.get("date"), mode, new Date());
   if ("error" in runDate) return NextResponse.json({ error: runDate.error }, { status: 400 });
 
   try {
     const deps = {
-      store: supabaseNotifyStore(getSupabaseAdminClient()),
+      store: supabaseNotifyStore(supabase),
       slack: slackClientFromEnv(),
       renderChart: renderChartPng,
       renderBanner: renderWelcomeBannerPng,

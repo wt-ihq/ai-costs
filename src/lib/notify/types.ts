@@ -17,6 +17,18 @@ export function notifyMode(env: Record<string, string | undefined> = process.env
   return m === "preview" || m === "live" ? m : "off";
 }
 
+/**
+ * The mode the digests run in: the value chosen on Data → Notifications (notification_config,
+ * `stored`) wins, falling back to SLACK_NOTIFY_MODE when nothing has been chosen. The stored value
+ * counts only where it belongs — the production deployment and local development — so a Vercel
+ * preview build can never go live because of a row in the shared database.
+ */
+export function resolveNotifyMode(stored: string | null, env: Record<string, string | undefined> = process.env): NotifyMode {
+  const trusted = env.VERCEL_ENV === "production" || env.NODE_ENV === "development";
+  if (trusted && (stored === "off" || stored === "preview" || stored === "live")) return stored;
+  return notifyMode(env);
+}
+
 export function isCadence(v: unknown): v is Cadence {
   return typeof v === "string" && (CADENCES as readonly string[]).includes(v);
 }
