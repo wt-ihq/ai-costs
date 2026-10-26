@@ -710,3 +710,27 @@ describe("runNotify only (Data → Notifications Send now / catch-up)", () => {
     ]));
   });
 });
+
+describe("the first-message intro after a preview-only history (regression lock)", () => {
+  // Preview sends never count as live (mode is in the claim key; everLive reads live rows only), so
+  // someone who only ever had previews gets the welcome the first time a live message reaches them —
+  // by schedule or by Send now — and not again after that. This test should pass from the start.
+  const SAT = new Date("2026-10-03T14:00:00Z");
+  const intro = (p: { blocks: unknown[] }) => JSON.stringify(p.blocks).includes("this is your first");
+  it("welcomes on the first live send-now, not on the next one", async () => {
+    const store = memoryStore(
+      seed({
+        syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-10-03T06:00:03Z" }],
+        subscriptions: [{ employeeId: "m", cadence: "weekly" }, { employeeId: "m", cadence: "daily" }],
+        sends: [{ employeeId: "m", cadence: "weekly", periodKey: "2026-W38", mode: "preview", status: "sent", attempts: 1, slackTs: "t", detail: null, updatedAt: "2026-09-21T09:31:00Z" }],
+      }),
+      () => SAT.getTime(),
+    );
+    const slack = fakeSlack();
+    const run = (only: RunNotifyDeps["only"]) => runNotify(deps(store, slack.client, { now: SAT, clock: () => SAT.getTime(), only }));
+    expect((await run({ cadence: "weekly", periodKey: "2026-W39" })).sent).toBe(1);
+    expect(intro(slack.posts[0])).toBe(true);
+    expect((await run({ cadence: "daily", periodKey: "2026-09-22" })).sent).toBe(1);
+    expect(intro(slack.posts[1])).toBe(false);
+  });
+});

@@ -12,8 +12,11 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-10-26",
-    title: "A steadier nightly sync",
+    title: "Slack summaries: switch to live, see what's due, send now",
     items: [
+      "Admins can switch Slack messages between Off, Preview and Live on Data → Notifications, see each weekly and monthly digest's status and when it goes out, and send one now.",
+      "Adding people to the Pilot list can send them the latest weekly and monthly straight away, and the whole list can be emptied in one go.",
+      "Month-end reminders to paste Claude Team spend now arrive at 09:30, 15:00 and 17:30 on the month's last working day, and stop once it's pasted. The Monday reminder in the month's final week says which day that is.",
       "The nightly sync no longer overloads the database late in the month. Vercel (and some nights Cursor and OpenAI) had been left half-finished since 20 October and showed as not synced on Data → Sync and in the Monday reminder; the heavy sources now take turns and write in smaller pieces.",
     ],
   },
