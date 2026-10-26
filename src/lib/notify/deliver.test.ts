@@ -234,7 +234,7 @@ describe("chartLayoutsForCompany", () => {
   it("is one chart, of the company's usage", () => {
     const l = chartLayoutsForCompany(companyDigest);
     expect(Object.keys(l)).toEqual(["company"]);
-    expect(l.company.title).toBe("COMPANY (2 PEOPLE) · USAGE, 21–27 SEP 2026");
+    expect(l.company.title).toBe("COMPANY · USAGE, 21–27 SEP 2026");
     expect(l.company.headline).toEqual(chartHeadline(companyDigest.usage, "previous week"));
     expect(l.company.bars).toHaveLength(8);
   });
@@ -245,7 +245,7 @@ describe("deliverCompanyDigest", () => {
     const s = fakeSlack();
     const ts = await deliverCompanyDigest({ ...args(s.client), digest: companyDigest, openUrl: "https://x.test/api/digest/open/abc", links: true });
     expect(ts).toBe("ts1");
-    expect(s.uploads).toEqual([{ name: "ai-spend-company.png", title: "COMPANY (2 PEOPLE) · USAGE, 21–27 SEP 2026" }]);
+    expect(s.uploads).toEqual([{ name: "ai-spend-company.png", title: "COMPANY · USAGE, 21–27 SEP 2026" }]);
     expect(JSON.stringify(s.posts[0].blocks[0])).toContain("Company AI spend");
     expect(JSON.stringify(s.posts[0].blocks.at(-1))).toContain("https://x.test/api/digest/open/abc");
   });

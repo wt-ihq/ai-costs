@@ -36,20 +36,20 @@ describe("renderDigest", () => {
     expect(blocks[0]).toEqual({ type: "header", text: { type: "plain_text", text: ":ai-spend: Your AI spend · 21–27 Sep 2026", emoji: true } });
   });
 
-  it("renders the You section: label, its own chart (headline drawn in), tools + month line", () => {
-    expect(mrk(blocks[1])).toBe("*YOU*");
-    expect(blocks[2]).toEqual({ type: "image", slack_file: { id: "F1" }, alt_text: "YOU · USAGE, 21–27 SEP 2026: $38.20 · ▲ 12% vs previous week" });
-    expect(blocks[3]).toEqual({ type: "context", elements: [
+  it("renders the You section: its own chart (title and headline drawn in — no label repeating it), tools + month line", () => {
+    expect(blocks[1]).toEqual({ type: "image", slack_file: { id: "F1" }, alt_text: "YOU · USAGE, 21–27 SEP 2026: $38.20 · ▲ 12% vs previous week" });
+    expect(blocks.some((b) => b.type === "section" && mrk(b) === "*YOU*")).toBe(false);
+    expect(blocks[2]).toEqual({ type: "context", elements: [
       { type: "mrkdwn", text: "Cursor $30.10 · Anthropic API $8.10" },
       { type: "mrkdwn", text: "September so far $142 · on track for ~$190" },
     ] });
   });
 
   it("renders the reports section with escaped, linked names and others", () => {
-    const i = blocks.findIndex((b) => b.type === "section" && mrk(b).startsWith("*YOUR REPORTS"));
-    expect(mrk(blocks[i])).toBe("*YOUR REPORTS · 14 PEOPLE*");
-    expect(blocks[i + 1]).toMatchObject({ type: "image", slack_file: { id: "F2" } });
-    expect(mrk(blocks[i + 2])).toBe(
+    const i = blocks.findIndex((b) => b.type === "image" && (b as { slack_file: { id: string } }).slack_file.id === "F2");
+    expect(blocks[i - 1]).toEqual({ type: "divider" }); // the chart's title names the section; no label repeats it
+    expect(blocks.some((b) => b.type === "section" && mrk(b).startsWith("*YOUR REPORTS"))).toBe(false);
+    expect(mrk(blocks[i + 1])).toBe(
       "<https://x.test/explore/Engineering/a|Alex Kim> $140 · <https://x.test/explore/Engineering/t|Tom &amp; &lt;Jerry&gt;> $96.00 · +9 others $175",
     );
   });
@@ -77,7 +77,9 @@ describe("renderDigest", () => {
   it("keeps the headline as text for any section whose chart didn't upload", () => {
     const b = renderDigest(digest(), { reports: "F2" }).blocks;
     expect(mrk(b[1])).toBe("*YOU*\n*$38.20* usage · ▲ 12% vs previous week");
-    expect(b.some((x) => x.type === "section" && mrk(x) === "*YOUR REPORTS · 14 PEOPLE*")).toBe(true);
+    expect(b.some((x) => x.type === "section" && mrk(x) === "*YOUR REPORTS · 14 PEOPLE*")).toBe(false); // its chart is there
+    const none = renderDigest(digest(), {}).blocks;
+    expect(none.some((x) => x.type === "section" && mrk(x).startsWith("*YOUR REPORTS · 14 PEOPLE*\n*$612*"))).toBe(true);
   });
 
   it("prefixes preview messages with who it would have gone to", () => {
@@ -200,8 +202,8 @@ describe("renderTeamDigest", () => {
     expect(blocks[0]).toEqual({ type: "header", text: { type: "plain_text", text: ":ai-spend: AI spend · R&D <Ops> · 21–27 Sep 2026", emoji: true } });
   });
 
-  it("labels the section with the escaped, uppercased department and the headcount", () => {
-    expect(mrk(blocks[1])).toBe("*R&amp;D &lt;OPS&gt; · 14 PEOPLE*");
+  it("labels the section with the escaped, uppercased department and the headcount only when its chart is missing", () => {
+    expect(blocks[1]).toMatchObject({ type: "image" });
     expect(mrk(renderTeamDigest(teamDigest(), {}).blocks[1])).toBe("*R&amp;D &lt;OPS&gt; · 14 PEOPLE*\n*$612* usage · ▼ 4% vs previous week");
     expect(renderTeamDigest(teamDigest({ team: { ...teamDigest().team, headcount: 1 } }), {}).blocks[1]).toMatchObject({
       text: { text: expect.stringContaining("· 1 PERSON*") },
@@ -209,11 +211,11 @@ describe("renderTeamDigest", () => {
   });
 
   it("shows the chart, the linked escaped top people with the remainder, then tools and month lines", () => {
-    expect(blocks[2]).toEqual({ type: "image", slack_file: { id: "F1" }, alt_text: "R&D <OPS> (14 PEOPLE) · USAGE, 21–27 SEP 2026: $612 · ▼ 4% vs previous week" });
-    expect(mrk(blocks[3])).toBe(
+    expect(blocks[1]).toEqual({ type: "image", slack_file: { id: "F1" }, alt_text: "R&D <OPS> (14 PEOPLE) · USAGE, 21–27 SEP 2026: $612 · ▼ 4% vs previous week" });
+    expect(mrk(blocks[2])).toBe(
       "<https://x.test/explore/R%26D/a|Alex Kim> $140 · <https://x.test/explore/R%26D/t|Tom &amp; &lt;Jerry&gt;> $96.00 · +9 others $175",
     );
-    expect(blocks[4]).toEqual({ type: "context", elements: [
+    expect(blocks[3]).toEqual({ type: "context", elements: [
       { type: "mrkdwn", text: "Cursor $30.10 · Anthropic API $8.10" },
       { type: "mrkdwn", text: "September so far $3,410 · on track for ~$4,600" },
     ] });
@@ -231,7 +233,7 @@ describe("renderTeamDigest", () => {
     const off = renderTeamDigest(teamDigest(), { team: "F1" }).blocks;
     expect(off.some((b) => b.type === "actions")).toBe(false);
     expect(JSON.stringify(off)).not.toContain("https://");
-    expect(mrk(off[3])).toBe("Alex Kim $140 · Tom &amp; &lt;Jerry&gt; $96.00 · +9 others $175");
+    expect(mrk(off[2])).toBe("Alex Kim $140 · Tom &amp; &lt;Jerry&gt; $96.00 · +9 others $175");
   });
 
   it("has a plain-text fallback carrying the headline figure", () => {
@@ -378,17 +380,17 @@ describe("renderCompanyDigest", () => {
     expect(blocks[0]).toEqual({ type: "header", text: { type: "plain_text", text: ":ai-spend: Company AI spend · 21–27 Sep 2026", emoji: true } });
   });
 
-  it("labels the usage section with the headcount and draws its chart", () => {
-    expect(mrk(blocks[1])).toBe("*COMPANY · 142 PEOPLE*");
-    expect(blocks[2]).toEqual({ type: "image", slack_file: { id: "F1" }, alt_text: "COMPANY (142 PEOPLE) · USAGE, 21–27 SEP 2026: $340 · ▲ 240% vs previous week" });
+  it("draws its chart straight after the header, titled without a headcount, and labels the section only when the chart is missing", () => {
+    expect(blocks[1]).toEqual({ type: "image", slack_file: { id: "F1" }, alt_text: "COMPANY · USAGE, 21–27 SEP 2026: $340 · ▲ 240% vs previous week" });
+    expect(mrk(renderCompanyDigest(companyDigest(), {}).blocks[1])).toBe("*COMPANY*\n*$340* usage · ▲ 240% vs previous week");
   });
 
   it("lists linked, escaped top teams with unattributed apart, then top people with usage tied to no one apart", () => {
-    expect(mrk(blocks[3])).toBe(
+    expect(mrk(blocks[2])).toBe(
       "<https://x.test/explore/Engineering|Engineering> $212 · <https://x.test/explore/R%26D%20%3COps%3E|R&amp;D &lt;Ops&gt;> $108 · unattributed $20.00\n" +
         "<https://x.test/explore/Engineering/a|Alex Kim> $140 · +3 others $168 · not tied to a person $32.00",
     );
-    expect(blocks[4]).toEqual({ type: "context", elements: [
+    expect(blocks[3]).toEqual({ type: "context", elements: [
       { type: "mrkdwn", text: "Cursor $30.10 · Anthropic API $8.10" },
       { type: "mrkdwn", text: "September so far $142 · on track for ~$190" },
     ] });
@@ -452,7 +454,7 @@ describe("renderCompanyDigest", () => {
     const off = renderCompanyDigest(companyDigest(), { company: "F1" }).blocks;
     expect(off.some((b) => b.type === "actions")).toBe(false);
     expect(JSON.stringify(off)).not.toContain("https://");
-    expect(mrk(off[3])).toBe(
+    expect(mrk(off[2])).toBe(
       "Engineering $212 · R&amp;D &lt;Ops&gt; $108 · unattributed $20.00\n" +
         "Alex Kim $140 · +3 others $168 · not tied to a person $32.00",
     );
@@ -472,8 +474,8 @@ describe("renderCompanyDigest", () => {
 });
 
 describe("companyChartTitle", () => {
-  it("names the company, its headcount, the basis and the headline's period", () => {
-    expect(companyChartTitle(companyDigest())).toBe("COMPANY (142 PEOPLE) · USAGE, 21–27 SEP 2026");
+  it("names the company, the basis and the headline's period — no headcount (Okta's count isn't a precise one)", () => {
+    expect(companyChartTitle(companyDigest())).toBe("COMPANY · USAGE, 21–27 SEP 2026");
   });
 });
 
@@ -493,9 +495,9 @@ describe("renderDigest for the top of the chain (the company in place of reports
   it("shows the company's usage and seats & subscriptions after You, never a Your reports section", () => {
     const { blocks, text } = renderDigest(top(), { you: "F1", company: "F9" }, { links: true });
     expect(blocks.some((b) => b.type === "section" && mrk(b).startsWith("*YOUR REPORTS"))).toBe(false);
-    const i = blocks.findIndex((b) => b.type === "section" && mrk(b).startsWith("*COMPANY"));
-    expect(mrk(blocks[i])).toBe(`*COMPANY · ${c.usage.headcount} PEOPLE*`);
-    expect(blocks[i + 1]).toMatchObject({ type: "image", slack_file: { id: "F9" } });
+    const i = blocks.findIndex((b) => b.type === "image" && (b as { slack_file: { id: string } }).slack_file.id === "F9");
+    expect(blocks[i - 1]).toEqual({ type: "divider" });
+    expect(blocks.some((b) => b.type === "section" && mrk(b).startsWith("*COMPANY"))).toBe(false);
     expect(blocks.some((b) => b.type === "section" && mrk(b).startsWith("*SEATS &amp; SUBSCRIPTIONS*"))).toBe(true);
     expect(text).toContain("· company usage ");
   });
