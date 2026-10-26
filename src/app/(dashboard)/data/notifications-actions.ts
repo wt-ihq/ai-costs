@@ -6,8 +6,10 @@ import { parseAdminEmails } from "@/lib/dashboard-access";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchEmployeesAll } from "@/lib/queries/common";
 import { addReminderRecipients, addSubscriptions, removeReminderRecipient, removeSubscriptions, setFixedCostSetting, setSubscription } from "@/lib/notify/admin-store";
-import { renderChartPng } from "@/lib/notify/chart-image";
-import { writeStoredMode } from "@/lib/notify/mode-store";
+import { renderChartPng, renderWelcomeBannerPng } from "@/lib/notify/chart-image";
+import { currentMode, writeStoredMode } from "@/lib/notify/mode-store";
+import { periodFor } from "@/lib/notify/schedule";
+import { sendNow, type SendNowDeps, type SendNowResult } from "@/lib/notify/send-now";
 import type { TestSubject, TestTarget } from "@/lib/notify/subject";
 import { supabaseNotifyStore } from "@/lib/notify/store";
 import { sendTest, type TestSendResult } from "@/lib/notify/test-send";
@@ -32,6 +34,39 @@ export async function setNotifyMode(mode: string): Promise<void> {
   if (mode !== "off" && mode !== "preview" && mode !== "live") throw new Error("Invalid mode");
   await writeStoredMode(getSupabaseAdminClient(), mode, await actorEmail());
   revalidatePath("/data");
+}
+
+/** The cron's deps, for a send started from the page (send-now.ts). */
+async function sendNowDeps(): Promise<SendNowDeps> {
+  const supabase = getSupabaseAdminClient();
+  return {
+    store: supabaseNotifyStore(supabase),
+    slack: slackClientFromEnv(),
+    renderChart: renderChartPng,
+    renderBanner: renderWelcomeBannerPng,
+    mode: await currentMode(supabase),
+    previewEmail: process.env.SLACK_PREVIEW_EMAIL ?? null,
+    now: new Date(),
+    baseUrl: appBaseUrl(),
+    adminEmails: parseAdminEmails(process.env.ADMIN_EMAILS),
+  };
+}
+
+/**
+ * Send a weekly or monthly digest to everyone due it, now, in the current mode. Claimed like a scheduled
+ * send, so the hourly run never repeats it. Public POST endpoint: validates every argument.
+ */
+export async function sendDigestNow(cadence: string, periodKey: string, force: boolean): Promise<SendNowResult> {
+  await requireAdmin();
+  if (!isCadence(cadence) || typeof force !== "boolean" || typeof periodKey !== "string") return { ok: false, error: "Invalid input" };
+  try {
+    periodFor(cadence, periodKey, new Date());
+  } catch {
+    return { ok: false, error: "Invalid period" };
+  }
+  const result = await sendNow(await sendNowDeps(), { cadence, periodKey, force });
+  revalidatePath("/data");
+  return result;
 }
 
 export async function addRecipients(employeeIds: string[], cadences: string[]): Promise<{ added: number }> {
