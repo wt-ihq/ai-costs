@@ -14,6 +14,7 @@ import { CompositionBreakdown } from "./composition-breakdown";
 import { RankedPanel } from "./ranked-panel";
 import { TrendsSection } from "./trends-section";
 import { PeriodControl } from "./period-control";
+import { Switch } from "@/components/ui";
 
 /**
  * Browser-remembered Breakdown badge toggle (per viewer, per device — a viewing
@@ -125,7 +126,6 @@ export function ExploreView({
   const [dim, setDim] = useState<Dim>(initialDim);
   const [vendor, setVendor] = useState<VendorKey | "all">(() => parseVendorParam(initialVendorParam, vendors));
   const showLastUpdated = useSyncExternalStore(lastUpdatedStore.subscribe, lastUpdatedStore.get, lastUpdatedStore.getServer);
-  const toggleLastUpdated = () => lastUpdatedStore.set(!showLastUpdated);
 
   // Vendor filter slices upstream of the shapers, so every panel (including
   // total-to-date) is vendor-scoped. Pure, in-memory — no network round-trip.
@@ -209,18 +209,7 @@ export function ExploreView({
           <div className="mb-4 flex items-center justify-between gap-3">
             <h2 className="text-sm font-medium">Breakdown · {data.period.label}</h2>
             {effectiveDim === "vendor" && (
-              <button
-                type="button"
-                onClick={toggleLastUpdated}
-                aria-pressed={showLastUpdated}
-                title="Show when each source was last refreshed"
-                className={cn(
-                  "rounded-md border border-border px-2 py-0.5 text-xs transition-colors",
-                  showLastUpdated ? "bg-accent/20 text-accent" : "bg-surface-2 text-muted hover:text-foreground",
-                )}
-              >
-                Last updated
-              </button>
+              <Switch checked={showLastUpdated} onChange={lastUpdatedStore.set} label="Last updated" title="Show when each source was last refreshed" />
             )}
           </div>
           <CompositionBreakdown

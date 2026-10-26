@@ -14,7 +14,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: "2026-10-27",
     title: "See when each source was last updated",
     items: [
-      "On Explore, the Breakdown card has a \"Last updated\" button that shows, next to each tool, the day its figures were last refreshed: the last successful sync for automatic sources, the latest paste for ChatGPT Business and Claude Team. It stays off until you turn it on, and your choice is remembered on that browser.",
+      "On Explore, the Breakdown card has a \"Last updated\" switch that shows, next to each tool, the day its figures were last refreshed: the last successful sync for automatic sources, the latest paste for ChatGPT Business and Claude Team. It stays off until you turn it on, and your choice is remembered on that browser.",
       "The first Slack summary now says that, to start with, only department heads and the people with the highest AI spend receive these.",
     ],
   },
