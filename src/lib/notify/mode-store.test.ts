@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { currentMode, readStoredMode, writeStoredMode } from "./mode-store";
+import { currentMode, readMonthlyFrom, readStoredMode, writeMonthlyFrom, writeStoredMode } from "./mode-store";
 
 /** notification_config as a one-row fake: records the upsert, answers the select. */
 function fakeConfigDb(initial: { key: string; value: string }[] = []) {
@@ -51,5 +51,22 @@ describe("mode-store", () => {
     vi.stubEnv("SLACK_NOTIFY_MODE", "off");
     expect(await currentMode(fakeConfigDb([{ key: "mode", value: "live" }]).client)).toBe("live");
     expect(await currentMode(fakeConfigDb().client)).toBe("off");
+  });
+
+  it("readMonthlyFrom: null with no row or a malformed one, the month with a good one", async () => {
+    expect(await readMonthlyFrom(fakeConfigDb().client)).toBeNull();
+    expect(await readMonthlyFrom(fakeConfigDb([{ key: "monthly_from", value: "2026-10" }]).client)).toBe("2026-10");
+    expect(await readMonthlyFrom(fakeConfigDb([{ key: "monthly_from", value: "October" }]).client)).toBeNull();
+    expect(await readMonthlyFrom(fakeConfigDb([{ key: "monthly_from", value: "" }]).client)).toBeNull();
+  });
+
+  it("writeMonthlyFrom stores the month, or an empty value to lift the limit, with who changed it", async () => {
+    const db = fakeConfigDb();
+    await writeMonthlyFrom(db.client, "2026-10", "gareth@x.com");
+    expect(db.upserts[0].row).toEqual({ key: "monthly_from", value: "2026-10", updated_by: "gareth@x.com", updated_at: expect.any(String) });
+    expect(await readMonthlyFrom(db.client)).toBe("2026-10");
+    await writeMonthlyFrom(db.client, null, "gareth@x.com");
+    expect(await readMonthlyFrom(db.client)).toBeNull();
+    await expect(writeMonthlyFrom(db.client, "2026-13", "gareth@x.com")).rejects.toThrow(/month/i);
   });
 });

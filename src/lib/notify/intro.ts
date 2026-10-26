@@ -18,7 +18,8 @@ export interface IntroInput {
   bannerFileId?: string;
 }
 
-export const BANNER_ALT = "Your AI spend, in Slack: what your AI tools cost, and how it's changing";
+/** Alt text: what the picture IS, for anyone who can't see it — not a slogan. */
+export const BANNER_ALT = 'Welcome banner: a rising bar chart beside the words "Your AI spend, in Slack"';
 
 /** The first word of an Okta name ("Jerry Marcel Lieveld" → "Jerry"); null when there's none. */
 export function firstName(fullName: string): string | null {
@@ -44,12 +45,12 @@ const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 
 const REPORTS_PHRASE: Record<IntroInput["reports"], string> = {
   none: "",
-  direct: " and the total spend for the people who report to you, with comparisons to the previous period",
-  byTeam: " and the total spend for the teams who report to you, with comparisons to the previous period",
+  direct: ", and the total for the people who report to you",
+  byTeam: ", and the total for the teams who report to you",
 };
 
-/** Who's on the pilot — the personal summary only; the company report's list is hand-picked. */
-const PILOT_LINE = "To start with, these go to department heads and the people with the highest AI spend.";
+/** Who's on the pilot — the personal summary only; the company report's list is hand-picked. Italic: an aside, not the message. */
+const PILOT_LINE = "_To start with, only department heads and the people with the highest AI spend get these._";
 
 export function introFor(i: IntroInput): { blocks: SlackBlock[]; text: string } {
   const hi = i.name ? esc(i.name) : "there";
@@ -62,14 +63,15 @@ export function introFor(i: IntroInput): { blocks: SlackBlock[]; text: string } 
         ]
       : [
           `👋 *Hi ${hi},* this is your first ${what}.`,
-          `From now on you'll get ${cadencePhrase(i.cadences, "personal")} recaps. Each shows your own AI spend by tool${REPORTS_PHRASE[i.reports]}.`,
+          `From now on you'll get ${cadencePhrase(i.cadences, "personal")} recaps. Each one shows what you spent on each AI tool${REPORTS_PHRASE[i.reports]}, compared with the period before.`,
           PILOT_LINE,
         ];
   const footer = `${i.links ? "Use *Open in dashboard* for the detail. " : ""}Questions? Ask <${HELP_LINK}|Workplace Tech>.`;
   return {
     blocks: [
       ...(i.bannerFileId ? [{ type: "image", slack_file: { id: i.bannerFileId }, alt_text: BANNER_ALT }] : []),
-      { type: "section", text: { type: "mrkdwn", text: body.join("\n") } },
+      // Blank lines between paragraphs: one block of three lines read as a wall of text.
+      { type: "section", text: { type: "mrkdwn", text: body.join("\n\n") } },
       { type: "context", elements: [{ type: "mrkdwn", text: footer }] },
       { type: "divider" },
     ],

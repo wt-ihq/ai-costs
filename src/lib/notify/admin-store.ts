@@ -7,7 +7,7 @@ import { latestCompleteKey, periodFor, stepKey } from "./schedule";
 import { pageAll, supabaseNotifyStore } from "./store";
 import { buildReportingTree } from "./tree";
 import { buildOrgTree, type OrgTree } from "./org-tree";
-import { readStoredMode } from "./mode-store";
+import { readMonthlyFrom, readStoredMode } from "./mode-store";
 import { activeDepartments, CADENCES, isActiveEmployee, NOTIFY_EMPLOYEE_COLUMNS, resolveNotifyMode, toNotifyEmployee, type Cadence, type NotifyMode, type ReportKind, type SendMode, type SendReport } from "./types";
 
 export interface RecipientRow {
@@ -65,6 +65,8 @@ export interface NotificationsAdminData {
   /** The mode in force (mode-store.ts), and whether it was chosen on this page or comes from the Vercel variable. */
   mode: NotifyMode;
   modeSource: "page" | "env";
+  /** The first month that gets a monthly recap ("2026-10"), or null for every month (mode-store.ts). */
+  monthlyFrom: string | null;
   /** The weekly and monthly digests in play: status, next automatic send, sent, Send now (digest-status.ts). */
   digests: DigestStatusRow[];
 }
@@ -144,7 +146,7 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
     RECIPIENT_TABLE.company,
   );
   const opensSince = new Date(Date.now() - OPEN_RATE_DAYS * 86_400_000).toISOString();
-  const stored = await readStoredMode(supabase);
+  const [stored, monthlyFrom] = await Promise.all([readStoredMode(supabase), readMonthlyFrom(supabase)]);
   const mode = resolveNotifyMode(stored, process.env);
   const [subs, companyRows, lastSent, empRows, slackRows, sendRes, fixedCosts, recentSent, reminderRows, digests] = await Promise.all([
     subsP,
@@ -167,7 +169,7 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
       (a, b) => supabase.from("notification_reminder_recipients").select("employee_id").order("employee_id").range(a, b),
       "notification_reminder_recipients",
     ),
-    loadDigests(supabase, new Date(), mode),
+    loadDigests(supabase, new Date(), mode, monthlyFrom),
   ]);
   if (sendRes.error) throw new Error(`notification_sends: ${sendRes.error.message}`);
 
@@ -240,12 +242,13 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
     reminderPeople: activePeople.filter((p) => !reminderSet.has(p.id)),
     mode,
     modeSource: stored !== null && stored === mode ? "page" : "env",
+    monthlyFrom,
     digests,
   };
 }
 
 /** The digests table: the latest complete week and month, and the previous ones while they have sends (the cron's readiness rules). */
-async function loadDigests(supabase: SupabaseClient, now: Date, mode: NotifyMode): Promise<DigestStatusRow[]> {
+async function loadDigests(supabase: SupabaseClient, now: Date, mode: NotifyMode, monthlyFrom: string | null): Promise<DigestStatusRow[]> {
   const store = supabaseNotifyStore(supabase);
   const today = now.toISOString().slice(0, 10);
   const sendMode = mode === "preview" ? "preview" : "live";
@@ -274,7 +277,7 @@ async function loadDigests(supabase: SupabaseClient, now: Date, mode: NotifyMode
   }));
   // Latest week, latest month, then the previous ones.
   periods.sort((a, b) => Number(a.previous) - Number(b.previous));
-  return digestStatusRows({ today, mode, previewEmail: process.env.SLACK_PREVIEW_EMAIL ?? null, periods });
+  return digestStatusRows({ today, mode, previewEmail: process.env.SLACK_PREVIEW_EMAIL ?? null, monthlyFrom, periods });
 }
 
 export async function addReminderRecipients(supabase: SupabaseClient, employeeIds: string[], createdBy: string): Promise<number> {

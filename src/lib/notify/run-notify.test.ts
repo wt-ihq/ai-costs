@@ -765,4 +765,46 @@ describe("the first-message intro after a preview-only history (regression lock)
     expect((await run({ cadence: "daily", periodKey: "2026-09-22" })).sent).toBe(1);
     expect(intro(slack.posts[1])).toBe(false);
   });
+
 });
+
+describe("first monthly (monthlyFrom)", () => {
+    const OCT5 = { now: new Date("2026-10-05T09:30:00Z"), clock: () => Date.parse("2026-10-05T09:30:00Z") };
+    const both = () =>
+      memoryStore(
+        seed({
+          facts: [fact("2026-09-22", 30, "m"), fact("2026-10-01", 12, "a")],
+          subscriptions: [{ employeeId: "a", cadence: "monthly" }, { employeeId: "m", cadence: "weekly" }],
+          syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-10-05T06:00:03Z" }],
+          coverage: [{ month: "2026-09", chatgptSeats: null, chatgptCredits: { totalUsd: 1, lastImport: "2026-09-30" }, claudeSpend: { totalUsd: 1, lastImport: "2026-09-30" }, claudeSeats: null }],
+        }),
+        OCT5.clock,
+      );
+
+    it("a monthly for a month before the first one is never due — not held, not claimed — while the weekly still goes", async () => {
+      const store = both();
+      const slack = fakeSlack();
+      const r = await runNotify(deps(store, slack.client, { ...OCT5, monthlyFrom: "2026-10" }));
+      expect(r.due).toContain("weekly:2026-W40");
+      expect(r.due).not.toContain("monthly:2026-09");
+      expect(r.held).toEqual([]);
+      expect(slack.posts.map((p) => p.channel)).toEqual(["D-U-m"]);
+      expect(store.sends.map((s) => s.cadence)).toEqual(["weekly"]);
+      expect(store.coverageCalls).toHaveLength(0); // nothing to read when no monthly can be due
+    });
+
+    it("without the setting, or once the month is reached, the monthly goes as before", async () => {
+      const r = await runNotify(deps(both(), fakeSlack().client, OCT5));
+      expect(r.due).toContain("monthly:2026-09");
+      const r2 = await runNotify(deps(both(), fakeSlack().client, { ...OCT5, monthlyFrom: "2026-09" }));
+      expect(r2.due).toContain("monthly:2026-09");
+    });
+
+    it("a send-now of an earlier monthly sends nothing, quietly", async () => {
+      const store = both();
+      const slack = fakeSlack();
+      const r = await runNotify(deps(store, slack.client, { ...OCT5, monthlyFrom: "2026-10", only: { cadence: "monthly", periodKey: "2026-09" } }));
+      expect(r).toMatchObject({ sent: 0, held: [], due: [] });
+      expect(slack.posts).toEqual([]);
+    });
+  });

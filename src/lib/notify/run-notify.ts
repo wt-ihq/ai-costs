@@ -3,7 +3,7 @@ import { deliverCompanyDigest, deliverDigest, loadDashboardAccess, PostOutcomeUn
 import type { CompanyDigest } from "./digest";
 import { monthlyReadiness, syncSucceededSince } from "./freshness";
 import { importsInUseSince, readinessSyncSince, syncsOutstanding, weekReadiness } from "./readiness";
-import { dueDigests, inMonthlyWindow, latestCompleteKey, periodFor, sendDay, type DigestPeriod, type DueDigest } from "./schedule";
+import { dueDigests, inMonthlyWindow, latestCompleteKey, periodFor, sendDay, type DigestPeriod, type DueDigest, monthlyInScope } from "./schedule";
 import { firstName } from "./intro";
 import type { RenderOpts } from "./render";
 import { SlackApiError, type SlackClient } from "./slack-client";
@@ -28,6 +28,8 @@ export interface RunNotifyDeps {
    * key is unchanged, so the hourly run then finds it handled.
    */
   only?: { cadence: Cadence; periodKey: string; force?: boolean; employeeIds?: string[] };
+  /** The first month that gets a monthly recap ("2026-10"; mode-store.ts). Earlier months are never due — not held, not claimed. */
+  monthlyFrom?: string | null;
   baseUrl: string;
   /** ADMIN_EMAILS: with the access list, who gets the dashboard button and links. */
   adminEmails: readonly string[];
@@ -157,7 +159,7 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
   // The named month for a send-now (it may be the previous month's row); the latest complete one for the schedule.
   const monthKeyOn = (day: string) => (only?.cadence === "monthly" ? only.periodKey : latestCompleteKey("monthly", new Date(`${day}T12:00:00Z`)));
   // A monthly is never sent before the 3rd, send-now included: the automatic sources aren't final until then.
-  const monthlyCands = candidates.filter((c) => c.cadence === "monthly" && inMonthlyWindow(c.day));
+  const monthlyCands = candidates.filter((c) => c.cadence === "monthly" && inMonthlyWindow(c.day) && monthlyInScope(monthKeyOn(c.day), deps.monthlyFrom));
   const monthlyStates = monthlyCands.length ? await store.sendStates([...new Set(monthlyCands.map((c) => monthKeyOn(c.day)))], deps.mode) : [];
   const monthlyOpen = (c: (typeof candidates)[number]) => {
     const row = monthlyStates.find((s) => s.employeeId === c.recipient.id && s.cadence === "monthly" && s.periodKey === monthKeyOn(c.day) && s.report === c.report);
@@ -179,6 +181,11 @@ export async function runNotify(deps: RunNotifyDeps): Promise<RunNotifyResult> {
     if (wants(day, "weekly") && !weekReady) result.held.push(`weekly:${week.key}`);
     if (wantsMonthly(day) && !monthReady) result.held.push(`monthly:${prevMonth}`);
     if (only?.cadence === "monthly" && !inMonthlyWindow(day)) result.held.push(`monthly:${prevMonth}`);
+    if (only?.cadence === "monthly" && !monthlyInScope(only.periodKey, deps.monthlyFrom)) {
+      // Before the first monthly: nothing to send and nothing to wait for.
+      dueByDay.set(day, []);
+      continue;
+    }
     if (only) {
       // Send now: just the named digest, if it may go — never the day's daily, no working-day rule.
       const ready = only.cadence === "weekly" ? weekReady : only.cadence === "monthly" ? monthReady : true;

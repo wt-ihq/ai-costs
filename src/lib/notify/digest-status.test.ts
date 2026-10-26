@@ -101,4 +101,19 @@ describe("digestStatusRows", () => {
     expect(row.nextSend).toBe("Next hourly run, from 10:30 in each person's own time zone, today (Mon 26 Oct) (preview: to the preview inbox)");
     expect(row.sendNow?.confirm).toBe("Send the weekly summary for 19–25 Oct 2026 now to the preview inbox (g@x.com) as 43 preview messages?");
   });
+
+  it("a monthly before the first one says so, with no button and no next send", () => {
+    const rows = digestStatusRows({
+      today: "2026-10-26", mode: "live", previewEmail: null, monthlyFrom: "2026-10",
+      periods: [entry({ cadence: "monthly" })],
+    });
+    expect(rows).toEqual([
+      expect.objectContaining({
+        cadence: "monthly", periodKey: "2026-09", state: "before_start",
+        statusText: "Not sent: monthly summaries start with October 2026, in November.", nextSend: null, sendNow: null,
+      }),
+    ]);
+    // Once the month is in range the row is as before.
+    expect(digestStatusRows({ today: "2026-10-26", mode: "live", previewEmail: null, monthlyFrom: "2026-09", periods: [entry({ cadence: "monthly" })] })[0].state).toBe("ready");
+  });
 });

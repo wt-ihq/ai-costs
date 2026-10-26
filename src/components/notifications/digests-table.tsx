@@ -9,6 +9,7 @@ import type { NotifyMode } from "@/lib/notify/types";
 const STATE_CLS: Record<DigestStatusRow["state"], string> = {
   waiting: "text-amber-300",
   skipped: "text-amber-300",
+  before_start: "text-muted",
   ready: "text-emerald-300",
   sent: "text-foreground",
 };

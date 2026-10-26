@@ -166,6 +166,7 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
           <ModePanel
             mode={mode} modeSource={data.modeSource} previewEmail={process.env.SLACK_PREVIEW_EMAIL ?? null}
             pilotCount={data.recipients.filter((r) => !r.left).length} companyCount={data.companyRecipients.filter((r) => !r.left).length}
+            monthlyFrom={data.monthlyFrom}
           />
         </Panel>
         <Panel>
