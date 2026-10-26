@@ -80,6 +80,17 @@ function localSafe(now: Date, tz: string | null): { day: string; minutes: number
 /** Update reminders: Monday 09:30 (an hour before summaries) and the month's last working day 15:00, local time. */
 export const WEEKLY_REMINDER_AT = 9 * 60 + 30;
 export const MONTH_END_REMINDER_AT = 15 * 60;
+/**
+ * The month-end Claude Team paste reminder, three times on the last working day (the table resets
+ * at midnight; nothing fires on the 1st). Each slot is its own claim; the 15:00 one keeps the bare
+ * month key it has always had, so earlier claims still match.
+ */
+export type MonthEndSlot = "morning" | "afternoon" | "lastCall";
+export const MONTH_END_SLOTS: readonly { slot: MonthEndSlot; at: number; keySuffix: string }[] = [
+  { slot: "morning", at: 9 * 60 + 30, keySuffix: ":0930" },
+  { slot: "afternoon", at: MONTH_END_REMINDER_AT, keySuffix: "" },
+  { slot: "lastCall", at: 17 * 60 + 30, keySuffix: ":1730" },
+];
 
 /** The month's last working day ("YYYY-MM" → "YYYY-MM-DD"). */
 export function lastWorkingDay(month: string): string {
@@ -92,8 +103,10 @@ export function lastWorkingDay(month: string): string {
 export interface DueReminder {
   kind: "weekly" | "monthEnd";
   cadence: "weekly" | "monthly"; // the send log's cadence column
-  periodKey: string; // the week's ISO key / the month
+  periodKey: string; // the week's ISO key / the month (+ the slot's suffix)
   day: string; // the recipient's local day
+  /** Which month-end slot (kind "monthEnd" only). */
+  slot?: MonthEndSlot;
 }
 
 /** The reminders due to someone now, in their own time zone (run-reminders.ts). `anyTime`: a ?date= replay. */
@@ -105,8 +118,10 @@ export function dueReminders(now: Date, tz: string | null, opts: { anyTime?: boo
   if (weekday(local.day) === 1 && at(WEEKLY_REMINDER_AT)) {
     out.push({ kind: "weekly", cadence: "weekly", periodKey: latestCompleteKey("weekly", new Date(`${local.day}T12:00:00Z`)), day: local.day });
   }
-  if (local.day === lastWorkingDay(local.day.slice(0, 7)) && at(MONTH_END_REMINDER_AT)) {
-    out.push({ kind: "monthEnd", cadence: "monthly", periodKey: local.day.slice(0, 7), day: local.day });
+  if (local.day === lastWorkingDay(local.day.slice(0, 7))) {
+    // Only the latest slot that is due: a slot the cron missed is never sent late alongside the next one.
+    const due = MONTH_END_SLOTS.filter((s) => at(s.at)).at(-1);
+    if (due) out.push({ kind: "monthEnd", cadence: "monthly", periodKey: `${local.day.slice(0, 7)}${due.keySuffix}`, day: local.day, slot: due.slot });
   }
   return out;
 }

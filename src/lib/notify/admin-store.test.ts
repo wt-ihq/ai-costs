@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { addSubscriptions, lastSentLabels, openRate, removeSubscriptions, setSubscription, summariseLastRun } from "./admin-store";
+import { addSubscriptions, lastSentLabels, openRate, removeAllSubscriptions, removeSubscriptions, setSubscription, summariseLastRun } from "./admin-store";
 
 const row = (employee_id: string, mode: string, cadence: string, updated_at: string, status = "sent") => ({ employee_id, mode, cadence, status, updated_at });
 
@@ -74,7 +74,7 @@ function fakeSupabase() {
   const calls: { table: string; op: string; args: unknown[] }[] = [];
   const from = (table: string) => {
     const q: Record<string, unknown> = {};
-    for (const op of ["upsert", "delete", "eq", "select"]) {
+    for (const op of ["upsert", "delete", "eq", "neq", "select"]) {
       q[op] = (...args: unknown[]) => {
         calls.push({ table, op, args });
         return q;
@@ -102,5 +102,15 @@ describe("recipient writes", () => {
     await addSubscriptions(p.client, ["e1"], ["weekly"], "admin@x.com");
     await removeSubscriptions(p.client, "e1");
     expect(new Set(p.calls.map((c) => c.table))).toEqual(new Set(["notification_subscriptions"]));
+  });
+});
+
+describe("removeAllSubscriptions (Remove everyone)", () => {
+  it("empties the personal list only, with a filter that is always true, and returns how many went", async () => {
+    const s = fakeSupabase();
+    expect(await removeAllSubscriptions(s.client)).toBe(1);
+    expect(new Set(s.calls.map((c) => c.table))).toEqual(new Set(["notification_subscriptions"]));
+    expect(s.calls.map((c) => c.op)).toEqual(["delete", "neq", "select"]);
+    expect(s.calls[1].args).toEqual(["cadence", ""]);
   });
 });

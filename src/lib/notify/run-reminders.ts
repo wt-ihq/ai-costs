@@ -4,7 +4,7 @@ import { importsInUseSince, readinessSyncSince, weekReadiness } from "./readines
 import { monthEndReminder, weeklyReminder } from "./reminders";
 import type { RenderedDigest } from "./render";
 import { claim, errorDetail, type RunNotifyDeps } from "./run-notify";
-import { dueReminders, inMonthlyWindow, latestCompleteKey, periodFor, type DueReminder } from "./schedule";
+import { dueReminders, inMonthlyWindow, lastWorkingDay, latestCompleteKey, periodFor, type DueReminder } from "./schedule";
 import type { SendKey } from "./store";
 import { isActiveEmployee, type NotifyEmployee } from "./types";
 
@@ -14,6 +14,8 @@ export interface RunRemindersResult {
   failed: number;
   alreadyHandled: number;
   waiting: number; // recipients before their reminder time
+  /** Month-end reminders not sent because the paste is already in. */
+  skipped: number;
   /** The run stopped early (e.g. the reminder list was unreadable); the digests still run after it. */
   error?: string;
 }
@@ -27,7 +29,7 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
  */
 export async function runReminders(deps: RunNotifyDeps): Promise<RunRemindersResult> {
   const log = deps.log ?? console.log;
-  const result: RunRemindersResult = { due: [], sent: 0, failed: 0, alreadyHandled: 0, waiting: 0 };
+  const result: RunRemindersResult = { due: [], sent: 0, failed: 0, alreadyHandled: 0, waiting: 0, skipped: 0 };
   try {
     return await remind(deps, result, log);
   } catch (err) {
@@ -75,7 +77,16 @@ async function remind(deps: RunNotifyDeps, result: RunRemindersResult, log: (m: 
   const states = await store.sendStates([...new Set(work.map((w) => w.reminder.periodKey))], deps.mode);
   const handled = (w: (typeof work)[number]) =>
     states.some((s) => s.report === "reminder" && s.employeeId === w.recipient.id && s.cadence === w.reminder.cadence && s.periodKey === w.reminder.periodKey);
+  // A month-end slot is skipped — not claimed — once the paste is dated the last working day or later.
+  const monthEnd = work.find((w) => w.reminder.kind === "monthEnd");
+  const pasted = monthEnd
+    ? (await store.manualImports(monthEnd.reminder.day)).some((r) => r.source === "claude_team" && r.kind === "clipboard" && r.dataAsOf >= monthEnd.reminder.day)
+    : false;
   const open = work.filter((w) => {
+    if (w.reminder.kind === "monthEnd" && pasted) {
+      result.skipped++;
+      return false;
+    }
     if (!handled(w)) return true;
     result.alreadyHandled++;
     return false;
@@ -107,11 +118,15 @@ async function remind(deps: RunNotifyDeps, result: RunRemindersResult, log: (m: 
       const m = monthlyReadiness(await store.importCoverage(weekly.reminder.day.slice(0, 7)), prevMonth);
       if (!m.ready) monthly = { monthName: MONTHS[Number(prevMonth.slice(5, 7)) - 1], missing: m.missing.map((x) => x.label) };
     }
-    weeklyMessage = weeklyReminder({ week: { label: week.label, lastDay }, outstanding: weekReadiness({ week, syncRuns, imports }).outstanding, monthly, waiting, importsUrl });
+    // The month's last working day, when it falls in this week: the month-end paste is due then.
+    const monthEndDay = lastWorkingDay(weekly.reminder.day.slice(0, 7));
+    const weekEnd = new Date(Date.parse(`${weekly.reminder.day}T00:00:00Z`) + 6 * 86_400_000).toISOString().slice(0, 10);
+    const monthEndDue = monthEndDay >= weekly.reminder.day && monthEndDay <= weekEnd ? monthEndDay : null;
+    weeklyMessage = weeklyReminder({ week: { label: week.label, lastDay }, outstanding: weekReadiness({ week, syncRuns, imports }).outstanding, monthly, waiting, importsUrl, monthEndDue });
   }
 
   for (const w of open) {
-    const base = w.reminder.kind === "weekly" ? weeklyMessage! : monthEndReminder({ monthName: MONTHS[Number(w.reminder.periodKey.slice(5, 7)) - 1], importsUrl });
+    const base = w.reminder.kind === "weekly" ? weeklyMessage! : monthEndReminder({ monthName: MONTHS[Number(w.reminder.periodKey.slice(5, 7)) - 1], importsUrl, slot: w.reminder.slot });
     const message: RenderedDigest = previewTarget
       ? { blocks: [{ type: "context", elements: [{ type: "mrkdwn", text: `Preview for *${w.recipient.fullName}* (update reminder)` }] }, ...base.blocks], text: `[Preview for ${w.recipient.fullName}] ${base.text}` }
       : base;

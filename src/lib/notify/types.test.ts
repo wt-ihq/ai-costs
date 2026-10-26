@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeDepartments, isActiveEmployee, isCadence, isUuid, notifyMode, toNotifyEmployee, type NotifyEmployee } from "./types";
+import { activeDepartments, isActiveEmployee, isCadence, isUuid, notifyMode, resolveNotifyMode, toNotifyEmployee, type NotifyEmployee } from "./types";
 
 describe("notifyMode", () => {
   it("defaults to off unless explicitly preview or live", () => {
@@ -8,6 +8,19 @@ describe("notifyMode", () => {
     expect(notifyMode({ SLACK_NOTIFY_MODE: "preview" })).toBe("preview");
     expect(notifyMode({ SLACK_NOTIFY_MODE: "on" })).toBe("off");
   });
+});
+
+describe("resolveNotifyMode", () => {
+  // The mode chosen on Data → Notifications (stored) beats the Vercel variable — but only where the
+  // stored value belongs: the production deployment and local development.
+  const prod = { VERCEL_ENV: "production", SLACK_NOTIFY_MODE: "preview" };
+  it("stored value wins on production", () => expect(resolveNotifyMode("live", prod)).toBe("live"));
+  it("no row → env var", () => expect(resolveNotifyMode(null, prod)).toBe("preview"));
+  it("junk row → env var", () => expect(resolveNotifyMode("LIVE!", prod)).toBe("preview"));
+  it("stored live on a preview deployment → env var", () =>
+    expect(resolveNotifyMode("live", { VERCEL_ENV: "preview", SLACK_NOTIFY_MODE: "off" })).toBe("off"));
+  it("stored value wins in local development", () => expect(resolveNotifyMode("live", { NODE_ENV: "development" })).toBe("live"));
+  it("nothing anywhere → off", () => expect(resolveNotifyMode(null, {})).toBe("off"));
 });
 
 describe("input guards (server actions receive arbitrary input)", () => {

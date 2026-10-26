@@ -45,7 +45,7 @@ export interface NotifyStore {
   /** dashboard_access: the emails (lowercased) besides ADMIN_EMAILS who can open the dashboard. */
   dashboardAccess(): Promise<ReadonlySet<string>>;
   /** Existing send rows for these period keys in one mode — lets a run skip the heavy data load when nothing is left to send. */
-  sendStates(periodKeys: string[], mode: SendMode): Promise<(SendKey & { status: string; attempts: number })[]>;
+  sendStates(periodKeys: string[], mode: SendMode): Promise<(SendKey & { status: string; attempts: number; updatedAt: string })[]>;
   /**
    * Of these people, who has had a live message, or may have: a live row that was sent, is still
    * pending, or ended "interrupted" (it may have gone out). They never get the first-message intro.
@@ -160,18 +160,18 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
     },
     async sendStates(periodKeys, mode) {
       if (!periodKeys.length) return [];
-      const rows = await pageAll<{ employee_id: string; cadence: Cadence; period_key: string; report: SendReport; status: string; attempts: number }>(
+      const rows = await pageAll<{ employee_id: string; cadence: Cadence; period_key: string; report: SendReport; status: string; attempts: number; updated_at: string }>(
         (a, b) =>
           supabase
             .from("notification_sends")
-            .select("employee_id, cadence, period_key, report, status, attempts")
+            .select("employee_id, cadence, period_key, report, status, attempts, updated_at")
             .in("period_key", periodKeys)
             .eq("mode", mode)
             .order("id")
             .range(a, b),
         "sendStates",
       );
-      return rows.map((r) => ({ employeeId: r.employee_id, cadence: r.cadence, periodKey: r.period_key, mode, report: r.report, status: r.status, attempts: r.attempts }));
+      return rows.map((r) => ({ employeeId: r.employee_id, cadence: r.cadence, periodKey: r.period_key, mode, report: r.report, status: r.status, attempts: r.attempts, updatedAt: r.updated_at }));
     },
     async fixedCostSettings() {
       const rows = await pageAll<{ scope: string; scope_key: string; include_fixed: boolean }>(

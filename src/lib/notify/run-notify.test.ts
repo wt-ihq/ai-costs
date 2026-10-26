@@ -644,3 +644,125 @@ describe("runNotify: company report", () => {
   });
 });
 
+
+describe("runNotify only (Data → Notifications Send now / catch-up)", () => {
+  const SAT = new Date("2026-10-03T14:00:00Z"); // a Saturday afternoon: the schedule itself would send nothing
+  const synced = [{ source: "cursor", status: "success", startedAt: "2026-10-03T06:00:03Z" }];
+  const stale = [{ source: "cursor", status: "success", startedAt: "2026-09-25T06:00:03Z" }]; // not since the week ended
+  const sat = (store: ReturnType<typeof memoryStore>, slack: SlackClient, over: Partial<RunNotifyDeps> = {}) =>
+    deps(store, slack, { now: SAT, clock: () => SAT.getTime(), ...over });
+
+  it("sends the named week to its weekly subscribers now, on a Saturday, and the cron then finds it handled", async () => {
+    const store = memoryStore(seed({ syncRuns: synced }), () => SAT.getTime());
+    const slack = fakeSlack();
+    const r = await runNotify(sat(store, slack.client, { only: { cadence: "weekly", periodKey: "2026-W39" } }));
+    expect(r).toMatchObject({ due: ["weekly:2026-W39"], sent: 1, waiting: 0, held: [] });
+    expect(r.people).toEqual([{ employeeId: "m", report: "personal", status: "sent" }]);
+    expect(slack.posts.map((p) => p.channel)).toEqual(["D-U-m"]);
+
+    const cron = await runNotify(deps(store, slack.client)); // Monday 28 Sep's run: W39 is due, m already has it
+    expect(cron.alreadyHandled).toBe(1);
+    expect(slack.posts.filter((p) => p.channel === "D-U-m")).toHaveLength(1);
+  });
+
+  it("holds a weekly that isn't ready unless forced", async () => {
+    const store = memoryStore(seed({ syncRuns: stale }), () => SAT.getTime());
+    const held = await runNotify(sat(store, fakeSlack().client, { only: { cadence: "weekly", periodKey: "2026-W39" } }));
+    expect(held).toMatchObject({ sent: 0, held: ["weekly:2026-W39"], due: [] });
+    const forced = await runNotify(sat(store, fakeSlack().client, { only: { cadence: "weekly", periodKey: "2026-W39", force: true } }));
+    expect(forced).toMatchObject({ sent: 1, held: [] });
+  });
+
+  it("never forces a monthly", async () => {
+    const store = memoryStore(seed({ syncRuns: stale, subscriptions: [{ employeeId: "m", cadence: "monthly" }] }), () => SAT.getTime());
+    const r = await runNotify(sat(store, fakeSlack().client, { only: { cadence: "monthly", periodKey: "2026-09", force: true } }));
+    expect(r).toMatchObject({ sent: 0, held: ["monthly:2026-09"] });
+  });
+
+  it("limits to the given people", async () => {
+    const store = memoryStore(seed({ syncRuns: synced, subscriptions: [{ employeeId: "m", cadence: "weekly" }, { employeeId: "a", cadence: "weekly" }] }), () => SAT.getTime());
+    const slack = fakeSlack();
+    const r = await runNotify(sat(store, slack.client, { only: { cadence: "weekly", periodKey: "2026-W39", employeeIds: ["m"] } }));
+    expect(r.sent).toBe(1);
+    expect(r.people).toEqual([{ employeeId: "m", report: "personal", status: "sent" }]);
+  });
+
+  it("a pending claim (the cron mid-send) blocks send-now for that person", async () => {
+    const store = memoryStore(
+      seed({ syncRuns: synced, sends: [{ employeeId: "m", cadence: "weekly", periodKey: "2026-W39", mode: "live", status: "pending", attempts: 1, slackTs: null, detail: null, updatedAt: SAT.toISOString() }] }),
+      () => SAT.getTime(),
+    );
+    const slack = fakeSlack();
+    const r = await runNotify(sat(store, slack.client, { only: { cadence: "weekly", periodKey: "2026-W39" } }));
+    expect(r).toMatchObject({ sent: 0, alreadyHandled: 1 });
+    expect(r.people).toEqual([{ employeeId: "m", report: "personal", status: "alreadyHandled" }]);
+    expect(slack.posts).toHaveLength(0);
+  });
+
+  it("never sends a monthly before the 3rd: automatic sources aren't final yet", async () => {
+    const NOV2 = new Date("2026-11-02T12:00:00Z"); // Monday the 2nd; October's imports are in and the sync ran
+    const store = memoryStore(
+      seed({ syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-11-02T06:00:03Z" }], subscriptions: [{ employeeId: "m", cadence: "monthly" }], facts: [fact("2026-10-20", 30, "m")] }),
+      () => NOV2.getTime(),
+    );
+    const r = await runNotify(deps(store, fakeSlack().client, { now: NOV2, clock: () => NOV2.getTime(), only: { cadence: "monthly", periodKey: "2026-10" } }));
+    expect(r).toMatchObject({ sent: 0, held: ["monthly:2026-10"] });
+  });
+
+  it("send-now for the previous month checks that month's claims, not the latest one's", async () => {
+    const NOV5 = new Date("2026-11-05T12:00:00Z");
+    const store = memoryStore(
+      seed({
+        syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-11-05T06:00:03Z" }],
+        subscriptions: [{ employeeId: "m", cadence: "monthly" }],
+        sends: [{ employeeId: "m", cadence: "monthly", periodKey: "2026-10", mode: "live", status: "sent", attempts: 1, slackTs: "t", detail: null, updatedAt: "2026-11-03T09:31:00Z" }],
+      }),
+      () => NOV5.getTime(),
+    );
+    const slack = fakeSlack();
+    const r = await runNotify(deps(store, slack.client, { now: NOV5, clock: () => NOV5.getTime(), only: { cadence: "monthly", periodKey: "2026-09" } }));
+    expect(r).toMatchObject({ sent: 1, alreadyHandled: 0 });
+  });
+
+  it("names a person whose Slack lookup failed", async () => {
+    const store = memoryStore(seed({ syncRuns: synced }), () => SAT.getTime());
+    const slack = fakeSlack({ lookupUserByEmail: async () => { throw new Error("ratelimited"); } });
+    const r = await runNotify(sat(store, slack.client, { only: { cadence: "weekly", periodKey: "2026-W39" } }));
+    expect(r.people).toEqual([{ employeeId: "m", report: "personal", status: "failed", detail: expect.stringContaining("Slack lookup failed") }]);
+  });
+
+  it("sends the company report too, and names a failed send", async () => {
+    const store = memoryStore(seed({ syncRuns: synced, companyRecipients: [{ employeeId: "a", cadence: "weekly" }] }), () => SAT.getTime());
+    const slack = fakeSlack({ postMessage: async (channel) => { if (channel === "D-U-a") throw new Error("boom"); return "ts1"; } });
+    const r = await runNotify(sat(store, slack.client, { only: { cadence: "weekly", periodKey: "2026-W39" } }));
+    expect(r).toMatchObject({ sent: 1, failed: 1 });
+    expect(r.people).toEqual(expect.arrayContaining([
+      { employeeId: "m", report: "personal", status: "sent" },
+      { employeeId: "a", report: "company", status: "failed", detail: expect.stringContaining("boom") }, // a post that threw: outcome unknown
+    ]));
+  });
+});
+
+describe("the first-message intro after a preview-only history (regression lock)", () => {
+  // Preview sends never count as live (mode is in the claim key; everLive reads live rows only), so
+  // someone who only ever had previews gets the welcome the first time a live message reaches them —
+  // by schedule or by Send now — and not again after that. This test should pass from the start.
+  const SAT = new Date("2026-10-03T14:00:00Z");
+  const intro = (p: { blocks: unknown[] }) => JSON.stringify(p.blocks).includes("this is your first");
+  it("welcomes on the first live send-now, not on the next one", async () => {
+    const store = memoryStore(
+      seed({
+        syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-10-03T06:00:03Z" }],
+        subscriptions: [{ employeeId: "m", cadence: "weekly" }, { employeeId: "m", cadence: "daily" }],
+        sends: [{ employeeId: "m", cadence: "weekly", periodKey: "2026-W38", mode: "preview", status: "sent", attempts: 1, slackTs: "t", detail: null, updatedAt: "2026-09-21T09:31:00Z" }],
+      }),
+      () => SAT.getTime(),
+    );
+    const slack = fakeSlack();
+    const run = (only: RunNotifyDeps["only"]) => runNotify(deps(store, slack.client, { now: SAT, clock: () => SAT.getTime(), only }));
+    expect((await run({ cadence: "weekly", periodKey: "2026-W39" })).sent).toBe(1);
+    expect(intro(slack.posts[0])).toBe(true);
+    expect((await run({ cadence: "daily", periodKey: "2026-09-22" })).sent).toBe(1);
+    expect(intro(slack.posts[1])).toBe(false);
+  });
+});

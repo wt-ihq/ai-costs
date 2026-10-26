@@ -2,8 +2,10 @@ import Link from "next/link";
 import { Panel } from "@/components/ui";
 import { BlockKitPreview } from "@/components/notifications/block-kit-preview";
 import { CompanyRecipients } from "@/components/notifications/company-recipients";
+import { DigestsTable } from "@/components/notifications/digests-table";
 import { ReminderRecipients } from "@/components/notifications/reminder-recipients";
 import { FixedCostsPanel } from "@/components/notifications/fixed-costs-panel";
+import { ModePanel } from "@/components/notifications/mode-panel";
 import { RecipientsTable } from "@/components/notifications/recipients-table";
 import { ReportingLines } from "@/components/notifications/reporting-lines";
 import { PreviewPicker } from "@/components/notifications/preview-picker";
@@ -21,7 +23,7 @@ import { renderCompanyDigest, renderDigest, renderTeamDigest, type SlackBlock } 
 import { defaultPreviewKey, periodFor, stepKey } from "@/lib/notify/schedule";
 import { supabaseNotifyStore } from "@/lib/notify/store";
 import { previewHref, type TestSubject } from "@/lib/notify/subject";
-import { activeDepartments, CADENCES, isActiveEmployee, isCadence, isUuid, notifyMode, type Cadence } from "@/lib/notify/types";
+import { activeDepartments, CADENCES, isActiveEmployee, isCadence, isUuid, type Cadence } from "@/lib/notify/types";
 import { appBaseUrl } from "@/lib/notify/wiring";
 import { firstName } from "@/lib/notify/intro";
 
@@ -140,7 +142,7 @@ const FIXED_SOURCE: Record<FixedCostChoice["source"], string> = { person: "their
 
 export async function NotificationsTab({ params }: { params: NotificationsParams }) {
   const [data, preview] = await Promise.all([loadNotificationsAdmin(getSupabaseAdminClient()), safePreview(params)]);
-  const mode = notifyMode();
+  const mode = data.mode;
   // What the picker shows as open: the loaded subject, else whatever the URL asked for (a failed preview still has one).
   const current: TestSubject | null =
     preview && !("error" in preview) ? preview.subject
@@ -155,28 +157,15 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
 
   return (
     <div className="grid gap-4">
+      <Panel>
+        <DigestsTable rows={data.digests} mode={mode} />
+      </Panel>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Panel>
-          <p className="text-[10.5px] uppercase tracking-wide text-muted">{data.weekStatus.title}</p>
-          <p className={`my-1 text-sm font-semibold ${data.weekStatus.state === "waiting" || data.weekStatus.state === "skipped" ? "text-amber-300" : ""}`}>
-            {data.weekStatus.state === "sent" ? "Sent" : data.weekStatus.state === "ready" ? "Ready" : data.weekStatus.state === "skipped" ? "Skipped" : "Waiting"}
-          </p>
-          <p className="text-xs text-muted">{data.weekStatus.text}</p>
-          {data.monthStatus && (
-            <p className="mt-2 text-xs text-muted">
-              <span className={data.monthStatus.state === "waiting" ? "text-amber-300" : "text-foreground"}>{data.monthStatus.title}:</span> {data.monthStatus.text}
-            </p>
-          )}
-        </Panel>
-        <Panel>
-          <p className="text-[10.5px] uppercase tracking-wide text-muted">Mode</p>
-          <p className="my-1 text-sm font-semibold">{mode.toUpperCase()}</p>
-          <p className="text-xs text-muted">
-            {mode === "off" && "Scheduled sends are off. "}
-            {mode === "preview" && `Every DM goes to ${process.env.SLACK_PREVIEW_EMAIL ?? "(SLACK_PREVIEW_EMAIL unset)"}, not the recipient. `}
-            {mode === "live" && "DMs go to the recipients below. "}
-            Change <code>SLACK_NOTIFY_MODE</code> in Vercel.
-          </p>
+          <ModePanel
+            mode={mode} modeSource={data.modeSource} previewEmail={process.env.SLACK_PREVIEW_EMAIL ?? null}
+            pilotCount={data.recipients.filter((r) => !r.left).length} companyCount={data.companyRecipients.filter((r) => !r.left).length}
+          />
         </Panel>
         <Panel>
           <p className="text-[10.5px] uppercase tracking-wide text-muted">Last run</p>
@@ -215,7 +204,7 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
         <Panel>
           <h2 className="mb-1 text-sm font-medium">Pilot recipients · {data.recipients.length}</h2>
           <p className="mb-4 text-xs text-muted">Only people listed here get a personal digest (the company report has its own list below). Checkboxes save as you click. Reports come from the Okta manager chain.</p>
-          <RecipientsTable rows={data.recipients} people={data.people} departments={data.departments} previewing={isUuid(params.preview) ? params.preview : null} />
+          <RecipientsTable rows={data.recipients} people={data.people} departments={data.departments} previewing={isUuid(params.preview) ? params.preview : null} mode={mode} />
           <div className="mt-6 border-t border-border pt-4">
             <h2 className="mb-1 text-sm font-medium">Fixed costs</h2>
             <p className="mb-3 text-xs text-muted">

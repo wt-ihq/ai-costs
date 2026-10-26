@@ -1,6 +1,7 @@
 import { VENDOR_LABEL } from "@/lib/types";
 import type { Outstanding } from "./readiness";
 import type { RenderedDigest, SlackBlock } from "./render";
+import type { MonthEndSlot } from "./schedule";
 
 /** The update reminders (spec §4). Pure: blocks + notification text. */
 export interface WeeklyReminderInput {
@@ -10,10 +11,14 @@ export interface WeeklyReminderInput {
   monthly: { monthName: string; missing: string[] } | null;
   waiting: number; // weekly recipients not sent yet
   importsUrl: string;
+  /** The month's last working day, when it falls in this week: the month-end paste is due then. */
+  monthEndDue?: string | null;
 }
 
 const SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const d = (day: string) => `${Number(day.slice(8, 10))} ${SHORT[Number(day.slice(5, 7)) - 1]}`;
+const dw = (day: string) => `${WEEKDAYS[new Date(`${day}T00:00:00Z`).getUTCDay()]} ${d(day)}`;
 const header = (text: string): SlackBlock => ({ type: "header", text: { type: "plain_text", text, emoji: true } });
 const section = (text: string): SlackBlock => ({ type: "section", text: { type: "mrkdwn", text } });
 const button = (url: string): SlackBlock => ({ type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "Open Data → Imports" }, url }] });
@@ -35,6 +40,7 @@ export function weeklyReminder(i: WeeklyReminderInput): RenderedDigest {
     ? i.outstanding.map((o) => line(o, i.week.lastDay))
     : [`✅ Everything's in for ${i.week.label}. Weekly summaries go out from 10:30.`];
   if (i.monthly) lines.push(`${i.monthly.monthName}'s monthly recap is waiting too: ${i.monthly.missing.map((m) => `⬜ ${m}`).join(" · ")}`);
+  if (i.monthEndDue) lines.push(`🗓 Month-end paste for Claude Team is due on ${dw(i.monthEndDue)}.`);
   const blocks: SlackBlock[] = [header(`🗓 Weekly updates · ${i.week.label}`), section(lines.join("\n"))];
   if (i.outstanding.length && i.waiting > 0) {
     const n = i.waiting === 1 ? "1 weekly summary goes" : `${i.waiting} weekly summaries go`;
@@ -44,7 +50,21 @@ export function weeklyReminder(i: WeeklyReminderInput): RenderedDigest {
   return { blocks, text: `Weekly updates for ${i.week.label}: ${i.outstanding.length ? `${i.outstanding.length} to do` : "all done"}` };
 }
 
-export function monthEndReminder(i: { monthName: string; importsUrl: string }): RenderedDigest {
+/** The month-end paste reminder for one of the day's three slots (schedule.ts:MONTH_END_SLOTS). */
+export function monthEndReminder(i: { monthName: string; importsUrl: string; slot?: MonthEndSlot }): RenderedDigest {
+  const slot = i.slot ?? "afternoon";
+  if (slot === "morning") {
+    return {
+      blocks: [header("🗓 Claude Team's table resets after today"), section("Paste it before you finish. Today's paste (dated today) is the last chance to capture this month."), button(i.importsUrl)],
+      text: "Claude Team's table resets after today — paste it before you finish",
+    };
+  }
+  if (slot === "lastCall") {
+    return {
+      blocks: [header("🗓 Still not pasted"), section(`Claude Team spend hasn't been pasted today. After midnight ${i.monthName}'s figures can't be recovered.`), button(i.importsUrl)],
+      text: `Still not pasted: after midnight ${i.monthName}'s figures can't be recovered`,
+    };
+  }
   return {
     blocks: [
       header("🗓 Paste Claude Team spend today"),
