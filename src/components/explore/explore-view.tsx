@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import type { Dim } from "@/lib/explore/types";
 import { dimColorFor, dimLabel, vendorFixedShare } from "@/lib/explore/shape";
 import type { ToolColors } from "@/lib/explore/shape";
@@ -14,6 +14,29 @@ import { CompositionBreakdown } from "./composition-breakdown";
 import { RankedPanel } from "./ranked-panel";
 import { TrendsSection } from "./trends-section";
 import { PeriodControl } from "./period-control";
+
+/**
+ * Browser-remembered Breakdown badge toggle (per viewer, per device — a viewing
+ * convenience, nothing reads it back). An external store so the server render
+ * and first paint agree (off) and the browser's choice applies on hydration.
+ */
+const LAST_UPDATED_KEY = "explore.showLastUpdated";
+const lastUpdatedListeners = new Set<() => void>();
+const lastUpdatedStore = {
+  subscribe(cb: () => void) {
+    lastUpdatedListeners.add(cb);
+    window.addEventListener("storage", cb);
+    return () => { lastUpdatedListeners.delete(cb); window.removeEventListener("storage", cb); };
+  },
+  get(): boolean {
+    try { return window.localStorage.getItem(LAST_UPDATED_KEY) === "1"; } catch { return false; }
+  },
+  getServer: () => false,
+  set(on: boolean) {
+    try { window.localStorage.setItem(LAST_UPDATED_KEY, on ? "1" : "0"); } catch { /* private window / blocked storage: nothing to remember */ }
+    for (const cb of lastUpdatedListeners) cb();
+  },
+};
 
 /** Mirror state into a query param without a navigation/refetch. */
 function syncParam(key: string, value: string | null) {
@@ -101,6 +124,8 @@ export function ExploreView({
   );
   const [dim, setDim] = useState<Dim>(initialDim);
   const [vendor, setVendor] = useState<VendorKey | "all">(() => parseVendorParam(initialVendorParam, vendors));
+  const showLastUpdated = useSyncExternalStore(lastUpdatedStore.subscribe, lastUpdatedStore.get, lastUpdatedStore.getServer);
+  const toggleLastUpdated = () => lastUpdatedStore.set(!showLastUpdated);
 
   // Vendor filter slices upstream of the shapers, so every panel (including
   // total-to-date) is vendor-scoped. Pure, in-memory — no network round-trip.
@@ -181,10 +206,27 @@ export function ExploreView({
         </section>
 
         <section className="rounded-xl border border-border bg-surface p-5">
-          <h2 className="mb-4 text-sm font-medium">Breakdown · {data.period.label}</h2>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-medium">Breakdown · {data.period.label}</h2>
+            {effectiveDim === "vendor" && (
+              <button
+                type="button"
+                onClick={toggleLastUpdated}
+                aria-pressed={showLastUpdated}
+                title="Show when each source was last refreshed"
+                className={cn(
+                  "rounded-md border border-border px-2 py-0.5 text-xs transition-colors",
+                  showLastUpdated ? "bg-accent/20 text-accent" : "bg-surface-2 text-muted hover:text-foreground",
+                )}
+              >
+                Last updated
+              </button>
+            )}
+          </div>
           <CompositionBreakdown
             nodes={data.treemap[effectiveDim]}
             onSelect={effectiveDim === "vendor" ? (key) => (key.startsWith("__") ? undefined : changeVendor(key as VendorKey)) : undefined}
+            lastUpdated={showLastUpdated && effectiveDim === "vendor" ? scope.lastUpdated : undefined}
           />
         </section>
       </div>

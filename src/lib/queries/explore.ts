@@ -4,6 +4,7 @@ import { UNATTRIBUTED, type ShapeFact } from "@/lib/explore/shape";
 import type { RawScope } from "@/lib/explore/build";
 import { OTHER_TOOL_PALETTE } from "@/lib/colors";
 import { VENDOR_LABEL, type Vendor } from "@/lib/types";
+import { getLastUpdated } from "./last-updated";
 
 /**
  * source → its latest fact day, GLOBAL (not scope-filtered). The projection
@@ -71,11 +72,12 @@ async function fetchScope(
 export async function getCompanyScope(supabase: SupabaseClient): Promise<RawScope> {
   // Independent reads run concurrently — sequential awaits added whole
   // round-trips of latency per page view.
-  const [{ rows, earliest }, emps, toolColors, horizons] = await Promise.all([
+  const [{ rows, earliest }, emps, toolColors, horizons, lastUpdated] = await Promise.all([
     fetchScope(supabase),
     fetchEmployeesAll(supabase, "id, full_name, department"),
     getToolColors(supabase),
     getSourceHorizons(supabase),
+    getLastUpdated(supabase),
   ]);
   const employees = emps.map((e) => ({ id: e.id as string, fullName: e.full_name as string | null, department: e.department as string | null }));
   const headcounts: Record<string, number> = {};
@@ -83,7 +85,7 @@ export async function getCompanyScope(supabase: SupabaseClient): Promise<RawScop
     const d = e.department ?? UNATTRIBUTED;
     headcounts[d] = (headcounts[d] ?? 0) + 1;
   }
-  return { kind: "company", title: "Company", earliest, facts: rows, headcounts, employees, toolColors, horizons };
+  return { kind: "company", title: "Company", earliest, facts: rows, headcounts, employees, toolColors, horizons, lastUpdated };
 }
 
 export async function getTeamScope(supabase: SupabaseClient, team: string): Promise<RawScope> {
@@ -94,7 +96,7 @@ export async function getTeamScope(supabase: SupabaseClient, team: string): Prom
   const isUnattributed = team === UNATTRIBUTED;
   const emps = await fetchEmployeesAll(supabase, "id, full_name", { department: isUnattributed ? null : team });
   const employees = emps.map((e) => ({ id: e.id as string, fullName: e.full_name as string | null }));
-  const [{ rows: facts, earliest }, toolColors, horizons] = await Promise.all([
+  const [{ rows: facts, earliest }, toolColors, horizons, lastUpdated] = await Promise.all([
     fetchScope(supabase, {
       employeeIds: employees.map((e) => e.id),
       includeNullEmployee: isUnattributed,
@@ -102,8 +104,9 @@ export async function getTeamScope(supabase: SupabaseClient, team: string): Prom
     }),
     getToolColors(supabase),
     getSourceHorizons(supabase),
+    getLastUpdated(supabase),
   ]);
-  return { kind: "team", title: team, earliest, facts, team, employees, toolColors, horizons };
+  return { kind: "team", title: team, earliest, facts, team, employees, toolColors, horizons, lastUpdated };
 }
 
 export interface SearchItem {
@@ -146,11 +149,12 @@ export async function getSearchIndex(supabase: SupabaseClient): Promise<SearchIt
 }
 
 export async function getPersonScope(supabase: SupabaseClient, employeeId: string): Promise<RawScope> {
-  const [{ rows: facts, earliest }, { data: emp }, toolColors, horizons] = await Promise.all([
+  const [{ rows: facts, earliest }, { data: emp }, toolColors, horizons, lastUpdated] = await Promise.all([
     fetchScope(supabase, { employeeIds: [employeeId] }),
     supabase.from("employees").select("full_name").eq("id", employeeId).single(),
     getToolColors(supabase),
     getSourceHorizons(supabase),
+    getLastUpdated(supabase),
   ]);
-  return { kind: "person", title: (emp?.full_name as string) ?? "Unknown", earliest, facts, toolColors, horizons };
+  return { kind: "person", title: (emp?.full_name as string) ?? "Unknown", earliest, facts, toolColors, horizons, lastUpdated };
 }

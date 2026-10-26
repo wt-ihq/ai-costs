@@ -48,6 +48,9 @@ const REPORTS_PHRASE: Record<IntroInput["reports"], string> = {
   byTeam: " and the total spend for the teams who report to you, with comparisons to the previous period",
 };
 
+/** Who's on the pilot — the personal summary only; the company report's list is hand-picked. */
+const PILOT_LINE = "To start with, these go to department heads and the people with the highest AI spend.";
+
 export function introFor(i: IntroInput): { blocks: SlackBlock[]; text: string } {
   const hi = i.name ? esc(i.name) : "there";
   const what = i.report === "company" ? "company AI spend report" : "AI spend summary";
@@ -60,6 +63,7 @@ export function introFor(i: IntroInput): { blocks: SlackBlock[]; text: string } 
       : [
           `👋 *Hi ${hi},* this is your first ${what}.`,
           `From now on you'll get ${cadencePhrase(i.cadences, "personal")} recaps. Each shows your own AI spend by tool${REPORTS_PHRASE[i.reports]}.`,
+          PILOT_LINE,
         ];
   const footer = `${i.links ? "Use *Open in dashboard* for the detail. " : ""}Questions? Ask <${HELP_LINK}|Workplace Tech>.`;
   return {

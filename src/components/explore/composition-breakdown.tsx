@@ -2,14 +2,17 @@
 
 import { motion, useReducedMotion } from "motion/react";
 import type { TreemapNode } from "@/lib/explore/types";
+import { lastUpdatedForNode, lastUpdatedLabel, type LastUpdated } from "@/lib/explore/last-updated";
 import { formatUsd } from "@/lib/utils";
 
 /**
  * Spend composition as labeled horizontal bars — readable even when one item
  * dominates (a treemap collapses to a single block in that case). Each row:
- * colored bar sized vs. the largest, with name, amount, and % of total.
+ * colored bar sized vs. the largest, with name, amount, and % of total. With
+ * `lastUpdated` (vendor dim, toggled on), each source also carries a muted
+ * "Updated 26 Oct" badge — the rolled-up "Other" row has no source to date.
  */
-export function CompositionBreakdown({ nodes, onSelect }: { nodes: TreemapNode[]; onSelect?: (key: string) => void }) {
+export function CompositionBreakdown({ nodes, onSelect, lastUpdated }: { nodes: TreemapNode[]; onSelect?: (key: string) => void; lastUpdated?: LastUpdated }) {
   const reduce = useReducedMotion();
   if (!nodes.length) return <div className="flex h-40 items-center justify-center text-sm text-muted">No spend in this period.</div>;
   const total = nodes.reduce((s, n) => s + n.value, 0);
@@ -17,12 +20,18 @@ export function CompositionBreakdown({ nodes, onSelect }: { nodes: TreemapNode[]
   return (
     <div className="space-y-2.5">
       {nodes.map((n, i) => {
+        const updated = lastUpdated ? lastUpdatedForNode(n.key, lastUpdated) : undefined;
         const row = (
           <>
             <div className="mb-1 flex items-center justify-between text-sm">
               <span className="flex min-w-0 items-center gap-2">
                 <span className="size-2.5 shrink-0 rounded-full" style={{ background: n.color }} />
                 <span className="truncate">{n.label}</span>
+                {updated !== undefined && (
+                  <span className="shrink-0 rounded-full border border-border bg-surface-2 px-1.5 py-px text-[10px] leading-4 text-muted tabular-nums">
+                    {lastUpdatedLabel(updated)}
+                  </span>
+                )}
               </span>
               <span className="shrink-0 tabular-nums">
                 {formatUsd(n.value)}
