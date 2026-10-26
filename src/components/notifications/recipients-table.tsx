@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import { addRecipients, addTeamRecipients, removeAllRecipients, removeRecipient, setPersonFixedCosts, setRecipientCadence } from "@/app/(dashboard)/data/notifications-actions";
 import type { RecipientRow } from "@/lib/notify/admin-store";
-import { CADENCES, type Cadence } from "@/lib/notify/types";
+import type { SendNowResult } from "@/lib/notify/send-now";
+import { CADENCES, type Cadence, type NotifyMode } from "@/lib/notify/types";
+import { sendNowSummary } from "./digests-table";
 
 export const CADENCE_LABEL: Record<Cadence, string> = { daily: "Daily", weekly: "Weekly", monthly: "Monthly" };
 export const SLACK_STATUS: Record<RecipientRow["slack"], { text: string; cls: string }> = {
@@ -13,17 +15,21 @@ export const SLACK_STATUS: Record<RecipientRow["slack"], { text: string; cls: st
   unknown: { text: "not looked up", cls: "text-muted" },
 };
 
-export function RecipientsTable({ rows, people, departments, previewing }: {
+export function RecipientsTable({ rows, people, departments, previewing, mode }: {
   rows: RecipientRow[];
   people: { id: string; label: string }[];
   departments: string[];
   previewing: string | null;
+  mode: NotifyMode;
 }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [person, setPerson] = useState("");
   const [team, setTeam] = useState("");
   const [defaults, setDefaults] = useState<Cadence[]>(["weekly", "monthly"]);
+  const [sendLatest, setSendLatest] = useState(false);
+  const [catchUp, setCatchUp] = useState<SendNowResult | null>(null);
+  const added = (r: { added: number; catchUp?: SendNowResult }) => setCatchUp(r.catchUp ?? null);
   const idByLabel = new Map(people.map((p) => [p.label, p.id]));
 
   const run = (fn: () => Promise<unknown>) =>
@@ -48,7 +54,7 @@ export function RecipientsTable({ rows, people, departments, previewing }: {
         />
         <button
           disabled={pending || !idByLabel.has(person)}
-          onClick={() => run(async () => { await addRecipients([idByLabel.get(person)!], defaults); setPerson(""); })}
+          onClick={() => run(async () => { added(await addRecipients([idByLabel.get(person)!], defaults, sendLatest)); setPerson(""); })}
           className="rounded-md border border-accent bg-accent/15 px-3 py-1 text-accent disabled:opacity-40"
         >Add</button>
         <select value={team} onChange={(e) => setTeam(e.target.value)} className="rounded-md border border-border bg-surface-2 px-2 py-1 text-foreground">
@@ -57,7 +63,7 @@ export function RecipientsTable({ rows, people, departments, previewing }: {
         </select>
         <button
           disabled={pending || !team}
-          onClick={() => run(async () => { await addTeamRecipients(team, defaults); setTeam(""); })}
+          onClick={() => run(async () => { added(await addTeamRecipients(team, defaults, sendLatest)); setTeam(""); })}
           className="rounded-md border border-accent bg-accent/15 px-3 py-1 text-accent disabled:opacity-40"
         >Add team</button>
         <span className="ml-2 text-muted">New people get:</span>
@@ -67,6 +73,10 @@ export function RecipientsTable({ rows, people, departments, previewing }: {
             {CADENCE_LABEL[c]}
           </label>
         ))}
+        <label className="flex items-center gap-1 text-muted" title={mode === "off" ? "choose Preview or Live first" : undefined}>
+          <input type="checkbox" checked={sendLatest && mode !== "off"} disabled={mode === "off"} onChange={(e) => setSendLatest(e.target.checked)} />
+          Also send them the latest weekly and monthly now
+        </label>
         {rows.length > 0 && (
           <button
             type="button" disabled={pending}
@@ -79,6 +89,11 @@ export function RecipientsTable({ rows, people, departments, previewing }: {
         )}
       </div>
 
+      {catchUp && (
+        <p className={`rounded-md border px-3 py-2 text-sm ${catchUp.ok ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200" : "border-pink-500/30 bg-pink-500/10 text-pink-300"}`}>
+          {sendNowSummary(catchUp)}
+        </p>
+      )}
       {rows.length === 0 ? (
         <p className="text-sm text-muted">Nobody is enrolled yet. Only people listed here get a personal digest.</p>
       ) : (

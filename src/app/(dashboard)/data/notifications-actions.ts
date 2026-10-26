@@ -9,7 +9,7 @@ import { addReminderRecipients, addSubscriptions, removeAllSubscriptions, remove
 import { renderChartPng, renderWelcomeBannerPng } from "@/lib/notify/chart-image";
 import { currentMode, writeStoredMode } from "@/lib/notify/mode-store";
 import { periodFor } from "@/lib/notify/schedule";
-import { sendNow, type SendNowDeps, type SendNowResult } from "@/lib/notify/send-now";
+import { catchUp, sendNow, type SendNowDeps, type SendNowResult } from "@/lib/notify/send-now";
 import type { TestSubject, TestTarget } from "@/lib/notify/subject";
 import { supabaseNotifyStore } from "@/lib/notify/store";
 import { sendTest, type TestSendResult } from "@/lib/notify/test-send";
@@ -69,24 +69,29 @@ export async function sendDigestNow(cadence: string, periodKey: string, force: b
   return result;
 }
 
-export async function addRecipients(employeeIds: string[], cadences: string[]): Promise<{ added: number }> {
+/** `sendLatest`: also send the people just added the latest weekly and monthly now (send-now.ts:catchUp). */
+export async function addRecipients(employeeIds: string[], cadences: string[], sendLatest = false): Promise<{ added: number; catchUp?: SendNowResult }> {
   await requireAdmin();
-  const added = await addSubscriptions(getSupabaseAdminClient(), idsOrThrow(employeeIds), cadencesOrThrow(cadences), await actorEmail());
+  const ids = idsOrThrow(employeeIds);
+  const added = await addSubscriptions(getSupabaseAdminClient(), ids, cadencesOrThrow(cadences), await actorEmail());
+  const result = sendLatest === true ? { added, catchUp: await catchUp(await sendNowDeps(), ids) } : { added };
   revalidatePath("/data");
-  return { added };
+  return result;
 }
 
 /** Enrols a team's CURRENT active members once; later joiners are not auto-enrolled. */
-export async function addTeamRecipients(department: string, cadences: string[]): Promise<{ added: number }> {
+export async function addTeamRecipients(department: string, cadences: string[], sendLatest = false): Promise<{ added: number; catchUp?: SendNowResult }> {
   await requireAdmin();
   if (typeof department !== "string" || !department.trim()) throw new Error("Pick a team");
   const supabase = getSupabaseAdminClient();
   const members = (await fetchEmployeesAll(supabase, NOTIFY_EMPLOYEE_COLUMNS, { department })).map(toNotifyEmployee).filter(isActiveEmployee);
   if (!members.length) throw new Error(`No active people in ${department}`);
   if (members.length > MAX_BATCH) throw new Error("Team too large to add at once");
-  const added = await addSubscriptions(supabase, members.map((m) => m.id), cadencesOrThrow(cadences), await actorEmail());
+  const ids = members.map((m) => m.id);
+  const added = await addSubscriptions(supabase, ids, cadencesOrThrow(cadences), await actorEmail());
+  const result = sendLatest === true ? { added, catchUp: await catchUp(await sendNowDeps(), ids) } : { added };
   revalidatePath("/data");
-  return { added };
+  return result;
 }
 
 export async function setRecipientCadence(employeeId: string, cadence: string, enabled: boolean): Promise<void> {
