@@ -54,7 +54,7 @@ describe("digestStatusRows", () => {
     });
     expect(row).toMatchObject({
       state: "waiting", statusText: "Waiting for ChatGPT credits (through 11 Oct) · Claude Team (pasted as of 19 Oct)",
-      sendNow: { label: "Send anyway", confirm: "Still missing: ChatGPT credits (through 11 Oct), Claude Team (pasted as of 19 Oct). Figures for those will be incomplete. Send anyway?" },
+      sendNow: { label: "Send anyway", confirm: "Still missing: ChatGPT credits (through 11 Oct), Claude Team (pasted as of 19 Oct). Figures for those will be incomplete. Send anyway to 40 people (and the company report to 3)?" },
     });
   });
 
@@ -86,9 +86,14 @@ describe("digestStatusRows", () => {
     expect(rows.map((r) => r.periodKey)).toEqual(["2026-W43", "2026-08"]);
   });
 
-  it("monthly before the 3rd: ready, going out from the 3rd", () => {
+  it("monthly before the 3rd: waiting for the 3rd, no Send now — the automatic sources aren't final yet", () => {
     const [row] = digestStatusRows({ today: "2026-11-01", mode: "live", previewEmail: null, periods: [entry({ cadence: "monthly", period: periodFor("monthly", "2026-10", now) })] });
-    expect(row).toMatchObject({ state: "ready", nextSend: "Next hourly run, from 10:30 in each person's own time zone, Tue 3 Nov (from the 3rd)" });
+    expect(row).toMatchObject({ state: "waiting", statusText: "Due from the 3rd", sendNow: null, nextSend: "Next hourly run, from 10:30 in each person's own time zone, Tue 3 Nov (from the 3rd)" });
+    const [missing] = digestStatusRows({
+      today: "2026-11-01", mode: "live", previewEmail: null,
+      periods: [entry({ cadence: "monthly", period: periodFor("monthly", "2026-10", now), readiness: { ready: false, missing: ["Claude Team usage"] } })],
+    });
+    expect(missing).toMatchObject({ state: "waiting", statusText: "Waiting for Claude Team usage · Due from the 3rd", sendNow: null });
   });
 
   it("preview mode says so", () => {

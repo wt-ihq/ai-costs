@@ -699,6 +699,38 @@ describe("runNotify only (Data → Notifications Send now / catch-up)", () => {
     expect(slack.posts).toHaveLength(0);
   });
 
+  it("never sends a monthly before the 3rd: automatic sources aren't final yet", async () => {
+    const NOV2 = new Date("2026-11-02T12:00:00Z"); // Monday the 2nd; October's imports are in and the sync ran
+    const store = memoryStore(
+      seed({ syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-11-02T06:00:03Z" }], subscriptions: [{ employeeId: "m", cadence: "monthly" }], facts: [fact("2026-10-20", 30, "m")] }),
+      () => NOV2.getTime(),
+    );
+    const r = await runNotify(deps(store, fakeSlack().client, { now: NOV2, clock: () => NOV2.getTime(), only: { cadence: "monthly", periodKey: "2026-10" } }));
+    expect(r).toMatchObject({ sent: 0, held: ["monthly:2026-10"] });
+  });
+
+  it("send-now for the previous month checks that month's claims, not the latest one's", async () => {
+    const NOV5 = new Date("2026-11-05T12:00:00Z");
+    const store = memoryStore(
+      seed({
+        syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-11-05T06:00:03Z" }],
+        subscriptions: [{ employeeId: "m", cadence: "monthly" }],
+        sends: [{ employeeId: "m", cadence: "monthly", periodKey: "2026-10", mode: "live", status: "sent", attempts: 1, slackTs: "t", detail: null, updatedAt: "2026-11-03T09:31:00Z" }],
+      }),
+      () => NOV5.getTime(),
+    );
+    const slack = fakeSlack();
+    const r = await runNotify(deps(store, slack.client, { now: NOV5, clock: () => NOV5.getTime(), only: { cadence: "monthly", periodKey: "2026-09" } }));
+    expect(r).toMatchObject({ sent: 1, alreadyHandled: 0 });
+  });
+
+  it("names a person whose Slack lookup failed", async () => {
+    const store = memoryStore(seed({ syncRuns: synced }), () => SAT.getTime());
+    const slack = fakeSlack({ lookupUserByEmail: async () => { throw new Error("ratelimited"); } });
+    const r = await runNotify(sat(store, slack.client, { only: { cadence: "weekly", periodKey: "2026-W39" } }));
+    expect(r.people).toEqual([{ employeeId: "m", report: "personal", status: "failed", detail: expect.stringContaining("Slack lookup failed") }]);
+  });
+
   it("sends the company report too, and names a failed send", async () => {
     const store = memoryStore(seed({ syncRuns: synced, companyRecipients: [{ employeeId: "a", cadence: "weekly" }] }), () => SAT.getTime());
     const slack = fakeSlack({ postMessage: async (channel) => { if (channel === "D-U-a") throw new Error("boom"); return "ts1"; } });

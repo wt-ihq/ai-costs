@@ -13,7 +13,7 @@ import { catchUp, sendNow, type SendNowDeps, type SendNowResult } from "@/lib/no
 import type { TestSubject, TestTarget } from "@/lib/notify/subject";
 import { supabaseNotifyStore } from "@/lib/notify/store";
 import { sendTest, type TestSendResult } from "@/lib/notify/test-send";
-import { isActiveEmployee, isCadence, isUuid, NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence } from "@/lib/notify/types";
+import { isActiveEmployee, isCadence, isNotifyMode, isUuid, NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence } from "@/lib/notify/types";
 import { appBaseUrl, slackClientFromEnv } from "@/lib/notify/wiring";
 
 const MAX_BATCH = 500;
@@ -56,31 +56,31 @@ async function sendNowDeps(): Promise<SendNowDeps> {
  * Send a weekly or monthly digest to everyone due it, now, in the current mode. Claimed like a scheduled
  * send, so the hourly run never repeats it. Public POST endpoint: validates every argument.
  */
-export async function sendDigestNow(cadence: string, periodKey: string, force: boolean): Promise<SendNowResult> {
+export async function sendDigestNow(cadence: string, periodKey: string, force: boolean, expectedMode: string): Promise<SendNowResult> {
   await requireAdmin();
-  if (!isCadence(cadence) || typeof force !== "boolean" || typeof periodKey !== "string") return { ok: false, error: "Invalid input" };
+  if (!isCadence(cadence) || typeof force !== "boolean" || typeof periodKey !== "string" || !isNotifyMode(expectedMode)) return { ok: false, error: "Invalid input" };
   try {
     periodFor(cadence, periodKey, new Date());
   } catch {
     return { ok: false, error: "Invalid period" };
   }
-  const result = await sendNow(await sendNowDeps(), { cadence, periodKey, force });
+  const result = await sendNow(await sendNowDeps(), { cadence, periodKey, force, expectedMode });
   revalidatePath("/data");
   return result;
 }
 
-/** `sendLatest`: also send the people just added the latest weekly and monthly now (send-now.ts:catchUp). */
-export async function addRecipients(employeeIds: string[], cadences: string[], sendLatest = false): Promise<{ added: number; catchUp?: SendNowResult }> {
+/** `sendLatest`: the mode the page showed — also send the people just added the latest weekly and monthly now (send-now.ts:catchUp). */
+export async function addRecipients(employeeIds: string[], cadences: string[], sendLatest: string | null = null): Promise<{ added: number; catchUp?: SendNowResult }> {
   await requireAdmin();
   const ids = idsOrThrow(employeeIds);
   const added = await addSubscriptions(getSupabaseAdminClient(), ids, cadencesOrThrow(cadences), await actorEmail());
-  const result = sendLatest === true ? { added, catchUp: await catchUp(await sendNowDeps(), ids) } : { added };
+  const result = isNotifyMode(sendLatest) ? { added, catchUp: await catchUp(await sendNowDeps(), ids, sendLatest) } : { added };
   revalidatePath("/data");
   return result;
 }
 
 /** Enrols a team's CURRENT active members once; later joiners are not auto-enrolled. */
-export async function addTeamRecipients(department: string, cadences: string[], sendLatest = false): Promise<{ added: number; catchUp?: SendNowResult }> {
+export async function addTeamRecipients(department: string, cadences: string[], sendLatest: string | null = null): Promise<{ added: number; catchUp?: SendNowResult }> {
   await requireAdmin();
   if (typeof department !== "string" || !department.trim()) throw new Error("Pick a team");
   const supabase = getSupabaseAdminClient();
@@ -89,7 +89,7 @@ export async function addTeamRecipients(department: string, cadences: string[], 
   if (members.length > MAX_BATCH) throw new Error("Team too large to add at once");
   const ids = members.map((m) => m.id);
   const added = await addSubscriptions(supabase, ids, cadencesOrThrow(cadences), await actorEmail());
-  const result = sendLatest === true ? { added, catchUp: await catchUp(await sendNowDeps(), ids) } : { added };
+  const result = isNotifyMode(sendLatest) ? { added, catchUp: await catchUp(await sendNowDeps(), ids, sendLatest) } : { added };
   revalidatePath("/data");
   return result;
 }

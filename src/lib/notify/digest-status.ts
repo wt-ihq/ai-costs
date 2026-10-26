@@ -70,16 +70,20 @@ export function digestStatusRows(i: DigestStatusInput): DigestStatusRow[] {
       : `${dayLabel(sendDay)} (the next working day)`;
     const previewNote = preview ? " (preview: to the preview inbox)" : "";
     const skipped = p.cadence === "weekly" && !sent.length && i.today > addDays(p.period.toExclusive, 4); // the Friday after the week has passed
+    // A monthly is never sent before the 3rd (the automatic sources aren't final until then) — not by Send now either.
+    const beforeThird = p.cadence === "monthly" && Number(i.today.slice(8, 10)) < 3;
+    const ready = p.readiness.ready && !beforeThird;
 
-    const state: DigestStatusRow["state"] = sent.length ? "sent" : skipped ? "skipped" : p.readiness.ready ? "ready" : "waiting";
+    const state: DigestStatusRow["state"] = sent.length ? "sent" : skipped ? "skipped" : ready ? "ready" : "waiting";
+    const waitingFor = [...(p.readiness.missing.length ? [`Waiting for ${p.readiness.missing.join(" · ")}`] : []), ...(beforeThird ? ["Due from the 3rd"] : [])];
     const statusText =
       state === "sent" ? "Sent"
       : state === "skipped" ? "Not ready by Friday, so it won't go out by itself. You can still send it now."
       : state === "ready" ? "Ready"
-      : `Waiting for ${p.readiness.missing.join(" · ")}`;
+      : waitingFor.join(" · ");
     const nextSend =
       state === "sent" || state === "skipped" ? null
-      : state === "ready" ? `${SEND_AT}, ${when}${previewNote}`
+      : state === "ready" || (beforeThird && p.readiness.ready) ? `${SEND_AT}, ${when}${previewNote}`
       : `Once it's in: the next hourly run, from 10:30 in each person's own time zone${previewNote}`;
     const latest = sent.map((s) => s.updatedAt).sort().at(-1);
     const sentText = latest ? `${sent.length} of ${recipients} on ${dayLabel(latest.slice(0, 10))}` : null;
@@ -89,8 +93,8 @@ export function digestStatusRows(i: DigestStatusInput): DigestStatusRow[] {
       ? `to the preview inbox (${i.previewEmail ?? "SLACK_PREVIEW_EMAIL is not set"}) as ${recipients} preview messages`
       : `to ${p.recipients.personal} people${p.recipients.company ? ` (and the company report to ${p.recipients.company})` : ""}`;
     const sendNow: DigestStatusRow["sendNow"] =
-      p.readiness.ready ? { label: "Send now", confirm: `Send ${what} now ${to}?` }
-      : p.cadence === "weekly" ? { label: "Send anyway", confirm: `Still missing: ${p.readiness.missing.join(", ")}. Figures for those will be incomplete. Send anyway?` }
+      ready ? { label: "Send now", confirm: `Send ${what} now ${to}?` }
+      : p.cadence === "weekly" ? { label: "Send anyway", confirm: `Still missing: ${p.readiness.missing.join(", ")}. Figures for those will be incomplete. Send anyway ${to}?` }
       : null;
 
     return [{ cadence: p.cadence, periodKey: p.period.key, label, state, statusText, nextSend, sentText, recipients, sendNow, missing: p.readiness.missing }];

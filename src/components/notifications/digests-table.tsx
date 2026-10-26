@@ -36,7 +36,7 @@ export function DigestsTable({ rows, mode }: { rows: DigestStatusRow[]; mode: No
     setOutcome(null);
     start(async () => {
       try {
-        const r = await sendDigestNow(row.cadence, row.periodKey, row.sendNow!.label === "Send anyway");
+        const r = await sendDigestNow(row.cadence, row.periodKey, row.sendNow!.label === "Send anyway", mode);
         setOutcome({ key: row.periodKey, text: sendNowSummary(r), failed: !r.ok });
       } catch (err) {
         setOutcome({ key: row.periodKey, text: `Failed: ${err instanceof Error ? err.message : String(err)}`, failed: true });

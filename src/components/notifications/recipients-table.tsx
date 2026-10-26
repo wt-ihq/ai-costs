@@ -54,7 +54,7 @@ export function RecipientsTable({ rows, people, departments, previewing, mode }:
         />
         <button
           disabled={pending || !idByLabel.has(person)}
-          onClick={() => run(async () => { added(await addRecipients([idByLabel.get(person)!], defaults, sendLatest)); setPerson(""); })}
+          onClick={() => run(async () => { added(await addRecipients([idByLabel.get(person)!], defaults, sendLatest && mode !== "off" ? mode : null)); setPerson(""); })}
           className="rounded-md border border-accent bg-accent/15 px-3 py-1 text-accent disabled:opacity-40"
         >Add</button>
         <select value={team} onChange={(e) => setTeam(e.target.value)} className="rounded-md border border-border bg-surface-2 px-2 py-1 text-foreground">
@@ -63,7 +63,7 @@ export function RecipientsTable({ rows, people, departments, previewing, mode }:
         </select>
         <button
           disabled={pending || !team}
-          onClick={() => run(async () => { added(await addTeamRecipients(team, defaults, sendLatest)); setTeam(""); })}
+          onClick={() => run(async () => { added(await addTeamRecipients(team, defaults, sendLatest && mode !== "off" ? mode : null)); setTeam(""); })}
           className="rounded-md border border-accent bg-accent/15 px-3 py-1 text-accent disabled:opacity-40"
         >Add team</button>
         <span className="ml-2 text-muted">New people get:</span>

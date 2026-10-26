@@ -68,6 +68,18 @@ describe("sendNow", () => {
     expect(r).toEqual({ ok: true, sent: 0, alreadyHandled: 0, failed: [], notReached: [], held: "Waiting for Cursor sync" });
   });
 
+  it("a monthly before the 3rd is held with 'Due from the 3rd'", async () => {
+    const NOV2 = new Date("2026-11-02T12:00:00Z");
+    const store = memoryStore(seed({ syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-11-02T06:00:03Z" }], subscriptions: [{ employeeId: "m", cadence: "monthly" }] }), () => NOV2.getTime());
+    const r = await sendNow(deps(store, fakeSlack().client, { now: NOV2, clock: () => NOV2.getTime() }), { cadence: "monthly", periodKey: "2026-10" });
+    expect(r).toMatchObject({ ok: true, sent: 0, held: "Due from the 3rd" });
+  });
+
+  it("refuses when the mode changed since the page was loaded", async () => {
+    const r = await sendNow(deps(memoryStore(seed()), fakeSlack().client, { mode: "live" }), { cadence: "weekly", periodKey: "2026-W39", expectedMode: "preview" });
+    expect(r).toEqual({ ok: false, error: "The mode changed since this page loaded — reload the page and try again" });
+  });
+
   it("names a person who has no Slack account", async () => {
     const slack = fakeSlack({ lookupUserByEmail: async () => null });
     const r = await sendNow(deps(memoryStore(seed(), () => SAT.getTime()), slack.client), { cadence: "weekly", periodKey: "2026-W39" });
@@ -76,6 +88,23 @@ describe("sendNow", () => {
 });
 
 describe("catchUp (people just added to the Pilot list)", () => {
+  it("shares one time budget across its weekly and monthly runs, naming who wasn't reached", async () => {
+    const MON = new Date("2026-10-05T12:00:00Z");
+    let t = MON.getTime();
+    const store = memoryStore(
+      seed({
+        facts: [fact("2026-10-01", 30, "m"), fact("2026-09-20", 50, "a")],
+        syncRuns: [{ source: "cursor", status: "success", startedAt: "2026-10-05T06:00:03Z" }],
+        subscriptions: [{ employeeId: "m", cadence: "weekly" }, { employeeId: "a", cadence: "monthly" }],
+      }),
+      () => t,
+    );
+    const slack = fakeSlack({ postMessage: async (channel) => { t += 300_000; return `ts-${channel}`; } }); // the weekly DM takes 5 minutes
+    const r = await catchUp(deps(store, slack.client, { now: MON, clock: () => t }), ["m", "a"]);
+    expect(r).toMatchObject({ ok: true, sent: 1, notReached: ["Person a"] });
+    expect(store.sends.map((s) => s.periodKey)).toEqual(["2026-W40"]); // the monthly was never claimed
+  });
+
   it("sends the latest week to those with weekly; a held monthly is reported, not an error; people already sent are skipped", async () => {
     const MON = new Date("2026-10-05T12:00:00Z"); // latest complete week W40, latest complete month September
     const store = memoryStore(

@@ -29,6 +29,10 @@ export function resolveNotifyMode(stored: string | null, env: Record<string, str
   return notifyMode(env);
 }
 
+export function isNotifyMode(v: unknown): v is NotifyMode {
+  return v === "off" || v === "preview" || v === "live";
+}
+
 export function isCadence(v: unknown): v is Cadence {
   return typeof v === "string" && (CADENCES as readonly string[]).includes(v);
 }
