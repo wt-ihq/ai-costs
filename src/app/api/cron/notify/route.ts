@@ -6,7 +6,7 @@ import { renderChartPng, renderWelcomeBannerPng } from "@/lib/notify/chart-image
 import { runNotify } from "@/lib/notify/run-notify";
 import { runReminders } from "@/lib/notify/run-reminders";
 import { resolveRunDate } from "@/lib/notify/schedule";
-import { currentMode } from "@/lib/notify/mode-store";
+import { currentMode, readMonthlyFrom } from "@/lib/notify/mode-store";
 import { supabaseNotifyStore } from "@/lib/notify/store";
 import { appBaseUrl, slackClientFromEnv } from "@/lib/notify/wiring";
 
@@ -43,6 +43,7 @@ export async function GET(req: Request) {
       previewEmail: process.env.SLACK_PREVIEW_EMAIL ?? null,
       now: runDate.now,
       replay: runDate.replay,
+      monthlyFrom: await readMonthlyFrom(supabase),
       baseUrl: appBaseUrl(),
       adminEmails: parseAdminEmails(process.env.ADMIN_EMAILS),
     };

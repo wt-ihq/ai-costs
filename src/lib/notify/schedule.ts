@@ -221,3 +221,8 @@ export function resolveRunDate(param: string | null, mode: NotifyMode, realNow: 
   }
   return { now: d, replay: true };
 }
+
+/** Whether a monthly for this period may go at all: on or after the first month chosen (none chosen = every month). */
+export function monthlyInScope(periodKey: string, monthlyFrom: string | null | undefined): boolean {
+  return !monthlyFrom || periodKey >= monthlyFrom;
+}

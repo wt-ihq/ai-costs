@@ -7,7 +7,7 @@ import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchEmployeesAll } from "@/lib/queries/common";
 import { addReminderRecipients, addSubscriptions, removeAllSubscriptions, removeReminderRecipient, removeSubscriptions, setFixedCostSetting, setSubscription } from "@/lib/notify/admin-store";
 import { renderChartPng, renderWelcomeBannerPng } from "@/lib/notify/chart-image";
-import { currentMode, writeStoredMode } from "@/lib/notify/mode-store";
+import { currentMode, readMonthlyFrom, writeMonthlyFrom, writeStoredMode } from "@/lib/notify/mode-store";
 import { periodFor } from "@/lib/notify/schedule";
 import { catchUp, sendLiveTest, sendNow, type SendNowDeps, type SendNowResult } from "@/lib/notify/send-now";
 import type { TestSubject, TestTarget } from "@/lib/notify/subject";
@@ -28,6 +28,14 @@ function idsOrThrow(input: unknown): string[] {
   return input;
 }
 
+/** The first month that gets a monthly recap ("2026-10"), or "" for every month. Public POST endpoint: validates the value. */
+export async function setMonthlyFrom(month: string): Promise<void> {
+  await requireAdmin();
+  if (typeof month !== "string") throw new Error("Invalid month");
+  await writeMonthlyFrom(getSupabaseAdminClient(), month === "" ? null : month, await actorEmail());
+  revalidatePath("/data");
+}
+
 /** Off / Preview / Live, chosen on Data → Notifications (mode-store.ts). Public POST endpoint: validates the value. */
 export async function setNotifyMode(mode: string): Promise<void> {
   await requireAdmin();
@@ -45,6 +53,7 @@ async function sendNowDeps(): Promise<SendNowDeps> {
     renderChart: renderChartPng,
     renderBanner: renderWelcomeBannerPng,
     mode: await currentMode(supabase),
+    monthlyFrom: await readMonthlyFrom(supabase),
     previewEmail: process.env.SLACK_PREVIEW_EMAIL ?? null,
     now: new Date(),
     baseUrl: appBaseUrl(),

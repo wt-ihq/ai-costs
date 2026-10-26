@@ -1,4 +1,4 @@
-import { isWorkingDay, type DigestPeriod } from "./schedule";
+import { isWorkingDay, monthlyInScope, type DigestPeriod } from "./schedule";
 import type { NotifyMode } from "./types";
 
 /**
@@ -9,7 +9,7 @@ export interface DigestStatusRow {
   cadence: "weekly" | "monthly";
   periodKey: string;
   label: string; // "Weekly 19–25 Oct 2026" / "Monthly September 2026"
-  state: "waiting" | "ready" | "sent" | "skipped";
+  state: "waiting" | "ready" | "sent" | "skipped" | "before_start";
   statusText: string;
   nextSend: string | null; // null once sent, or skipped
   sentText: string | null; // "41 of 43 on Tue 20 Oct"
@@ -22,6 +22,8 @@ export interface DigestStatusInput {
   today: string;
   mode: NotifyMode;
   previewEmail: string | null;
+  /** The first month that gets a monthly recap ("2026-10"); earlier monthlies are shown as not sent. */
+  monthlyFrom?: string | null;
   periods: {
     cadence: "weekly" | "monthly";
     period: DigestPeriod;
@@ -36,6 +38,12 @@ export interface DigestStatusInput {
 const DAY_MS = 86_400_000;
 const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
 const SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+/** "2026-10" → "October 2026"; the month after → "November". */
+const monthName = (key: string, offset = 0) => {
+  const d = new Date(Date.UTC(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1 + offset, 1));
+  return offset ? LONG[d.getUTCMonth()] : `${LONG[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+};
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 /** "Tue 20 Oct" */
 const dayLabel = (day: string) => {
@@ -63,6 +71,14 @@ export function digestStatusRows(i: DigestStatusInput): DigestStatusRow[] {
     if (p.previous && !sent.length) return [];
     const recipients = p.recipients.personal + p.recipients.company;
     const label = `${p.cadence === "weekly" ? "Weekly" : "Monthly"} ${p.period.label}`;
+    if (p.cadence === "monthly" && !monthlyInScope(p.period.key, i.monthlyFrom) && !sent.length) {
+      const row: DigestStatusRow = {
+        cadence: p.cadence, periodKey: p.period.key, label, state: "before_start",
+        statusText: `Not sent: monthly summaries start with ${monthName(i.monthlyFrom!)}, in ${monthName(i.monthlyFrom!, 1)}.`,
+        nextSend: null, sentText: null, recipients, sendNow: null, missing: [],
+      };
+      return [row];
+    }
     const sendDay = nextAutomaticSendDay(i.today, p.cadence);
     const when =
       sendDay === i.today ? `today (${dayLabel(sendDay)})`
