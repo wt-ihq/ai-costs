@@ -5,7 +5,7 @@ import { actorEmail, requireAdmin } from "@/lib/auth-guard";
 import { parseAdminEmails } from "@/lib/dashboard-access";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchEmployeesAll } from "@/lib/queries/common";
-import { addReminderRecipients, addSubscriptions, removeReminderRecipient, removeSubscriptions, setFixedCostSetting, setSubscription } from "@/lib/notify/admin-store";
+import { addReminderRecipients, addSubscriptions, removeAllSubscriptions, removeReminderRecipient, removeSubscriptions, setFixedCostSetting, setSubscription } from "@/lib/notify/admin-store";
 import { renderChartPng, renderWelcomeBannerPng } from "@/lib/notify/chart-image";
 import { currentMode, writeStoredMode } from "@/lib/notify/mode-store";
 import { periodFor } from "@/lib/notify/schedule";
@@ -104,6 +104,14 @@ export async function removeRecipient(employeeId: string): Promise<void> {
 }
 
 /** Adds people to the company report on these cadences (the report is its own DM, apart from personal digests). */
+/** Empties the Pilot list. Fixed-cost choices and send history are kept. */
+export async function removeAllRecipients(): Promise<{ removed: number }> {
+  await requireAdmin();
+  const removed = await removeAllSubscriptions(getSupabaseAdminClient());
+  revalidatePath("/data");
+  return { removed };
+}
+
 export async function addCompanyRecipients(employeeIds: string[], cadences: string[]): Promise<{ added: number }> {
   await requireAdmin();
   const added = await addSubscriptions(getSupabaseAdminClient(), idsOrThrow(employeeIds), cadencesOrThrow(cadences), await actorEmail(), "company");

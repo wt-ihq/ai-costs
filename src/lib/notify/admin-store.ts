@@ -353,3 +353,13 @@ export async function removeSubscriptions(supabase: SupabaseClient, employeeId: 
   const { error } = await supabase.from(RECIPIENT_TABLE[report]).delete().eq("employee_id", employeeId);
   if (error) throw new Error(`removeSubscriptions: ${error.message}`);
 }
+
+/**
+ * "Remove everyone": empties the list — nothing else. Per-person fixed-cost choices and the send log stay,
+ * so adding someone back restores them. PostgREST refuses an unfiltered delete; `cadence` is never empty.
+ */
+export async function removeAllSubscriptions(supabase: SupabaseClient, report: ReportKind = "personal"): Promise<number> {
+  const { data, error } = await supabase.from(RECIPIENT_TABLE[report]).delete().neq("cadence", "").select("employee_id");
+  if (error) throw new Error(`removeAllSubscriptions: ${error.message}`);
+  return data?.length ?? 0;
+}

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState, useTransition } from "react";
-import { addRecipients, addTeamRecipients, removeRecipient, setPersonFixedCosts, setRecipientCadence } from "@/app/(dashboard)/data/notifications-actions";
+import { addRecipients, addTeamRecipients, removeAllRecipients, removeRecipient, setPersonFixedCosts, setRecipientCadence } from "@/app/(dashboard)/data/notifications-actions";
 import type { RecipientRow } from "@/lib/notify/admin-store";
 import { CADENCES, type Cadence } from "@/lib/notify/types";
 
@@ -67,6 +67,16 @@ export function RecipientsTable({ rows, people, departments, previewing }: {
             {CADENCE_LABEL[c]}
           </label>
         ))}
+        {rows.length > 0 && (
+          <button
+            type="button" disabled={pending}
+            onClick={() => {
+              if (!window.confirm(`Remove all ${rows.length} people from the Pilot list? Their fixed-cost choices and send history are kept, so adding them back restores them.`)) return;
+              run(() => removeAllRecipients());
+            }}
+            className="ml-auto text-muted hover:text-pink-300 disabled:opacity-40"
+          >Remove everyone</button>
+        )}
       </div>
 
       {rows.length === 0 ? (
