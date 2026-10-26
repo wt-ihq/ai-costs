@@ -1,11 +1,13 @@
+import type { RenderOpts } from "./render";
+import { firstName } from "./intro";
 import { companyDigestFor, digestFor, loadNotifyContext, teamDigestFor } from "./context";
 import { isCompanyDigest, isTeamDigest } from "./digest";
-import { deliverCompanyDigest, deliverDigest, deliverTeamDigest, loadDashboardAccess, resolveSlackUser, type RenderChart } from "./deliver";
+import { deliverCompanyDigest, deliverDigest, deliverTeamDigest, loadDashboardAccess, resolveSlackUser, type RenderChart, type RenderBanner } from "./deliver";
 import { periodFor } from "./schedule";
 import type { SlackClient } from "./slack-client";
 import type { TestSubject, TestTarget } from "./subject";
 import type { NotifyStore } from "./store";
-import { activeDepartments, isActiveEmployee, isCadence, isUuid, type Cadence, type NotifyEmployee } from "./types";
+import { CADENCES, activeDepartments, isActiveEmployee, isCadence, isUuid, type Cadence, type NotifyEmployee } from "./types";
 
 export type TestSendResult = { ok: true; sentTo: string } | { ok: false; error: string };
 
@@ -17,6 +19,8 @@ export interface TestSendDeps {
   baseUrl: string;
   actorEmail: string; // the signed-in admin
   adminEmails: readonly string[]; // ADMIN_EMAILS: with the access list, who gets the dashboard button and links
+  /** The welcome banner for a first message (absent: the intro is text only). */
+  renderBanner?: RenderBanner;
   log?: (m: string) => void;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -56,7 +60,8 @@ export function companyTestBanner(adminName: string, cadence: Cadence): string {
 /**
  * An admin's explicit test: build the digest of any person or team and DM it to a chosen ACTIVE
  * employee, in any SLACK_NOTIFY_MODE. It never touches notification_sends — a test must not block
- * or duplicate the scheduled send. Inputs come from a public POST endpoint, so everything is
+ * or duplicate the scheduled send. A person's own digest (or the company report) sent to someone
+ * who has never had a live message opens with the first-message intro and banner, as the real one will. Inputs come from a public POST endpoint, so everything is
  * re-validated here. Logs carry ids only, never names or amounts.
  */
 export async function sendTest(deps: TestSendDeps, input: { subject: unknown; cadence: unknown; periodKey: unknown; to: unknown }): Promise<TestSendResult> {
@@ -119,7 +124,16 @@ export async function sendTest(deps: TestSendDeps, input: { subject: unknown; ca
         : testBanner({ adminName, subjectName, cadence, toSubject: subjectId !== null && target.id === subjectId });
     // Links follow whoever receives the test, as a scheduled send's follow its recipient.
     const links = (await loadDashboardAccess(deps.store, deps.adminEmails, log))(target.email);
-    const send = { slack: deps.slack, renderChart: deps.renderChart, slackUserId, banner, links, log: deps.log, sleep: deps.sleep };
+    // Their own message (their digest to them, or the company report) opens with the intro while
+    // they've never had a live one — as the real first send will. Someone else's digest never does.
+    const own = subject.kind === "company" || (subject.kind === "person" && target.id === subjectId);
+    let intro: RenderOpts["intro"];
+    if (own && !(await deps.store.everLive([target.id])).has(target.id)) {
+      const list = subject.kind === "company" ? await deps.store.companyRecipients([...CADENCES]) : await deps.store.subscriptions([...CADENCES]);
+      const mine = list.filter((x) => x.employeeId === target.id).map((x) => x.cadence);
+      intro = { name: firstName(target.fullName), cadences: mine.length ? mine : [cadence] };
+    }
+    const send = { slack: deps.slack, renderChart: deps.renderChart, renderBanner: deps.renderBanner, slackUserId, banner, links, intro, log: deps.log, sleep: deps.sleep };
     if (isCompanyDigest(digest)) await deliverCompanyDigest({ ...send, digest });
     else if (isTeamDigest(digest)) await deliverTeamDigest({ ...send, digest });
     else await deliverDigest({ ...send, digest });

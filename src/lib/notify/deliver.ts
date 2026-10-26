@@ -154,7 +154,7 @@ export async function deliverRendered(args: {
   const log = args.log ?? console.log;
   const sleep = args.sleep ?? defaultSleep;
   const images: Record<string, { render: () => Promise<Uint8Array<ArrayBuffer>>; title: string }> = {};
-  if (args.renderBanner) images.banner = { render: args.renderBanner, title: "Your AI spend, in Slack" };
+  if (args.renderBanner) images.banner = { render: args.renderBanner, title: "AI Spend" };
   for (const [section, layout] of Object.entries(args.layouts)) images[section] = { render: () => args.renderChart(layout), title: layout.title };
   const files = await uploadImages(slack, images, log);
   const channel = await slack.openDm(args.slackUserId);
