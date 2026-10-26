@@ -7,7 +7,7 @@ import type { Cadence } from "./types";
 
 export type SlackBlock = Record<string, unknown>;
 /** Slack file ids of the uploaded charts (absent = send without that image). */
-export interface ChartFileIds { you?: string; reports?: string; banner?: string }
+export interface ChartFileIds { you?: string; reports?: string; company?: string; banner?: string }
 export interface TeamChartFileIds { team?: string }
 export interface CompanyChartFileIds { company?: string; banner?: string }
 export interface RenderedDigest { blocks: SlackBlock[]; text: string }
@@ -80,7 +80,7 @@ export function teamChartTitle(d: TeamDigest): string {
   return `${d.department.toUpperCase()} (${people(d.team.headcount)}) · ${d.team.basis.toUpperCase()}, ${d.period.label.toUpperCase()}`;
 }
 
-export function companyChartTitle(d: CompanyDigest): string {
+export function companyChartTitle(d: Pick<CompanyDigest, "usage" | "period">): string {
   return `COMPANY (${people(d.usage.headcount)}) · ${d.usage.basis.toUpperCase()}, ${d.period.label.toUpperCase()}`;
 }
 
@@ -190,7 +190,7 @@ function fixedBlocks(s: FixedCostsSection, period: DigestPeriod): SlackBlock[] {
 }
 
 /** A first live message: the intro above the digest, and the notification text opens with the greeting. */
-function withIntro(r: RenderedDigest, opts: RenderOpts, report: "personal" | "company", reports: "none" | "direct" | "byTeam", bannerFileId?: string): RenderedDigest {
+function withIntro(r: RenderedDigest, opts: RenderOpts, report: "personal" | "company", reports: "none" | "direct" | "byTeam" | "company", bannerFileId?: string): RenderedDigest {
   if (!opts.intro) return r;
   const intro = introFor({ name: opts.intro.name, cadences: opts.intro.cadences, report, reports, links: !!opts.links, bannerFileId });
   return { blocks: [...intro.blocks, ...r.blocks], text: intro.text + r.text };
@@ -227,13 +227,19 @@ export function renderDigest(d: Digest, files: ChartFileIds, opts: RenderOpts = 
     blocks.push({ type: "divider" });
     blocks.push(...sectionBlocks(`YOUR REPORTS · ${people(d.reports.headcount)}`, d.reports, files.reports, chartTitle("reports", d), d.period.compareTo, topLine(d.reports, unit, !!opts.links)));
   }
+  if (d.company) {
+    // The top of the chain: the company report's sections, as its own recipients see them.
+    blocks.push({ type: "divider" });
+    blocks.push(...companyBlocks(d.company, d.period, files.company, unit, !!opts.links));
+  }
   if (d.caveats.length) blocks.push(context(d.caveats.map(escapeMrkdwn)));
   blocks.push(...dashboardButton(opts, d.dashboardUrl));
 
   const text =
     `Your AI spend · ${d.period.label}: you ${formatUsd(d.you.headlineUsd)} ${d.you.basis}` +
-    (d.reports ? ` · your reports ${formatUsd(d.reports.headlineUsd)} ${d.reports.basis}` : "");
-  const reports = !d.reports ? "none" : d.reports.branches !== undefined ? "byTeam" : "direct";
+    (d.reports ? ` · your reports ${formatUsd(d.reports.headlineUsd)} ${d.reports.basis}` : "") +
+    (d.company ? ` · company usage ${formatUsd(d.company.usage.headlineUsd)}` : "");
+  const reports = d.company ? "company" : !d.reports ? "none" : d.reports.branches !== undefined ? "byTeam" : "direct";
   return withLead(withIntro({ blocks, text }, opts, "personal", reports, files.banner), opts);
 }
 
@@ -253,19 +259,27 @@ export function renderTeamDigest(d: TeamDigest, files: TeamChartFileIds, opts: R
   return withLead({ blocks, text }, opts);
 }
 
+/** The company's usage (chart, by team, top people), then seats & subscriptions, then a monthly's total: the company report's body. */
+function companyBlocks(d: Pick<CompanyDigest, "usage" | "fixed" | "totalUsd">, period: DigestPeriod, fileId: string | undefined, unit: string, links: boolean): SlackBlock[] {
+  const blocks: SlackBlock[] = [
+    ...sectionBlocks(`COMPANY · ${people(d.usage.headcount)}`, d.usage, fileId, companyChartTitle({ usage: d.usage, period }), period.compareTo, companyLines(d.usage, unit, links)),
+    { type: "divider" },
+    ...fixedBlocks(d.fixed, period),
+  ];
+  // Monthly: both sections together, which is the Company page's total for the month.
+  if (d.totalUsd !== null) {
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: `*${period.label} total ${formatUsd(d.totalUsd)}* · usage + ${escapeMrkdwn("seats & subscriptions")}` } });
+  }
+  return blocks;
+}
+
 /** The whole-company report → Block Kit (the cron's company DMs, the admin preview and test sends). */
 export function renderCompanyDigest(d: CompanyDigest, files: CompanyChartFileIds, opts: RenderOpts = {}): RenderedDigest {
   const unit = CADENCE_UNIT[d.period.cadence];
   const blocks: SlackBlock[] = [
     { type: "header", text: { type: "plain_text", text: `${HEADER_EMOJI} Company AI spend · ${d.period.label}`, emoji: true } },
-    ...sectionBlocks(`COMPANY · ${people(d.usage.headcount)}`, d.usage, files.company, companyChartTitle(d), d.period.compareTo, companyLines(d.usage, unit, !!opts.links)),
-    { type: "divider" },
-    ...fixedBlocks(d.fixed, d.period),
+    ...companyBlocks(d, d.period, files.company, unit, !!opts.links),
   ];
-  // Monthly: both sections together, which is the Company page's total for the month.
-  if (d.totalUsd !== null) {
-    blocks.push({ type: "section", text: { type: "mrkdwn", text: `*${d.period.label} total ${formatUsd(d.totalUsd)}* · usage + ${escapeMrkdwn("seats & subscriptions")}` } });
-  }
   if (d.caveats.length) blocks.push(context(d.caveats.map(escapeMrkdwn)));
   blocks.push(...dashboardButton(opts, d.dashboardUrl));
 

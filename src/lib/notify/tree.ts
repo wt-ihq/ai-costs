@@ -93,3 +93,18 @@ export function seniorBranches(tree: ReportingTree, employeeId: string, isActive
   if (!direct.some((d) => tree.reportsOf(d).some(isActive))) return null;
   return direct.map((d) => ({ leadId: d, memberIds: [d, ...tree.reportsOf(d)] }));
 }
+
+/**
+ * The top of the chain: the one person with no manager whose reports are more than half of the
+ * ACTIVE people (null when the tree is split or flat). Their "reports" would be the whole company, so
+ * their digest carries the company report instead (context.ts:digestFor).
+ */
+export function topOfChain(tree: ReportingTree, activeEmployees: readonly NotifyEmployee[]): string | null {
+  const active = new Set(activeEmployees.map((e) => e.id));
+  for (const e of activeEmployees) {
+    if (tree.managerOf(e.id) !== null) continue;
+    const covered = tree.reportsOf(e.id).filter((id) => active.has(id)).length;
+    if (covered * 2 > active.size) return e.id;
+  }
+  return null;
+}

@@ -6,7 +6,7 @@ import { monthlyReadiness, sourceFreshness, type SourceFreshness, type SyncRunRo
 import type { DigestPeriod } from "./schedule";
 import type { NotifyStore } from "./store";
 import { isActiveEmployee } from "./types";
-import { buildReportingTree, seniorBranches, type ReportingTree } from "./tree";
+import { buildReportingTree, seniorBranches, topOfChain, type ReportingTree } from "./tree";
 import type { NotifyEmployee } from "./types";
 
 export interface NotifyContext {
@@ -94,6 +94,18 @@ export function digestFor(ctx: NotifyContext, employeeId: string, period: Digest
     const e = ctx.employeesById.get(id);
     return !!e && isActiveEmployee(e);
   };
+  // The top of the chain: their reports would be the whole company, so they get the company report's
+  // sections instead (no fixed-costs setting applies to those, as for the company report itself).
+  if (topOfChain(ctx.tree, ctx.employees.filter(isActiveEmployee)) === employeeId) {
+    const own = buildDigest({ ...sectionInput(ctx, period, include), recipient, reportIds: [] });
+    const company = buildCompanyDigest(sectionInput(ctx, period, false));
+    if (!own || !company) return own;
+    return {
+      ...own,
+      company: { usage: company.usage, fixed: company.fixed, totalUsd: company.totalUsd },
+      caveats: [...new Set([...own.caveats, ...company.caveats])],
+    };
+  }
   return buildDigest({
     ...sectionInput(ctx, period, include),
     recipient,

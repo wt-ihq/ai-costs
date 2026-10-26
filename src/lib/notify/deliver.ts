@@ -10,13 +10,17 @@ import type { NotifyEmployee } from "./types";
 export type RenderChart = (layout: ChartLayout) => Promise<Uint8Array<ArrayBuffer>>;
 
 /** One chart per section, each titled with whose numbers it shows. */
-export function chartLayoutsFor(d: Digest): { you: ChartLayout; reports?: ChartLayout } {
+export function chartLayoutsFor(d: Digest): { you: ChartLayout; reports?: ChartLayout; company?: ChartLayout } {
   const { compareTo } = d.period;
   const caption = chartSpan(d.period.cadence);
   return {
     you: chartLayout(chartTitle("you", d), d.you.chart, d.you.chartTools, d.you.byTool, { headline: chartHeadline(d.you, compareTo), caption }),
     ...(d.reports
       ? { reports: chartLayout(chartTitle("reports", d), d.reports.chart, d.reports.chartTools, d.reports.byTool, { headline: chartHeadline(d.reports, compareTo), caption }) }
+      : {}),
+    // The top of the chain: the company's usage chart, as the company report draws it.
+    ...(d.company
+      ? { company: chartLayout(companyChartTitle({ usage: d.company.usage, period: d.period }), d.company.usage.chart, d.company.usage.chartTools, d.company.usage.byTool, { headline: chartHeadline(d.company.usage, compareTo), caption }) }
       : {}),
   };
 }

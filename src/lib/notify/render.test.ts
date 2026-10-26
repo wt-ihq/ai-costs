@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CompanyDigest, Digest, DigestSection, TeamDigest } from "./digest";
 import { chartHeadline, chartSpan, chartTitle, companyChartTitle, deltaText, escapeMrkdwn, headerParts, renderCompanyDigest, renderDigest, renderTeamDigest, teamChartTitle } from "./render";
 import { periodFor } from "./schedule";
+import { chartLayoutsFor } from "./deliver";
 
 const now = new Date("2026-09-30T07:00:00Z");
 const sec = (over: Partial<DigestSection> = {}): DigestSection => ({
@@ -151,7 +152,7 @@ describe("renderDigest", () => {
     const r = renderDigest(digest(), {}, { intro: { name: "Priya", cadences: ["weekly", "monthly"] }, previewFor: "Priya Nair (weekly)", links: true });
     expect(r.blocks[0]).toMatchObject({ type: "context" }); // the cron's preview line stays on top
     expect(mrk(r.blocks[1])).toContain("👋 *Hi Priya,* this is your first AI spend summary.");
-    expect(mrk(r.blocks[1])).toContain("and the total for the people who report to you");
+    expect(mrk(r.blocks[1])).toContain("and your team's total");
     expect(r.blocks[3]).toEqual({ type: "divider" });
     expect(r.blocks[4]).toMatchObject({ type: "header" });
     expect(r.text.startsWith("[Preview for Priya Nair (weekly)] Hi Priya — your first AI spend summary. Your AI spend · ")).toBe(true);
@@ -159,9 +160,9 @@ describe("renderDigest", () => {
 
   it("matches the intro to the summary: teams for a manager of managers, nothing about reports without them", () => {
     const senior = renderDigest(digest({ reports: { ...digest().reports!, branches: [] } }), {}, { intro: { name: "Dana", cadences: ["weekly"] } });
-    expect(mrk(senior.blocks[0])).toContain("the total for the teams who report to you");
+    expect(mrk(senior.blocks[0])).toContain("and your team's total");
     const solo = renderDigest(digest({ reports: null }), {}, { intro: { name: "Sam", cadences: ["weekly"] } });
-    expect(mrk(solo.blocks[0])).not.toContain("report to you");
+    expect(mrk(solo.blocks[0])).not.toContain("team's total");
   });
 
   it("has no intro unless asked", () => {
@@ -482,5 +483,26 @@ describe("headerParts (the admin preview draws the app icon where Slack shows th
   });
   it("leaves any other header alone", () => {
     expect(headerParts("Weekly updates · 12–18 Oct 2026")).toEqual({ icon: false, text: "Weekly updates · 12–18 Oct 2026" });
+  });
+});
+
+describe("renderDigest for the top of the chain (the company in place of reports)", () => {
+  const c = companyDigest();
+  const top = () => digest({ reports: null, company: { usage: c.usage, fixed: c.fixed, totalUsd: c.totalUsd } });
+
+  it("shows the company's usage and seats & subscriptions after You, never a Your reports section", () => {
+    const { blocks, text } = renderDigest(top(), { you: "F1", company: "F9" }, { links: true });
+    expect(blocks.some((b) => b.type === "section" && mrk(b).startsWith("*YOUR REPORTS"))).toBe(false);
+    const i = blocks.findIndex((b) => b.type === "section" && mrk(b).startsWith("*COMPANY"));
+    expect(mrk(blocks[i])).toBe(`*COMPANY · ${c.usage.headcount} PEOPLE*`);
+    expect(blocks[i + 1]).toMatchObject({ type: "image", slack_file: { id: "F9" } });
+    expect(blocks.some((b) => b.type === "section" && mrk(b).startsWith("*SEATS &amp; SUBSCRIPTIONS*"))).toBe(true);
+    expect(text).toContain("· company usage ");
+  });
+
+  it("has a company chart layout, and its intro speaks of the whole company", () => {
+    expect(Object.keys(chartLayoutsFor(top()))).toEqual(["you", "company"]);
+    const r = renderDigest(top(), {}, { intro: { name: "Jonathan", cadences: ["monthly"] } });
+    expect(mrk(r.blocks[0])).toContain("and the whole company's, compared with the previous period");
   });
 });

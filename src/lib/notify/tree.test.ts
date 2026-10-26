@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildReportingTree, seniorBranches } from "./tree";
+import { buildReportingTree, seniorBranches, topOfChain } from "./tree";
 import type { NotifyEmployee } from "./types";
 
 const emp = (id: string, over: Partial<NotifyEmployee> = {}): NotifyEmployee => ({
@@ -94,5 +94,27 @@ describe("seniorBranches", () => {
 
   it("counts a manager of managers anywhere in the chain", () => {
     expect(seniorBranches(t, "cto", active)!.map((x) => x.leadId)).toEqual(["dev"]);
+  });
+});
+
+describe("topOfChain", () => {
+  const active = (e: NotifyEmployee) => e.employmentStatus === "active";
+  it("is the person with no manager whose reports cover more than half of the active people", () => {
+    const people = [emp("ceo"), emp("cto", { managerRef: "00uceo" }), emp("dev", { managerRef: "00ucto" }), emp("ops", { managerRef: "00uceo" }), emp("stray")];
+    expect(topOfChain(buildReportingTree(people), people.filter(active))).toBe("ceo"); // 3 of 5
+    const half = [emp("ceo"), emp("cto", { managerRef: "00uceo" }), emp("stray"), emp("stray2")];
+    expect(topOfChain(buildReportingTree(half), half)).toBeNull(); // exactly half is not more than half
+  });
+  it("is nobody when no root covers more than half (a split tree, or no managers at all)", () => {
+    const split = [emp("a"), emp("a1", { managerRef: "00ua" }), emp("b"), emp("b1", { managerRef: "00ub" })];
+    expect(topOfChain(buildReportingTree(split), split)).toBeNull();
+    const flat = [emp("x"), emp("y")];
+    expect(topOfChain(buildReportingTree(flat), flat)).toBeNull();
+  });
+  it("counts active people only, so leavers below the root don't decide it", () => {
+    const gone = { employmentStatus: "deprovisioned" as const, leaveDate: "2026-01-01" };
+    // 3 of 6 people report to ceo, but two have left: 1 of 4 active → not the top.
+    const people = [emp("ceo"), emp("a", { managerRef: "00uceo" }), emp("g1", { managerRef: "00uceo", ...gone }), emp("g2", { managerRef: "00uceo", ...gone }), emp("stray"), emp("stray2")];
+    expect(topOfChain(buildReportingTree(people), people.filter(active))).toBeNull();
   });
 });

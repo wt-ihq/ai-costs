@@ -11,8 +11,8 @@ export interface IntroInput {
   name: string | null; // first name; null → "Hi there"
   report: ReportKind;
   cadences: Cadence[]; // the person's cadences on that list
-  /** personal: none · direct (a reports section) · byTeam (managers of managers: split by team). */
-  reports: "none" | "direct" | "byTeam";
+  /** personal: none · direct (a reports section) · byTeam (managers of managers: split by team) · company (the top of the chain: the company report in place of reports). */
+  reports: "none" | "direct" | "byTeam" | "company";
   links: boolean; // can open the dashboard
   /** The uploaded welcome banner (chart-image.ts:renderWelcomeBannerPng); absent = the text alone. */
   bannerFileId?: string;
@@ -45,12 +45,13 @@ const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 
 const REPORTS_PHRASE: Record<IntroInput["reports"], string> = {
   none: "",
-  direct: ", and the total for the people who report to you",
-  byTeam: ", and the total for the teams who report to you",
+  direct: " and your team's total",
+  byTeam: " and your team's total",
+  company: " and the whole company's",
 };
 
 /** Who's on the pilot — the personal summary only; the company report's list is hand-picked. Italic: an aside, not the message. */
-const PILOT_LINE = "_To start with, only department heads and the people with the highest AI spend get these._";
+const PILOT_LINE = "_Initially, only team leads and the highest spenders get these._";
 
 export function introFor(i: IntroInput): { blocks: SlackBlock[]; text: string } {
   const hi = i.name ? esc(i.name) : "there";
@@ -63,7 +64,7 @@ export function introFor(i: IntroInput): { blocks: SlackBlock[]; text: string } 
         ]
       : [
           `👋 *Hi ${hi},* this is your first ${what}.`,
-          `From now on you'll get ${cadencePhrase(i.cadences, "personal")} recaps. Each one shows what you spent on each AI tool${REPORTS_PHRASE[i.reports]}, compared with the period before.`,
+          `From now on you'll get ${cadencePhrase(i.cadences, "personal")} recaps. Each shows your AI spend by tool${REPORTS_PHRASE[i.reports]}, compared with the previous period.`,
           PILOT_LINE,
         ];
   const footer = `${i.links ? "Use *Open in dashboard* for the detail. " : ""}Questions? Ask <${HELP_LINK}|Workplace Tech>.`;
