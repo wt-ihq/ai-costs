@@ -7,7 +7,8 @@ import { latestCompleteKey, periodFor } from "./schedule";
 import { pageAll, supabaseNotifyStore } from "./store";
 import { buildReportingTree } from "./tree";
 import { buildOrgTree, type OrgTree } from "./org-tree";
-import { activeDepartments, CADENCES, isActiveEmployee, notifyMode, NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence, type ReportKind, type SendMode, type SendReport } from "./types";
+import { readStoredMode } from "./mode-store";
+import { activeDepartments, CADENCES, isActiveEmployee, NOTIFY_EMPLOYEE_COLUMNS, resolveNotifyMode, toNotifyEmployee, type Cadence, type NotifyMode, type ReportKind, type SendMode, type SendReport } from "./types";
 import { monthStatus, weekStatus } from "./week-status";
 
 export interface RecipientRow {
@@ -62,6 +63,9 @@ export interface NotificationsAdminData {
   opens: { sent: number; opened: number };
   reminderRecipients: ReminderRecipientRow[];
   reminderPeople: PersonOption[]; // active, not on the reminder list: its add-a-person picker
+  /** The mode in force (mode-store.ts), and whether it was chosen on this page or comes from the Vercel variable. */
+  mode: NotifyMode;
+  modeSource: "page" | "env";
   /** The latest complete week's weekly: waiting / ready / sent / skipped (week-status.ts). */
   weekStatus: ReturnType<typeof weekStatus>;
   /** Last month's recap, when anyone gets one (week-status.ts:monthStatus). */
@@ -143,6 +147,8 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
     RECIPIENT_TABLE.company,
   );
   const opensSince = new Date(Date.now() - OPEN_RATE_DAYS * 86_400_000).toISOString();
+  const stored = await readStoredMode(supabase);
+  const mode = resolveNotifyMode(stored, process.env);
   const [subs, companyRows, lastSent, empRows, slackRows, sendRes, fixedCosts, recentSent, reminderRows, statusNow] = await Promise.all([
     subsP,
     companyP,
@@ -164,7 +170,7 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
       (a, b) => supabase.from("notification_reminder_recipients").select("employee_id").order("employee_id").range(a, b),
       "notification_reminder_recipients",
     ),
-    loadStatus(supabase, new Date()),
+    loadStatus(supabase, new Date(), mode === "preview" ? "preview" : "live"),
   ]);
   if (sendRes.error) throw new Error(`notification_sends: ${sendRes.error.message}`);
 
@@ -235,19 +241,20 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
     opens: openRate(recentSent),
     reminderRecipients,
     reminderPeople: activePeople.filter((p) => !reminderSet.has(p.id)),
+    mode,
+    modeSource: stored !== null && stored === mode ? "page" : "env",
     weekStatus: statusNow.week,
     monthStatus: statusNow.month,
   };
 }
 
 /** This week's and last month's status for Data → Notifications (the cron's readiness rules). */
-async function loadStatus(supabase: SupabaseClient, now: Date) {
+async function loadStatus(supabase: SupabaseClient, now: Date, mode: SendMode) {
   const store = supabaseNotifyStore(supabase);
   const today = now.toISOString().slice(0, 10);
   const week = periodFor("weekly", latestCompleteKey("weekly", now), now);
   const month = periodFor("monthly", latestCompleteKey("monthly", now), now);
   const lastDay = new Date(Date.parse(`${week.toExclusive}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
-  const mode: SendMode = notifyMode() === "preview" ? "preview" : "live";
   const [syncRuns, imports, personal, company, states, coverage] = await Promise.all([
     store.recentSyncRuns(readinessSyncSince(now)),
     store.manualImports(importsInUseSince(lastDay)),

@@ -7,6 +7,7 @@ import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchEmployeesAll } from "@/lib/queries/common";
 import { addReminderRecipients, addSubscriptions, removeReminderRecipient, removeSubscriptions, setFixedCostSetting, setSubscription } from "@/lib/notify/admin-store";
 import { renderChartPng } from "@/lib/notify/chart-image";
+import { writeStoredMode } from "@/lib/notify/mode-store";
 import type { TestSubject, TestTarget } from "@/lib/notify/subject";
 import { supabaseNotifyStore } from "@/lib/notify/store";
 import { sendTest, type TestSendResult } from "@/lib/notify/test-send";
@@ -23,6 +24,14 @@ function cadencesOrThrow(input: unknown): Cadence[] {
 function idsOrThrow(input: unknown): string[] {
   if (!Array.isArray(input) || !input.length || input.length > MAX_BATCH || !input.every(isUuid)) throw new Error("Invalid people selection");
   return input;
+}
+
+/** Off / Preview / Live, chosen on Data → Notifications (mode-store.ts). Public POST endpoint: validates the value. */
+export async function setNotifyMode(mode: string): Promise<void> {
+  await requireAdmin();
+  if (mode !== "off" && mode !== "preview" && mode !== "live") throw new Error("Invalid mode");
+  await writeStoredMode(getSupabaseAdminClient(), mode, await actorEmail());
+  revalidatePath("/data");
 }
 
 export async function addRecipients(employeeIds: string[], cadences: string[]): Promise<{ added: number }> {

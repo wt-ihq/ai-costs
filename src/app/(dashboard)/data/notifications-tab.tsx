@@ -4,6 +4,7 @@ import { BlockKitPreview } from "@/components/notifications/block-kit-preview";
 import { CompanyRecipients } from "@/components/notifications/company-recipients";
 import { ReminderRecipients } from "@/components/notifications/reminder-recipients";
 import { FixedCostsPanel } from "@/components/notifications/fixed-costs-panel";
+import { ModePanel } from "@/components/notifications/mode-panel";
 import { RecipientsTable } from "@/components/notifications/recipients-table";
 import { ReportingLines } from "@/components/notifications/reporting-lines";
 import { PreviewPicker } from "@/components/notifications/preview-picker";
@@ -21,7 +22,7 @@ import { renderCompanyDigest, renderDigest, renderTeamDigest, type SlackBlock } 
 import { defaultPreviewKey, periodFor, stepKey } from "@/lib/notify/schedule";
 import { supabaseNotifyStore } from "@/lib/notify/store";
 import { previewHref, type TestSubject } from "@/lib/notify/subject";
-import { activeDepartments, CADENCES, isActiveEmployee, isCadence, isUuid, notifyMode, type Cadence } from "@/lib/notify/types";
+import { activeDepartments, CADENCES, isActiveEmployee, isCadence, isUuid, type Cadence } from "@/lib/notify/types";
 import { appBaseUrl } from "@/lib/notify/wiring";
 import { firstName } from "@/lib/notify/intro";
 
@@ -140,7 +141,7 @@ const FIXED_SOURCE: Record<FixedCostChoice["source"], string> = { person: "their
 
 export async function NotificationsTab({ params }: { params: NotificationsParams }) {
   const [data, preview] = await Promise.all([loadNotificationsAdmin(getSupabaseAdminClient()), safePreview(params)]);
-  const mode = notifyMode();
+  const mode = data.mode;
   // What the picker shows as open: the loaded subject, else whatever the URL asked for (a failed preview still has one).
   const current: TestSubject | null =
     preview && !("error" in preview) ? preview.subject
@@ -169,14 +170,10 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
           )}
         </Panel>
         <Panel>
-          <p className="text-[10.5px] uppercase tracking-wide text-muted">Mode</p>
-          <p className="my-1 text-sm font-semibold">{mode.toUpperCase()}</p>
-          <p className="text-xs text-muted">
-            {mode === "off" && "Scheduled sends are off. "}
-            {mode === "preview" && `Every DM goes to ${process.env.SLACK_PREVIEW_EMAIL ?? "(SLACK_PREVIEW_EMAIL unset)"}, not the recipient. `}
-            {mode === "live" && "DMs go to the recipients below. "}
-            Change <code>SLACK_NOTIFY_MODE</code> in Vercel.
-          </p>
+          <ModePanel
+            mode={mode} modeSource={data.modeSource} previewEmail={process.env.SLACK_PREVIEW_EMAIL ?? null}
+            pilotCount={data.recipients.filter((r) => !r.left).length} companyCount={data.companyRecipients.filter((r) => !r.left).length}
+          />
         </Panel>
         <Panel>
           <p className="text-[10.5px] uppercase tracking-wide text-muted">Last run</p>
