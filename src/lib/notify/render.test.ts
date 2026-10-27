@@ -45,12 +45,12 @@ describe("renderDigest", () => {
     ] });
   });
 
-  it("renders the reports section with escaped, linked names and others", () => {
+  it("renders the reports section as a Top people list: amount first, escaped linked names, the others summed", () => {
     const i = blocks.findIndex((b) => b.type === "image" && (b as { slack_file: { id: string } }).slack_file.id === "F2");
     expect(blocks[i - 1]).toEqual({ type: "divider" }); // the chart's title names the section; no label repeats it
     expect(blocks.some((b) => b.type === "section" && mrk(b).startsWith("*YOUR REPORTS"))).toBe(false);
     expect(mrk(blocks[i + 1])).toBe(
-      "<https://x.test/explore/Engineering/a|Alex Kim> $140 · <https://x.test/explore/Engineering/t|Tom &amp; &lt;Jerry&gt;> $96.00 · +9 others $175",
+      "*Top people*\n• *$140* <https://x.test/explore/Engineering/a|Alex Kim>\n• *$96* <https://x.test/explore/Engineering/t|Tom &amp; &lt;Jerry&gt;>\n• *$175* 9 others",
     );
   });
 
@@ -122,7 +122,7 @@ describe("renderDigest", () => {
     const off = renderDigest(digest(), { you: "F1", reports: "F2" });
     expect(off.blocks.some((b) => b.type === "actions")).toBe(false);
     expect(JSON.stringify(off.blocks)).not.toContain("https://");
-    expect(off.blocks.some((b) => b.type === "section" && mrk(b) === "Alex Kim $140 · Tom &amp; &lt;Jerry&gt; $96.00 · +9 others $175")).toBe(true);
+    expect(off.blocks.some((b) => b.type === "section" && mrk(b) === "*Top people*\n• *$140* Alex Kim\n• *$96* Tom &amp; &lt;Jerry&gt;\n• *$175* 9 others")).toBe(true);
     expect(off.text).toBe(text);
     // Everything else is identical, less the button.
     const others = (bs: Record<string, unknown>[]) => bs.filter((b) => !(b.type === "section" && mrk(b).includes("Alex Kim")));
@@ -141,12 +141,12 @@ describe("renderDigest", () => {
     const line = (links: boolean) => mrk(renderDigest(digest({ reports }), {}, { links }).blocks.find((b) => b.type === "section" && mrk(b).startsWith("*By team*"))!);
     expect(line(true)).toBe(
       "*By team*\n" +
-        "• Engineering · <https://x.test/explore/Engineering/l2|Sam Lee> (9) $1,400\n" +
-        "• No team · <https://x.test/explore/Unassigned/ic|Priya &lt;Shah&gt;> $300\n" +
-        "• +3 more $250\n" +
-        "*Top people:* <https://x.test/explore/Engineering/a|Alex Kim> $140 · <https://x.test/explore/Engineering/t|Tom &amp; &lt;Jerry&gt;> $96.00 · +9 others $175",
+        "• *$1,400* Engineering · <https://x.test/explore/Engineering/l2|Sam Lee> (9 people)\n" +
+        "• *$300* No team · <https://x.test/explore/Unassigned/ic|Priya &lt;Shah&gt;>\n" +
+        "• *$250* 3 more teams\n\n" +
+        "*Top people*\n• *$140* <https://x.test/explore/Engineering/a|Alex Kim>\n• *$96* <https://x.test/explore/Engineering/t|Tom &amp; &lt;Jerry&gt;>\n• *$175* 9 others",
     );
-    expect(line(false)).toContain("• Engineering · Sam Lee (9) $1,400\n• No team · Priya &lt;Shah&gt; $300");
+    expect(line(false)).toContain("• *$1,400* Engineering · Sam Lee (9 people)\n• *$300* No team · Priya &lt;Shah&gt;");
     expect(line(false)).not.toContain("https://");
   });
 
@@ -213,7 +213,7 @@ describe("renderTeamDigest", () => {
   it("shows the chart, the linked escaped top people with the remainder, then tools and month lines", () => {
     expect(blocks[1]).toEqual({ type: "image", slack_file: { id: "F1" }, alt_text: "R&D <OPS> (14 PEOPLE) · USAGE: $612 · ▼ 4% vs previous week" });
     expect(mrk(blocks[2])).toBe(
-      "<https://x.test/explore/R%26D/a|Alex Kim> $140 · <https://x.test/explore/R%26D/t|Tom &amp; &lt;Jerry&gt;> $96.00 · +9 others $175",
+      "*Top people*\n• *$140* <https://x.test/explore/R%26D/a|Alex Kim>\n• *$96* <https://x.test/explore/R%26D/t|Tom &amp; &lt;Jerry&gt;>\n• *$175* 9 others",
     );
     expect(blocks[3]).toEqual({ type: "context", elements: [
       { type: "mrkdwn", text: "Cursor $30.10 · Anthropic API $8.10" },
@@ -233,7 +233,7 @@ describe("renderTeamDigest", () => {
     const off = renderTeamDigest(teamDigest(), { team: "F1" }).blocks;
     expect(off.some((b) => b.type === "actions")).toBe(false);
     expect(JSON.stringify(off)).not.toContain("https://");
-    expect(mrk(off[2])).toBe("Alex Kim $140 · Tom &amp; &lt;Jerry&gt; $96.00 · +9 others $175");
+    expect(mrk(off[2])).toBe("*Top people*\n• *$140* Alex Kim\n• *$96* Tom &amp; &lt;Jerry&gt;\n• *$175* 9 others");
   });
 
   it("has a plain-text fallback carrying the headline figure", () => {
@@ -247,33 +247,33 @@ describe("renderTeamDigest", () => {
   describe("top-people line", () => {
     const line = (over: Partial<TeamDigest["team"]>, period?: TeamDigest["period"]) =>
       mrk(renderTeamDigest(teamDigest({ ...(period ? { period } : {}), team: { ...teamDigest().team, ...over } }), {}, { links: true }).blocks[2]);
-    const alex = "<https://x.test/explore/R%26D/a|Alex Kim> $140";
-    const tom = "<https://x.test/explore/R%26D/t|Tom &amp; &lt;Jerry&gt;> $96.00";
+    const alex = "*Top people*\n• *$140* <https://x.test/explore/R%26D/a|Alex Kim>";
+    const tom = "• *$96* <https://x.test/explore/R%26D/t|Tom &amp; &lt;Jerry&gt;>";
 
     it("keeps 'others' to people and names team-level costs separately (7 people + a $50 department cost)", () => {
       // othersUsd is the exact remainder (2 people = $21, plus $50 team-level)
-      expect(line({ othersCount: 2, othersUsd: 71, teamLevelUsd: 50 })).toBe(`${alex} · ${tom} · +2 others $21.00 · team-level costs $50.00`);
+      expect(line({ othersCount: 2, othersUsd: 71, teamLevelUsd: 50 })).toBe(`${alex}\n${tom}\n• *$21* 2 others\n• *$50* team-level costs`);
     });
 
     it("shows team-level costs on their own when every person is listed", () => {
-      expect(line({ othersCount: 0, othersUsd: 5, teamLevelUsd: 5 })).toBe(`${alex} · ${tom} · team-level costs $5.00`);
-      expect(line({ top: [], othersCount: 0, othersUsd: 5, teamLevelUsd: 5 })).toBe("team-level costs $5.00");
+      expect(line({ othersCount: 0, othersUsd: 5, teamLevelUsd: 5 })).toBe(`${alex}\n${tom}\n• *$5* team-level costs`);
+      expect(line({ top: [], othersCount: 0, othersUsd: 5, teamLevelUsd: 5 })).toBe("*Top people*\n• *$5* team-level costs");
     });
 
     it("a monthly $999 department subscription is team-level, not 'others'", () => {
       const monthly = periodFor("monthly", "2026-08", now);
-      expect(line({ othersCount: 0, othersUsd: 999, teamLevelUsd: 999 }, monthly)).toBe(`${alex} · ${tom} · team-level costs $999`);
+      expect(line({ othersCount: 0, othersUsd: 999, teamLevelUsd: 999 }, monthly)).toBe(`${alex}\n${tom}\n• *$999* team-level costs`);
     });
 
     it("never turns rounding cents into a line", () => {
-      expect(line({ othersCount: 0, othersUsd: 0.01, teamLevelUsd: 0 })).toBe(`${alex} · ${tom}`);
+      expect(line({ othersCount: 0, othersUsd: 0.01, teamLevelUsd: 0 })).toBe(`${alex}\n${tom}`);
       expect(line({ top: [], othersCount: 0, othersUsd: 0.01, teamLevelUsd: 0 })).toBe("No usage from this team this week");
       // and a rounding hair in 'others' cannot go negative
-      expect(line({ othersCount: 1, othersUsd: 50, teamLevelUsd: 50.01 })).toContain("+1 others $0.00");
+      expect(line({ othersCount: 1, othersUsd: 50, teamLevelUsd: 50.01 })).toContain("• *$0* 1 other");
     });
 
-    it("without a team-level figure (person-style data) it is the plain others line", () => {
-      expect(line({})).toBe(`${alex} · ${tom} · +9 others $175`);
+    it("without a team-level figure (person-style data) it is the plain others list", () => {
+      expect(line({})).toBe(`${alex}\n${tom}\n• *$175* 9 others`);
     });
 
     it("says so when nobody spent anything", () => {
@@ -385,8 +385,8 @@ describe("renderCompanyDigest", () => {
 
   it("lists linked, escaped top teams with unattributed apart, then top people with usage tied to no one apart", () => {
     expect(mrk(blocks[2])).toBe(
-      "<https://x.test/explore/Engineering|Engineering> $212 · <https://x.test/explore/R%26D%20%3COps%3E|R&amp;D &lt;Ops&gt;> $108 · unattributed $20.00\n" +
-        "<https://x.test/explore/Engineering/a|Alex Kim> $140 · +3 others $168 · not tied to a person $32.00",
+      "*Top teams*\n• *$212* <https://x.test/explore/Engineering|Engineering>\n• *$108* <https://x.test/explore/R%26D%20%3COps%3E|R&amp;D &lt;Ops&gt;>\n• *$20* unattributed\n\n" +
+        "*Top people*\n• *$140* <https://x.test/explore/Engineering/a|Alex Kim>\n• *$168* 3 others\n• *$32* not tied to a person",
     );
     expect(blocks[3]).toEqual({ type: "context", elements: [
       { type: "mrkdwn", text: "Cursor $30.10 · Anthropic API $8.10" },
@@ -397,8 +397,8 @@ describe("renderCompanyDigest", () => {
   it("counts the teams beyond the top five", () => {
     const u = companyDigest().usage;
     const line = (n: number) => mrk(renderCompanyDigest(companyDigest({ usage: { ...u, otherTeamsCount: n, otherTeamsUsd: 5 } }), {}).blocks[2]);
-    expect(line(1)).toContain(" · +1 team $5.00 · unattributed $20.00");
-    expect(line(3)).toContain(" · +3 teams $5.00 · ");
+    expect(line(1)).toContain("\n• *$5* 1 more team\n• *$20* unattributed");
+    expect(line(3)).toContain("\n• *$5* 3 more teams\n");
   });
 
   it("says so when nobody used anything", () => {
@@ -453,8 +453,8 @@ describe("renderCompanyDigest", () => {
     expect(off.some((b) => b.type === "actions")).toBe(false);
     expect(JSON.stringify(off)).not.toContain("https://");
     expect(mrk(off[2])).toBe(
-      "Engineering $212 · R&amp;D &lt;Ops&gt; $108 · unattributed $20.00\n" +
-        "Alex Kim $140 · +3 others $168 · not tied to a person $32.00",
+      "*Top teams*\n• *$212* Engineering\n• *$108* R&amp;D &lt;Ops&gt;\n• *$20* unattributed\n\n" +
+        "*Top people*\n• *$140* Alex Kim\n• *$168* 3 others\n• *$32* not tied to a person",
     );
   });
 

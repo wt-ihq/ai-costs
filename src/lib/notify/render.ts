@@ -1,4 +1,4 @@
-import { formatUsd } from "@/lib/utils";
+import { formatUsd, formatWholeUsd } from "@/lib/utils";
 import type { ChartHeadline } from "./chart";
 import { round2, type CompanyDigest, type CompanyUsageSection, type Digest, type DigestSection, type FixedCostsSection, type MonthTotal, type ReportsSection, type TeamDigest, type ToolAmount } from "./digest";
 import { introFor } from "./intro";
@@ -116,44 +116,52 @@ const context = (lines: string[]): SlackBlock => ({
 /** A name linked to its dashboard page, or plain for a recipient without access. */
 const named = (href: string, name: string, links: boolean) => (links ? `<${href}|${escapeMrkdwn(name)}>` : escapeMrkdwn(name));
 
-function topLine(r: ReportsSection, unit: string, links: boolean): string {
-  if (!r.top.length) return `No usage from your reports this ${unit}`;
-  const names = r.top.map((p) => `${named(p.href, p.name, links)} ${formatUsd(p.usd)}`);
-  if (r.othersCount) names.push(`+${r.othersCount} others ${formatUsd(r.othersUsd)}`);
-  const line = names.join(" · ");
-  // A manager of managers: their teams first ("Team · Lead (people)"), then the top people.
-  if (!r.branches?.length) return line;
-  const teams = r.branches.map((b) => `${escapeMrkdwn(b.team ?? "No team")} · ${named(b.href, b.name, links)}${b.headcount > 1 ? ` (${b.headcount})` : ""} ${formatUsd(b.usd)}`);
-  if (r.otherBranchesCount) teams.push(`+${r.otherBranchesCount} more ${formatUsd(r.otherBranchesUsd ?? 0)}`);
-  return `*By team*\n${teams.map((t) => `• ${t}`).join("\n")}\n*Top people:* ${line}`;
-}
+/**
+ * A list in a Slack section: a bold heading, then one bullet per item with the amount FIRST and bold,
+ * in whole dollars — so the column of numbers is what the eye reads, not the names (Block Kit has no
+ * tables). Lists are joined by a blank line.
+ */
+const item = (usd: number, text: string) => `• *${formatWholeUsd(usd)}* ${text}`;
+const list = (heading: string, items: string[]) => `*${heading}*\n${items.join("\n")}`;
+const lists = (...ls: (string | null)[]) => ls.filter((l): l is string => l !== null).join("\n\n");
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /**
  * A group's top people. "Others" counts people only; spend that belongs to no member (`teamLevelUsd`)
  * is its own item, named by `restLabel`, so neither is hidden inside the other. Rounding cents alone
  * show nothing. Null when there is nothing to list.
  */
-function peopleLine(r: ReportsSection, restLabel: string, links: boolean): string | null {
-  const parts = r.top.map((p) => `${named(p.href, p.name, links)} ${formatUsd(p.usd)}`);
+function peopleList(r: ReportsSection, restLabel: string, links: boolean): string | null {
+  const items = r.top.map((p) => item(p.usd, named(p.href, p.name, links)));
   const rest = r.teamLevelUsd ?? 0;
-  if (r.othersCount) parts.push(`+${r.othersCount} others ${formatUsd(Math.max(0, round2(r.othersUsd - rest)))}`);
-  if (rest > 0) parts.push(`${restLabel} ${formatUsd(rest)}`);
-  return parts.length ? parts.join(" · ") : null;
+  if (r.othersCount) items.push(item(Math.max(0, round2(r.othersUsd - rest)), plural(r.othersCount, "other", "others")));
+  if (rest > 0) items.push(item(rest, restLabel));
+  return items.length ? list("Top people", items) : null;
 }
 
-const teamTopLine = (r: ReportsSection, unit: string, links: boolean): string => peopleLine(r, "team-level costs", links) ?? `No usage from this team this ${unit}`;
+/** A manager of managers: their teams first ("Team · Lead (people)"), then the top people. */
+function branchesList(r: ReportsSection, links: boolean): string | null {
+  if (!r.branches?.length) return null;
+  const items = r.branches.map((b) => item(b.usd, `${escapeMrkdwn(b.team ?? "No team")} · ${named(b.href, b.name, links)}${b.headcount > 1 ? ` (${b.headcount} people)` : ""}`));
+  if (r.otherBranchesCount) items.push(item(r.otherBranchesUsd ?? 0, plural(r.otherBranchesCount, "more team", "more teams")));
+  return list("By team", items);
+}
+
+const topLine = (r: ReportsSection, unit: string, links: boolean): string =>
+  r.top.length ? lists(branchesList(r, links), peopleList(r, "team-level costs", links)) : `No usage from your reports this ${unit}`;
+
+const teamTopLine = (r: ReportsSection, unit: string, links: boolean): string => peopleList(r, "team-level costs", links) ?? `No usage from this team this ${unit}`;
 
 /** The company's top teams (linked when the recipient can follow them), the rest, then usage with no team (Explore's "Unattributed") apart. */
-function teamsLine(u: CompanyUsageSection, links: boolean): string | null {
-  const parts = u.teams.map((t) => `${named(t.href, t.department, links)} ${formatUsd(t.usd)}`);
-  if (u.otherTeamsCount) parts.push(`+${u.otherTeamsCount} ${u.otherTeamsCount === 1 ? "team" : "teams"} ${formatUsd(u.otherTeamsUsd)}`);
-  if (u.unattributedUsd > 0) parts.push(`unattributed ${formatUsd(u.unattributedUsd)}`);
-  return parts.length ? parts.join(" · ") : null;
+function teamsList(u: CompanyUsageSection, links: boolean): string | null {
+  const items = u.teams.map((t) => item(t.usd, named(t.href, t.department, links)));
+  if (u.otherTeamsCount) items.push(item(u.otherTeamsUsd, plural(u.otherTeamsCount, "more team", "more teams")));
+  if (u.unattributedUsd > 0) items.push(item(u.unattributedUsd, "unattributed"));
+  return items.length ? list("Top teams", items) : null;
 }
 
 function companyLines(u: CompanyUsageSection, unit: string, links: boolean): string {
-  const lines = [teamsLine(u, links), peopleLine(u, "not tied to a person", links)].filter((l): l is string => l !== null);
-  return lines.length ? lines.join("\n") : `No usage this ${unit}`;
+  return lists(teamsList(u, links), peopleList(u, "not tied to a person", links)) || `No usage this ${unit}`;
 }
 
 /** With a chart, the headline is drawn big into the image, so the text is just the label; without one it stays as text. */
