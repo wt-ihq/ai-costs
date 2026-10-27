@@ -70,23 +70,20 @@ export function deltaText(s: DigestSection, compareTo: string): string {
 const people = (n: number) => `${n} ${n === 1 ? "PERSON" : "PEOPLE"}`;
 
 /**
- * The chart's title: whose numbers, and what they count (usage or total). Not the period — the message
- * header names it, and repeating it right under was the first thing readers noticed.
+ * The chart's title: whose numbers. Not the period (the message header names it) and not the basis
+ * (usage or total): the company report's seats & subscriptions section says what it is, and a person's
+ * fixed-costs setting is theirs to know — the word on every chart was noise.
  */
 export function chartTitle(section: "you" | "reports", d: Digest): string {
-  const s = section === "you" ? d.you : d.reports!;
-  const who = section === "you" ? "YOU" : `YOUR REPORTS (${people(d.reports!.headcount)})`;
-  return `${who} · ${s.basis.toUpperCase()}`;
+  return section === "you" ? "YOU" : `YOUR REPORTS (${people(d.reports!.headcount)})`;
 }
 
 export function teamChartTitle(d: TeamDigest): string {
-  return `${d.department.toUpperCase()} (${people(d.team.headcount)}) · ${d.team.basis.toUpperCase()}`;
+  return `${d.department.toUpperCase()} (${people(d.team.headcount)})`;
 }
 
-export function companyChartTitle(d: Pick<CompanyDigest, "usage">): string {
-  // No headcount: Okta's active count includes stale and never-activated rows, and the number isn't the point.
-  return `COMPANY · ${d.usage.basis.toUpperCase()}`;
-}
+// No headcount: Okta's active count includes stale and never-activated rows, and the number isn't the point.
+export const companyChartTitle = (): string => "COMPANY";
 
 /** The bars' span, captioned just above them. */
 export function chartSpan(c: Cadence): string {
@@ -277,7 +274,7 @@ export function renderTeamDigest(d: TeamDigest, files: TeamChartFileIds, opts: R
 /** The company's usage (chart, by team, top people), then seats & subscriptions, then a monthly's total: the company report's body. */
 function companyBlocks(d: Pick<CompanyDigest, "usage" | "fixed" | "totalUsd">, period: DigestPeriod, fileId: string | undefined, unit: string, links: boolean): SlackBlock[] {
   const blocks: SlackBlock[] = [
-    ...sectionBlocks("COMPANY", d.usage, fileId, companyChartTitle({ usage: d.usage }), period.compareTo, companyLines(d.usage, unit, links)),
+    ...sectionBlocks("COMPANY", d.usage, fileId, companyChartTitle(), period.compareTo, companyLines(d.usage, unit, links)),
     { type: "divider" },
     ...fixedBlocks(d.fixed, period),
   ];
