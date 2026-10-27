@@ -53,7 +53,7 @@ describe("chartLayoutsForTeam", () => {
   it("is one chart titled with the team, its headcount and basis", () => {
     const l = chartLayoutsForTeam(teamDigest);
     expect(Object.keys(l)).toEqual(["team"]);
-    expect(l.team.title).toBe("R&D (2 PEOPLE) · USAGE");
+    expect(l.team.title).toBe("R&D (2 PEOPLE)");
     expect(l.team.caption).toBe("LAST 8 WEEKS");
     expect(l.team.bars).toHaveLength(8);
   });
@@ -74,7 +74,7 @@ describe("deliverTeamDigest", () => {
     const s = fakeSlack();
     const ts = await deliverTeamDigest({ ...args(s.client), digest: teamDigest, banner: "🧪 Test: R&D's weekly digest, sent to you by Admin" });
     expect(ts).toBe("ts1");
-    expect(s.uploads).toEqual([{ name: "ai-spend-team.png", title: "R&D (2 PEOPLE) · USAGE" }]);
+    expect(s.uploads).toEqual([{ name: "ai-spend-team.png", title: "R&D (2 PEOPLE)" }]);
     expect(s.posts).toHaveLength(1);
     expect(s.posts[0].channel).toBe("D-U1");
     expect(s.posts[0].blocks[0]).toMatchObject({ type: "context" });
@@ -234,7 +234,7 @@ describe("chartLayoutsForCompany", () => {
   it("is one chart, of the company's usage", () => {
     const l = chartLayoutsForCompany(companyDigest);
     expect(Object.keys(l)).toEqual(["company"]);
-    expect(l.company.title).toBe("COMPANY · USAGE");
+    expect(l.company.title).toBe("COMPANY");
     expect(l.company.headline).toEqual(chartHeadline(companyDigest.usage, "previous week"));
     expect(l.company.bars).toHaveLength(8);
   });
@@ -245,7 +245,7 @@ describe("deliverCompanyDigest", () => {
     const s = fakeSlack();
     const ts = await deliverCompanyDigest({ ...args(s.client), digest: companyDigest, openUrl: "https://x.test/api/digest/open/abc", links: true });
     expect(ts).toBe("ts1");
-    expect(s.uploads).toEqual([{ name: "ai-spend-company.png", title: "COMPANY · USAGE" }]);
+    expect(s.uploads).toEqual([{ name: "ai-spend-company.png", title: "COMPANY" }]);
     expect(JSON.stringify(s.posts[0].blocks[0])).toContain("Company AI spend");
     expect(JSON.stringify(s.posts[0].blocks.at(-1))).toContain("https://x.test/api/digest/open/abc");
   });

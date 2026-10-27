@@ -20,7 +20,7 @@ export function chartLayoutsFor(d: Digest): { you: ChartLayout; reports?: ChartL
       : {}),
     // The top of the chain: the company's usage chart, as the company report draws it.
     ...(d.company
-      ? { company: chartLayout(companyChartTitle({ usage: d.company.usage }), d.company.usage.chart, d.company.usage.chartTools, d.company.usage.byTool, { headline: chartHeadline(d.company.usage, compareTo), caption }) }
+      ? { company: chartLayout(companyChartTitle(), d.company.usage.chart, d.company.usage.chartTools, d.company.usage.byTool, { headline: chartHeadline(d.company.usage, compareTo), caption }) }
       : {}),
   };
 }
@@ -34,7 +34,7 @@ export function chartLayoutsForTeam(d: TeamDigest): { team: ChartLayout } {
 /** The company report has one chart, of its usage (seats & subscriptions are text only). */
 export function chartLayoutsForCompany(d: CompanyDigest): { company: ChartLayout } {
   const headline = chartHeadline(d.usage, d.period.compareTo);
-  return { company: chartLayout(companyChartTitle(d), d.usage.chart, d.usage.chartTools, d.usage.byTool, { headline, caption: chartSpan(d.period.cadence) }) };
+  return { company: chartLayout(companyChartTitle(), d.usage.chart, d.usage.chartTools, d.usage.byTool, { headline, caption: chartSpan(d.period.cadence) }) };
 }
 
 const failureCode = (err: unknown): string =>

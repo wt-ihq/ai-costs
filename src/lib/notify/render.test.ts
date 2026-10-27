@@ -37,7 +37,7 @@ describe("renderDigest", () => {
   });
 
   it("renders the You section: its own chart (title and headline drawn in — no label repeating it), tools + month line", () => {
-    expect(blocks[1]).toEqual({ type: "image", slack_file: { id: "F1" }, alt_text: "YOU · USAGE: $38.20 · ▲ 12% vs previous week" });
+    expect(blocks[1]).toEqual({ type: "image", slack_file: { id: "F1" }, alt_text: "YOU: $38.20 · ▲ 12% vs previous week" });
     expect(blocks.some((b) => b.type === "section" && mrk(b) === "*YOU*")).toBe(false);
     expect(blocks[2]).toEqual({ type: "context", elements: [
       { type: "mrkdwn", text: "Cursor $30.10 · Anthropic API $8.10" },
@@ -211,7 +211,7 @@ describe("renderTeamDigest", () => {
   });
 
   it("shows the chart, the linked escaped top people with the remainder, then tools and month lines", () => {
-    expect(blocks[1]).toEqual({ type: "image", slack_file: { id: "F1" }, alt_text: "R&D <OPS> (14 PEOPLE) · USAGE: $612 · ▼ 4% vs previous week" });
+    expect(blocks[1]).toEqual({ type: "image", slack_file: { id: "F1" }, alt_text: "R&D <OPS> (14 PEOPLE): $612 · ▼ 4% vs previous week" });
     expect(mrk(blocks[2])).toBe(
       "*Top people*\n• *$140* <https://x.test/explore/R%26D/a|Alex Kim>\n• *$96* <https://x.test/explore/R%26D/t|Tom &amp; &lt;Jerry&gt;>\n• *$175* 9 others",
     );
@@ -290,10 +290,10 @@ describe("renderTeamDigest", () => {
 });
 
 describe("teamChartTitle", () => {
-  it("names the department, headcount and basis in capitals — never the period, the message header has it", () => {
-    expect(teamChartTitle(teamDigest())).toBe("R&D <OPS> (14 PEOPLE) · USAGE");
+  it("names the department and headcount in capitals — not the period or the basis, the message carries both", () => {
+    expect(teamChartTitle(teamDigest())).toBe("R&D <OPS> (14 PEOPLE)");
     const monthly = teamDigest({ period: periodFor("monthly", "2026-08", now), team: { ...teamDigest().team, basis: "total", month: null, headcount: 1 } });
-    expect(teamChartTitle(monthly)).toBe("R&D <OPS> (1 PERSON) · TOTAL");
+    expect(teamChartTitle(monthly)).toBe("R&D <OPS> (1 PERSON)");
   });
 });
 
@@ -312,11 +312,11 @@ describe("deltaText", () => {
 });
 
 describe("chartTitle", () => {
-  it("names the section and basis — never the period, which the message header already carries", () => {
-    expect(chartTitle("you", digest())).toBe("YOU · USAGE");
-    expect(chartTitle("reports", digest())).toBe("YOUR REPORTS (14 PEOPLE) · USAGE");
+  it("names the section — never the period or the basis, which the message already carries", () => {
+    expect(chartTitle("you", digest())).toBe("YOU");
+    expect(chartTitle("reports", digest())).toBe("YOUR REPORTS (14 PEOPLE)");
     const monthly = digest({ period: periodFor("monthly", "2026-08", now), you: sec({ basis: "total", month: null }) });
-    expect(chartTitle("you", monthly)).toBe("YOU · TOTAL");
+    expect(chartTitle("you", monthly)).toBe("YOU");
   });
 });
 
@@ -379,7 +379,7 @@ describe("renderCompanyDigest", () => {
   });
 
   it("draws its chart straight after the header, titled without a headcount, and labels the section only when the chart is missing", () => {
-    expect(blocks[1]).toEqual({ type: "image", slack_file: { id: "F1" }, alt_text: "COMPANY · USAGE: $340 · ▲ 240% vs previous week" });
+    expect(blocks[1]).toEqual({ type: "image", slack_file: { id: "F1" }, alt_text: "COMPANY: $340 · ▲ 240% vs previous week" });
     expect(mrk(renderCompanyDigest(companyDigest(), {}).blocks[1])).toBe("*COMPANY*\n*$340* usage · ▲ 240% vs previous week");
   });
 
@@ -472,8 +472,8 @@ describe("renderCompanyDigest", () => {
 });
 
 describe("companyChartTitle", () => {
-  it("names the company and the basis — no headcount (Okta's count isn't a precise one), no period (the header has it)", () => {
-    expect(companyChartTitle(companyDigest())).toBe("COMPANY · USAGE");
+  it("names the company — no headcount (Okta's count isn't a precise one), no period (the header has it)", () => {
+    expect(companyChartTitle()).toBe("COMPANY");
   });
 });
 
