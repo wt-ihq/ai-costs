@@ -20,7 +20,7 @@ export function chartLayoutsFor(d: Digest): { you: ChartLayout; reports?: ChartL
       : {}),
     // The top of the chain: the company's usage chart, as the company report draws it.
     ...(d.company
-      ? { company: chartLayout(companyChartTitle({ usage: d.company.usage, period: d.period }), d.company.usage.chart, d.company.usage.chartTools, d.company.usage.byTool, { headline: chartHeadline(d.company.usage, compareTo), caption }) }
+      ? { company: chartLayout(companyChartTitle({ usage: d.company.usage }), d.company.usage.chart, d.company.usage.chartTools, d.company.usage.byTool, { headline: chartHeadline(d.company.usage, compareTo), caption }) }
       : {}),
   };
 }

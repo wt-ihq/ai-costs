@@ -58,7 +58,7 @@ export async function renderChartPng(layout: ChartLayout): Promise<Uint8Array<Ar
   const image = new ImageResponse(
     (
       <div style={{ width: layout.width, height: layout.height, display: "flex", position: "relative", backgroundColor: BRAND.cream, fontFamily: FONT }}>
-        <div style={abs({ left: 24, top: 18, fontSize: 22, fontWeight: 500, letterSpacing: 1.4, color: BRAND.muted })}>{layout.title}</div>
+        <div style={abs({ left: 24, top: 16, fontSize: 26, fontWeight: 700, letterSpacing: 1.6, color: BRAND.truffle })}>{layout.title}</div>
         {layout.headline && <Headline h={layout.headline} />}
         {layout.caption && (
           <div style={abs({ left: 24, top: CHART_CAPTION.top, fontSize: CHART_CAPTION.size, fontWeight: 500, letterSpacing: 1.2, color: BRAND.dim })}>{layout.caption}</div>
