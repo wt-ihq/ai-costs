@@ -23,6 +23,11 @@ export function formatUsd(amount: number): string {
   return Math.abs(amount) < 100 ? usdCents.format(amount) : usd.format(amount);
 }
 
+/** Whole dollars, for a column of amounts to scan (a Slack list): "$72", never "$72.36". */
+export function formatWholeUsd(amount: number): string {
+  return usd.format(amount);
+}
+
 const countFull = new Intl.NumberFormat("en-US");
 const countCompact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 
