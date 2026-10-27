@@ -228,7 +228,7 @@ const dashboardButton = (opts: RenderOpts, dashboardUrl: string): SlackBlock[] =
 export function renderDigest(d: Digest, files: ChartFileIds, opts: RenderOpts = {}): RenderedDigest {
   const unit = CADENCE_UNIT[d.period.cadence];
   const blocks: SlackBlock[] = [];
-  blocks.push({ type: "header", text: { type: "plain_text", text: `${HEADER_EMOJI} Your AI spend · ${d.period.label}`, emoji: true } });
+  blocks.push({ type: "header", text: { type: "plain_text", text: `${HEADER_EMOJI} AI spend · ${d.period.label}`, emoji: true } });
   blocks.push(...sectionBlocks("YOU", d.you, files.you, chartTitle("you", d), d.period.compareTo));
   if (d.reports) {
     blocks.push({ type: "divider" });
@@ -243,7 +243,7 @@ export function renderDigest(d: Digest, files: ChartFileIds, opts: RenderOpts = 
   blocks.push(...dashboardButton(opts, d.dashboardUrl));
 
   const text =
-    `Your AI spend · ${d.period.label}: you ${formatUsd(d.you.headlineUsd)} ${d.you.basis}` +
+    `AI spend · ${d.period.label}: you ${formatUsd(d.you.headlineUsd)} ${d.you.basis}` +
     (d.reports ? ` · your reports ${formatUsd(d.reports.headlineUsd)} ${d.reports.basis}` : "") +
     (d.company ? ` · company usage ${formatUsd(d.company.usage.headlineUsd)}` : "");
   const reports = d.company ? "company" : !d.reports ? "none" : d.reports.branches !== undefined ? "byTeam" : "direct";

@@ -508,7 +508,7 @@ describe("runNotify: company report", () => {
     const toM = slack.posts.filter((p) => p.channel === "D-U-m");
     expect(toM).toHaveLength(2);
     expect(toM.some((p) => header(p).includes("Company AI spend · 21–27 Sep 2026"))).toBe(true);
-    expect(toM.some((p) => header(p).includes("Your AI spend · 21–27 Sep 2026"))).toBe(true);
+    expect(toM.some((p) => header(p).includes("AI spend · 21–27 Sep 2026"))).toBe(true);
     expect(store.sends.filter((s) => s.employeeId === "m").map((s) => s.report).sort()).toEqual(["company", "personal"]);
     expect(await runNotify(deps(store, slack.client))).toMatchObject({ sent: 0, alreadyHandled: 4 });
   });
@@ -621,7 +621,7 @@ describe("runNotify: company report", () => {
       await runNotify(deps(store, slack.client));
       const toM = to(slack.posts, "m");
       expect(toM.filter(intro)).toHaveLength(1);
-      expect(header(toM.find(intro)!)).toContain("Your AI spend");
+      expect(header(toM.find(intro)!)).toContain("AI spend · ");
       // A company-only recipient gets the company version.
       expect(JSON.stringify(to(slack.posts, "gareth")[0].blocks)).toContain("your first company AI spend report");
     });

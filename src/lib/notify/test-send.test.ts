@@ -80,7 +80,7 @@ describe("sendTest — a person's digest", () => {
     expect(t.posts[0].channel).toBe("D-U-priya");
     expect(first(t.posts[0].blocks)).toContain("🧪 Test message from Gareth Admin — not a scheduled digest");
     // Priya has never had a live message, so the test greets her first, as her real first one will.
-    expect(t.posts[0].text).toContain("[🧪 Test message from Gareth Admin — not a scheduled digest] Hi Priya — your first AI spend summary. Your AI spend");
+    expect(t.posts[0].text).toContain("[🧪 Test message from Gareth Admin — not a scheduled digest] Hi Priya — your first AI spend summary. AI spend");
     expect(JSON.stringify(t.posts[0].blocks)).toContain("$30.00"); // Priya's own figure
   });
 
