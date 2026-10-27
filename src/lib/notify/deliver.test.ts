@@ -171,7 +171,7 @@ describe("deliverDigest", () => {
     const s = fakeSlack();
     await deliverDigest({ ...args(s.client), digest: personDigest, banner: "🧪 Test message from Admin — not a scheduled digest" });
     expect(s.posts[0].blocks[0]).toEqual({ type: "context", elements: [{ type: "mrkdwn", text: "🧪 Test message from Admin — not a scheduled digest" }] });
-    expect(s.posts[0].text.startsWith("[🧪 Test message from Admin — not a scheduled digest] Your AI spend")).toBe(true);
+    expect(s.posts[0].text.startsWith("[🧪 Test message from Admin — not a scheduled digest] AI spend")).toBe(true);
   });
 });
 

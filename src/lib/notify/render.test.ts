@@ -33,7 +33,7 @@ describe("renderDigest", () => {
   const { blocks, text } = renderDigest(digest(), { you: "F1", reports: "F2" }, { links: true });
 
   it("leads with a header naming the period", () => {
-    expect(blocks[0]).toEqual({ type: "header", text: { type: "plain_text", text: ":ai-spend: Your AI spend · 21–27 Sep 2026", emoji: true } });
+    expect(blocks[0]).toEqual({ type: "header", text: { type: "plain_text", text: ":ai-spend: AI spend · 21–27 Sep 2026", emoji: true } });
   });
 
   it("renders the You section: its own chart (title and headline drawn in — no label repeating it), tools + month line", () => {
@@ -92,24 +92,24 @@ describe("renderDigest", () => {
     expect(r.blocks[0]).toEqual({ type: "context", elements: [{ type: "mrkdwn", text: "🧪 Test: Tom &amp; &lt;Jerry&gt;'s weekly digest, sent to you by Admin" }] });
     expect(r.blocks[1]).toMatchObject({ type: "header" });
     // Slack parses `text` as mrkdwn too, so the fallback is escaped like the blocks
-    expect(r.text.startsWith("[🧪 Test: Tom &amp; &lt;Jerry&gt;'s weekly digest, sent to you by Admin] Your AI spend · ")).toBe(true);
+    expect(r.text.startsWith("[🧪 Test: Tom &amp; &lt;Jerry&gt;'s weekly digest, sent to you by Admin] AI spend · ")).toBe(true);
   });
 
   it("is unchanged without a banner", () => {
     expect(renderDigest(digest(), {}).blocks[0]).toMatchObject({ type: "header" });
-    expect(renderDigest(digest(), {}).text.startsWith("Your AI spend")).toBe(true);
+    expect(renderDigest(digest(), {}).text.startsWith("AI spend")).toBe(true);
   });
 
   it("keeps the cron's preview line and its text prefix exactly", () => {
     const r = renderDigest(digest(), {}, { previewFor: "Priya Nair (weekly)" });
     expect(r.blocks[0]).toEqual({ type: "context", elements: [{ type: "mrkdwn", text: "🔍 Preview · would send to Priya Nair (weekly)" }] });
     expect(r.blocks.slice(1)).toEqual(renderDigest(digest(), {}).blocks);
-    expect(r.text.startsWith("[Preview for Priya Nair (weekly)] Your AI spend")).toBe(true);
+    expect(r.text.startsWith("[Preview for Priya Nair (weekly)] AI spend")).toBe(true);
   });
 
   it("escapes the cron preview target in the text fallback too", () => {
     const r = renderDigest(digest(), {}, { previewFor: "Tom & <Jerry> (weekly)" });
-    expect(r.text.startsWith("[Preview for Tom &amp; &lt;Jerry&gt; (weekly)] Your AI spend")).toBe(true);
+    expect(r.text.startsWith("[Preview for Tom &amp; &lt;Jerry&gt; (weekly)] AI spend")).toBe(true);
   });
 
   it("points the dashboard button at the tracked open link when one is given", () => {
@@ -157,7 +157,7 @@ describe("renderDigest", () => {
     expect(mrk(r.blocks[1])).toContain("and your team's total");
     expect(r.blocks[3]).toEqual({ type: "divider" });
     expect(r.blocks[4]).toMatchObject({ type: "header" });
-    expect(r.text.startsWith("[Preview for Priya Nair (weekly)] Hi Priya — your first AI spend summary. Your AI spend · ")).toBe(true);
+    expect(r.text.startsWith("[Preview for Priya Nair (weekly)] Hi Priya — your first AI spend summary. AI spend · ")).toBe(true);
   });
 
   it("matches the intro to the summary: teams for a manager of managers, nothing about reports without them", () => {

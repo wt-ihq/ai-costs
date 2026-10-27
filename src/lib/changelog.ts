@@ -14,7 +14,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: "2026-10-27",
     title: "See when each source was last updated",
     items: [
-      "Slack chart titles are bolder and no longer repeat the period, which the message heading already gives.",
+      "Slack chart titles are bolder and no longer repeat the period, which the message heading already gives. The personal summary's heading is now \"AI spend\", not \"Your AI spend\".",
       "Slack summaries no longer repeat each section's name above its chart (the chart carries it), and the company section no longer shows a headcount.",
       "The person at the top of the reporting chain no longer gets a \"Your reports\" section (it would be the whole company): their summary shows the company report instead. The first message's wording is shorter and plainer.",
       "A test send to someone who hasn't had a real Slack summary yet now opens with the welcome message and banner, exactly as their first real one will.",
