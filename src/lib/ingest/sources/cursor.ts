@@ -1,7 +1,7 @@
 import type { CursorUsageResponse, CursorEventsResponse, CursorUsageEvent, CursorMembersResponse } from "@/lib/ingest/normalizers/cursor";
 
 export interface CursorFetchOptions {
-  /** ISO dates; the Admin API allows a 90-day window per request. */
+  /** ISO dates, exclusive end. daily-usage-data allows at most 30 days per request (run-cursor.ts chunks it). */
   startDate: string;
   endDate: string;
 }

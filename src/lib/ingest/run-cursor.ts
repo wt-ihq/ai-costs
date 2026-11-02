@@ -1,7 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SpendFact } from "@/lib/types";
 import { matchIdentity } from "@/lib/ingest/identity";
-import { normalizeCursor, normalizeCursorEvents, normalizeCursorMembers, normalizeCursorTopModels } from "@/lib/ingest/normalizers/cursor";
+import { SchemaDriftError } from "@/lib/ingest/types";
+import {
+  normalizeCursor,
+  normalizeCursorEvents,
+  normalizeCursorMembers,
+  normalizeCursorTopModels,
+  type CursorUsageResponse,
+} from "@/lib/ingest/normalizers/cursor";
 import { applyServiceAccountTeams, serviceAccountRegistry, type ServiceAccountRegistry } from "@/lib/ingest/cursor-service-accounts";
 import {
   fetchCursorUsage,
@@ -50,6 +57,25 @@ export function eventsWindow(window: Window, days?: number): Window {
   if (!days) return window;
   const start = addDays(window.endDate, -days);
   return { startDate: start > window.startDate ? start : window.startDate, endDate: window.endDate };
+}
+
+/**
+ * Days of daily-usage-data per Cursor request: the API answers "Date range cannot exceed 30 days"
+ * (400) to anything longer. The nightly month-to-date window is 31 days on the 31st and 32–34 days
+ * on the 1st–3rd (the grace period reaches back to the previous month's 1st), so every one of those
+ * nights failed before writing anything, Jul–Nov 2026, and the sync only recovered on the 4th.
+ */
+export const USAGE_CHUNK_DAYS = 30;
+
+/** daily-usage-data for a window of any length: one request per {@link USAGE_CHUNK_DAYS}, rows joined. */
+export async function fetchUsageInChunks(fetcher: CursorFetcher, window: Window): Promise<CursorUsageResponse> {
+  const data: CursorUsageResponse["data"] = [];
+  for (const chunk of eventChunks(window, USAGE_CHUNK_DAYS)) {
+    const part = await fetcher(chunk);
+    if (!part || !Array.isArray(part.data)) throw new SchemaDriftError("cursor", "missing `data` array");
+    data.push(...part.data);
+  }
+  return { data };
 }
 
 /**
@@ -129,7 +155,7 @@ export async function syncCursor(
   const runId = await startSyncRun(supabase, "cursor");
   try {
     const window = { startDate: opts.startDate, endDate: opts.endDate };
-    const raw = await fetcher(window);
+    const raw = await fetchUsageInChunks(fetcher, window);
     await saveRawPayload(supabase, "cursor", runId, raw);
     const seatFacts = normalizeCursor(raw);
 

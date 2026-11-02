@@ -11,6 +11,13 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-11-02",
+    title: "Cursor sync no longer fails at month end",
+    items: [
+      "The nightly Cursor sync failed on the 31st and on the first three days of each month (Cursor refuses date ranges over 30 days), so seats and on-demand spend for those days arrived late or not at all. It now asks Cursor in 30-day pieces and completes every night.",
+    ],
+  },
+  {
     date: "2026-10-27",
     title: "See when each source was last updated",
     items: [

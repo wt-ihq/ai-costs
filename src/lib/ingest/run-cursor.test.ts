@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CursorEventsResponse } from "./normalizers/cursor";
-import { eventChunks, eventsWindow, syncCursorEvents } from "./run-cursor";
+import { eventChunks, eventsWindow, fetchUsageInChunks, syncCursorEvents, USAGE_CHUNK_DAYS } from "./run-cursor";
 
 describe("eventChunks", () => {
   it("splits a window into consecutive exclusive-end chunks, the last one short", () => {
@@ -19,6 +19,40 @@ describe("eventChunks", () => {
     ]);
     expect(eventChunks({ startDate: "2026-10-01", endDate: "2026-10-02" })).toHaveLength(1);
     expect(eventChunks({ startDate: "2026-10-02", endDate: "2026-10-02" })).toEqual([]);
+  });
+});
+
+describe("fetchUsageInChunks", () => {
+  const calls: { startDate: string; endDate: string }[] = [];
+  const fetcher = async (w: { startDate: string; endDate: string }) => {
+    calls.push(w);
+    return { data: [{ day: w.startDate, email: `${w.startDate}@intenthq.com` }] };
+  };
+  const spanDays = (w: { startDate: string; endDate: string }) => (Date.parse(w.endDate) - Date.parse(w.startDate)) / 86_400_000;
+
+  it("asks Cursor once for a window of up to 30 days (daily-usage-data rejects longer ranges)", async () => {
+    calls.length = 0;
+    expect(USAGE_CHUNK_DAYS).toBe(30);
+    const raw = await fetchUsageInChunks(fetcher, { startDate: "2026-10-01", endDate: "2026-10-31" });
+    expect(calls).toEqual([{ startDate: "2026-10-01", endDate: "2026-10-31" }]);
+    expect(raw.data).toHaveLength(1);
+  });
+
+  it("splits the month-end and month-start grace windows into 30-day requests and joins the rows", async () => {
+    // 2 Nov: the 1st–3rd grace period reaches back to 1 Oct → 33 days, which Cursor refused every month.
+    calls.length = 0;
+    const raw = await fetchUsageInChunks(fetcher, { startDate: "2026-10-01", endDate: "2026-11-03" });
+    expect(calls).toEqual([
+      { startDate: "2026-10-01", endDate: "2026-10-31" },
+      { startDate: "2026-10-31", endDate: "2026-11-03" },
+    ]);
+    expect(calls.every((w) => spanDays(w) <= 30)).toBe(true);
+    expect(raw.data.map((r) => r.day)).toEqual(["2026-10-01", "2026-10-31"]);
+  });
+
+  it("rejects a chunk without a data array instead of silently dropping it", async () => {
+    const broken = async () => ({}) as { data: never[] };
+    await expect(fetchUsageInChunks(broken, { startDate: "2026-10-01", endDate: "2026-10-02" })).rejects.toThrow(/data/);
   });
 });
 
