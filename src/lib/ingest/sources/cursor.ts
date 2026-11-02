@@ -65,10 +65,10 @@ export const fetchCursorUsageEvents: CursorEventsFetcher = async ({ startDate, e
   const label = `${startDate}–${endDate}`;
   const t0 = Date.now();
 
-  // Guarded loop: from 30 Oct 2026 the first chunk of every run never returned (daily-usage and the
-  // roster had, seconds earlier) and the sync sat `running` until Vercel's 300 s limit killed it.
-  // Each page is logged so Vercel's logs show what Cursor answers; `numPages` and a hard cap stop a
-  // `hasNextPage` that never turns false; each request has a timeout (postEventsPage).
+  // Guarded loop (added while chasing the 30 Oct 2026 hang, which turned out to be the raw-payload
+  // insert — persist.ts:RAW_PAYLOAD_MAX_BYTES — not Cursor): each page is logged so Vercel's logs
+  // show volume and timing; `numPages` and a hard cap stop a `hasNextPage` that never turns false;
+  // each request has a timeout (postEventsPage) so a silent API can't strand the run.
   for (let page = 1; ; page++) {
     if (page > MAX_EVENT_PAGES) {
       throw new Error(`Cursor usage-events: still paginating after ${MAX_EVENT_PAGES} pages for ${label} (${usageEvents.length} events) — has Cursor's pagination changed?`);
