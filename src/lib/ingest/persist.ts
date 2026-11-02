@@ -433,15 +433,37 @@ export async function finishSyncRun(
   if (error) console.warn(`finishSyncRun(${id}): ${error.message}`);
 }
 
+/**
+ * Largest raw payload we store as-is. The 1 GB production Postgres parses each payload into jsonb
+ * in memory: a 3-day Cursor usage-events chunk (22k events ≈ 2.7 MB on 28 Oct 2026, more each
+ * day) first overran the statement timeout (29 Oct, saved nothing, run still succeeded) and then
+ * crashed the database (30 Oct nightly, both manual runs on 2 Nov — "database system was
+ * interrupted"), stranding the run `running`. Over this, we keep a small stub instead; the data
+ * is re-fetchable (Cursor events: "Rebuild Cursor on-demand spend").
+ */
+export const RAW_PAYLOAD_MAX_BYTES = 2_000_000;
+
+/** Top-level shape of a payload we didn't keep: array lengths and value types, for the stub. */
+function payloadShape(payload: unknown): Record<string, number | string> {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return { root: Array.isArray(payload) ? payload.length : typeof payload };
+  return Object.fromEntries(Object.entries(payload as Record<string, unknown>).map(([k, v]) => [k, Array.isArray(v) ? v.length : v === null ? "null" : typeof v]));
+}
+
 export async function saveRawPayload(
   supabase: SupabaseClient,
   source: string,
   syncRunId: string,
   payload: unknown,
 ) {
+  const bytes = JSON.stringify(payload)?.length ?? 0;
+  let toStore = payload;
+  if (bytes > RAW_PAYLOAD_MAX_BYTES) {
+    console.warn(`saveRawPayload(${source}): ${bytes} bytes is over the ${RAW_PAYLOAD_MAX_BYTES}-byte cap; storing a stub (the data must be re-fetched to replay)`);
+    toStore = { omitted: true, bytes, cap: RAW_PAYLOAD_MAX_BYTES, shape: payloadShape(payload), note: "payload too large for the database; re-fetch to replay" };
+  }
   const { error } = await supabase
     .from("raw_payloads")
-    .insert({ source, sync_run_id: syncRunId, payload });
+    .insert({ source, sync_run_id: syncRunId, payload: toStore });
   // Non-fatal, but the "raw payloads can be replayed" guarantee shouldn't fail
   // silently.
   if (error) console.warn(`saveRawPayload(${source}): ${error.message}`);

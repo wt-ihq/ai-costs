@@ -15,7 +15,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: "Cursor sync no longer fails at month end",
     items: [
       "The nightly Cursor sync failed on the 31st and on the first three days of each month (Cursor refuses date ranges over 30 days), so seats and on-demand spend for those days arrived late or not at all. It now asks Cursor in 30-day pieces and completes every night.",
-      "A Cursor sync that gets no answer from Cursor's usage-events service now fails after a minute with a clear message instead of sitting at \"running\" until the run is cut off.",
+      "Cursor's usage data had grown so large that saving a copy of it crashed the database, leaving the Cursor sync stuck at \"running\" (30 Oct, and twice on 2 Nov) and skipping Vercel that night. Oversized copies are no longer kept (a short summary is stored instead), and a Cursor request that gets no answer now fails after a minute with a clear message.",
     ],
   },
   {

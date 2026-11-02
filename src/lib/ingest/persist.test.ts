@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { attachEmployees, planEmployeeUpserts, removeOktaEmployees, upsertEmployees, upsertSpendFacts, replaceWindowFacts, type ResolvedFact } from "./persist";
+import { attachEmployees, planEmployeeUpserts, RAW_PAYLOAD_MAX_BYTES, removeOktaEmployees, saveRawPayload, upsertEmployees, upsertSpendFacts, replaceWindowFacts, type ResolvedFact } from "./persist";
 import { normalizeCursor } from "./normalizers/cursor";
 import { cursorUsageFixture } from "./fixtures/cursor-usage";
 
@@ -372,5 +372,31 @@ describe("planEmployeeUpserts", () => {
     expect(plan.updates.map((r) => [r.id, r.email])).toEqual([["e1", "p@intenthq.com"]]);
     expect(plan.inserts).toEqual([]);
     expect(plan.skipped).toEqual(["00uD"]);
+  });
+});
+
+describe("saveRawPayload", () => {
+  const fakeInsert = () => {
+    const rows: Record<string, unknown>[] = [];
+    const client = { from: () => ({ insert: (r: Record<string, unknown>) => { rows.push(r); return Promise.resolve({ error: null }); } }) } as unknown as SupabaseClient;
+    return { client, rows };
+  };
+
+  it("stores an ordinary payload as it is", async () => {
+    const db = fakeInsert();
+    await saveRawPayload(db.client, "cursor", "run1", { usageEvents: [{ kind: "Usage-based" }] });
+    expect(db.rows[0]).toMatchObject({ source: "cursor", sync_run_id: "run1", payload: { usageEvents: [{ kind: "Usage-based" }] } });
+  });
+
+  it("stores a stub instead of a payload too large for the database (30 Oct and 2 Nov 2026: a 3-day Cursor events chunk crashed it)", async () => {
+    const db = fakeInsert();
+    const big = { usageEvents: Array.from({ length: 50_000 }, (_, i) => ({ kind: "Included in Business", chargedCents: i, model: "auto", userEmail: "someone@intenthq.com" })), period: { startDate: 1 } };
+    await saveRawPayload(db.client, "cursor", "run1", big);
+    expect(db.rows).toHaveLength(1);
+    const stored = db.rows[0].payload as Record<string, unknown>;
+    expect(stored.omitted).toBe(true);
+    expect(stored.bytes as number).toBeGreaterThan(RAW_PAYLOAD_MAX_BYTES);
+    expect(stored.shape).toEqual({ usageEvents: 50_000, period: "object" });
+    expect(JSON.stringify(stored).length).toBeLessThan(1000);
   });
 });
