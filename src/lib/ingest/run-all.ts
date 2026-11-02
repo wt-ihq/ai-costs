@@ -12,6 +12,7 @@ import { syncClaudeSeats } from "@/lib/ingest/run-claude-seats";
 import { syncRecurring } from "@/lib/ingest/recurring";
 import type { DateWindow } from "@/lib/ingest/sources/anthropic";
 import { rebuildClaudeSpend, recentClaudeMonths } from "./run-claude-spend";
+import { pruneRawPayloads, RAW_PAYLOAD_KEEP_DAYS } from "./persist";
 
 export type SyncOutcome = { ok: true; rowsWritten: number } | { ok: false; error: string };
 
@@ -72,6 +73,16 @@ export async function runAllSyncs(
 
   await run("okta", () => syncOkta(supabase));
   await runLanes(lanes, ([name, fn]) => run(name, fn));
+  // Housekeeping after a full run (not a ?source= run): drop raw payloads past their keep window.
+  // Best-effort — it has no sync_runs row and must never fail or delay the sync result.
+  if (!wants) {
+    try {
+      const { deleted } = await pruneRawPayloads(supabase);
+      if (deleted) console.log(`[sync] pruned ${deleted} raw payloads older than ${RAW_PAYLOAD_KEEP_DAYS} days`);
+    } catch (err) {
+      console.warn(`[sync] raw payload prune failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
   return results;
 }
 
