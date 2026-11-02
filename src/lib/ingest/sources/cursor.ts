@@ -49,6 +49,11 @@ export const fetchCursorUsage: CursorFetcher = async ({ startDate, endDate }) =>
  * so calendar windows don't double-count the boundary day. Paginates until
  * `pagination.hasNextPage` is false, accumulating every event.
  */
+/** Give up on one usage-events request after this long (Vercel kills the whole run at 300 s). */
+export const EVENTS_REQUEST_TIMEOUT_MS = 60_000;
+/** Pages per events window before we conclude Cursor's pagination has changed (a 3-day chunk is a handful). */
+export const MAX_EVENT_PAGES = 100;
+
 export const fetchCursorUsageEvents: CursorEventsFetcher = async ({ startDate, endDate }) => {
   const key = process.env.CURSOR_ADMIN_API_KEY;
   if (!key) throw new Error("CURSOR_ADMIN_API_KEY is not set");
@@ -57,11 +62,30 @@ export const fetchCursorUsageEvents: CursorEventsFetcher = async ({ startDate, e
   const endMs = Date.parse(endDate) - 1; // [start, end) — inclusive bounds otherwise overlap windows
   const pageSize = 1000;
   const usageEvents: CursorUsageEvent[] = [];
+  const label = `${startDate}–${endDate}`;
+  const t0 = Date.now();
 
+  // Guarded loop: from 30 Oct 2026 the first chunk of every run never returned (daily-usage and the
+  // roster had, seconds earlier) and the sync sat `running` until Vercel's 300 s limit killed it.
+  // Each page is logged so Vercel's logs show what Cursor answers; `numPages` and a hard cap stop a
+  // `hasNextPage` that never turns false; each request has a timeout (postEventsPage).
   for (let page = 1; ; page++) {
+    if (page > MAX_EVENT_PAGES) {
+      throw new Error(`Cursor usage-events: still paginating after ${MAX_EVENT_PAGES} pages for ${label} (${usageEvents.length} events) — has Cursor's pagination changed?`);
+    }
+    const started = Date.now();
     const json = await postEventsPage(key, { startDate: startMs, endDate: endMs, page, pageSize });
+    const got = json.usageEvents?.length ?? 0;
     usageEvents.push(...(json.usageEvents ?? []));
-    if (!json.pagination?.hasNextPage) break;
+    const p = json.pagination;
+    console.log(
+      `[cursor] events ${label} page ${p?.currentPage ?? page}/${p?.numPages ?? "?"}: ${got} events, hasNextPage=${String(p?.hasNextPage)}, ${Date.now() - started} ms (${usageEvents.length} events, ${Date.now() - t0} ms so far)`,
+    );
+    if (!p?.hasNextPage) break;
+    if (typeof p.numPages === "number" && page >= p.numPages) {
+      console.warn(`[cursor] events ${label}: hasNextPage=true on the last page (${page}/${p.numPages}); stopping`);
+      break;
+    }
   }
   return { usageEvents };
 };
@@ -90,11 +114,20 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function postEventsPage(key: string, body: Record<string, number>): Promise<CursorEventsResponse> {
   const maxAttempts = 6;
   for (let attempt = 0; ; attempt++) {
-    const res = await fetch("https://api.cursor.com/teams/filtered-usage-events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: basicAuth(key) },
-      body: JSON.stringify(body),
-    });
+    let res: Response;
+    try {
+      res = await fetch("https://api.cursor.com/teams/filtered-usage-events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: basicAuth(key) },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(EVENTS_REQUEST_TIMEOUT_MS),
+      });
+    } catch (err) {
+      if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        throw new Error(`Cursor usage-events: no response within ${EVENTS_REQUEST_TIMEOUT_MS / 1000} s (page ${body.page})`);
+      }
+      throw err;
+    }
     if (res.ok) return (await res.json()) as CursorEventsResponse;
     const retryable = res.status === 429 || res.status >= 500;
     if (!retryable || attempt >= maxAttempts - 1) {
