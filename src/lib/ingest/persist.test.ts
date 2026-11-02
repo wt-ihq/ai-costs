@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { attachEmployees, planEmployeeUpserts, RAW_PAYLOAD_MAX_BYTES, removeOktaEmployees, saveRawPayload, upsertEmployees, upsertSpendFacts, replaceWindowFacts, type ResolvedFact } from "./persist";
+import { attachEmployees, planEmployeeUpserts, pruneRawPayloads, RAW_PAYLOAD_KEEP_DAYS, RAW_PAYLOAD_MAX_BYTES, rawPayloadCutoff, removeOktaEmployees, saveRawPayload, upsertEmployees, upsertSpendFacts, replaceWindowFacts, type ResolvedFact } from "./persist";
 import { normalizeCursor } from "./normalizers/cursor";
 import { cursorUsageFixture } from "./fixtures/cursor-usage";
 
@@ -398,5 +398,29 @@ describe("saveRawPayload", () => {
     expect(stored.bytes as number).toBeGreaterThan(RAW_PAYLOAD_MAX_BYTES);
     expect(stored.shape).toEqual({ usageEvents: 50_000, period: "object" });
     expect(JSON.stringify(stored).length).toBeLessThan(1000);
+  });
+});
+
+describe("pruneRawPayloads", () => {
+  it("keeps 30 days of payloads for replay and drops the rest", () => {
+    expect(RAW_PAYLOAD_KEEP_DAYS).toBe(30);
+    expect(rawPayloadCutoff(new Date("2026-11-02T06:00:00Z"))).toBe("2026-10-03T06:00:00.000Z");
+  });
+
+  it("deletes rows fetched before the cutoff and reports how many", async () => {
+    const calls: { column: string; value: string; count?: string }[] = [];
+    const client = {
+      from: (table: string) => ({
+        delete: (opts?: { count?: string }) => ({
+          lt: (column: string, value: string) => {
+            calls.push({ column, value, count: opts?.count });
+            expect(table).toBe("raw_payloads");
+            return Promise.resolve({ error: null, count: 7 });
+          },
+        }),
+      }),
+    } as unknown as SupabaseClient;
+    await expect(pruneRawPayloads(client, new Date("2026-11-02T06:00:00Z"))).resolves.toEqual({ deleted: 7 });
+    expect(calls).toEqual([{ column: "fetched_at", value: "2026-10-03T06:00:00.000Z", count: "exact" }]);
   });
 });

@@ -449,6 +449,25 @@ function payloadShape(payload: unknown): Record<string, number | string> {
   return Object.fromEntries(Object.entries(payload as Record<string, unknown>).map(([k, v]) => [k, Array.isArray(v) ? v.length : v === null ? "null" : typeof v]));
 }
 
+/**
+ * Days of raw payloads kept. They exist so a normalizer fix can be replayed without re-fetching,
+ * which never needs more than the recent past; left alone the table grew to 229 MB of a 279 MB
+ * database by 2 Nov 2026 (≈2.4 MB a day, mostly OpenRouter and Vercel), pruned by hand that day.
+ */
+export const RAW_PAYLOAD_KEEP_DAYS = 30;
+
+/** ISO instant before which raw payloads are pruned. Pure. */
+export function rawPayloadCutoff(now: Date, keepDays = RAW_PAYLOAD_KEEP_DAYS): string {
+  return new Date(now.getTime() - keepDays * 86_400_000).toISOString();
+}
+
+/** Delete raw payloads older than {@link RAW_PAYLOAD_KEEP_DAYS}; the nightly sync's last step. */
+export async function pruneRawPayloads(supabase: SupabaseClient, now = new Date()): Promise<{ deleted: number }> {
+  const { error, count } = await supabase.from("raw_payloads").delete({ count: "exact" }).lt("fetched_at", rawPayloadCutoff(now));
+  if (error) throw new Error(`pruneRawPayloads: ${error.message}`);
+  return { deleted: count ?? 0 };
+}
+
 export async function saveRawPayload(
   supabase: SupabaseClient,
   source: string,
