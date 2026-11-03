@@ -1,6 +1,8 @@
 import type { SpendFact } from "@/lib/types";
 import { CURSOR_SERVICE_ACCOUNT } from "@/lib/pseudo-entities";
 import { SchemaDriftError, type Normalizer } from "@/lib/ingest/types";
+import type { ResolvedFact } from "@/lib/ingest/persist";
+import type { CursorTier } from "@/lib/ingest/seat-months";
 
 /**
  * Cursor Admin API — daily-usage-data. Confirmed shape: per-user/day rows with
@@ -196,4 +198,16 @@ export function normalizeCursorMembers(
     facts.push({ source: "cursor", day: month, costType: "seat", entityKey: email, costUsd: CURSOR_SEAT_USD });
   }
   return facts;
+}
+
+/** Re-price Cursor seat facts by the member's tier; facts without a tier (or not seats) stay as emitted. */
+export function priceCursorSeats(
+  facts: ResolvedFact[],
+  tiers: Map<string, CursorTier>,
+  prices: Record<CursorTier, number>,
+): ResolvedFact[] {
+  return facts.map((f) => {
+    const tier = f.costType === "seat" && f.employeeId ? tiers.get(f.employeeId) : undefined;
+    return tier ? { ...f, costUsd: prices[tier] } : f;
+  });
 }

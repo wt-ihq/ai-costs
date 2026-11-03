@@ -1,12 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SpendFact } from "@/lib/types";
 import { matchIdentity } from "@/lib/ingest/identity";
+import { cursorSeatPrices, cursorSeatTiers } from "@/lib/ingest/seat-months";
 import { SchemaDriftError } from "@/lib/ingest/types";
 import {
   normalizeCursor,
   normalizeCursorEvents,
   normalizeCursorMembers,
   normalizeCursorTopModels,
+  priceCursorSeats,
   type CursorUsageResponse,
 } from "@/lib/ingest/normalizers/cursor";
 import { applyServiceAccountTeams, serviceAccountRegistry, type ServiceAccountRegistry } from "@/lib/ingest/cursor-service-accounts";
@@ -26,6 +28,7 @@ import {
   saveRawPayload,
   startSyncRun,
   upsertSpendFacts,
+  type ResolvedFact,
   upsertCursorTopModels,
 } from "@/lib/ingest/persist";
 
@@ -170,7 +173,7 @@ export async function syncCursor(
     const employees = await loadEmployees(supabase);
     const { facts: resolved, unmatched: seatUnmatched } = attachEmployees([...seatFacts, ...memberSeatFacts], employees);
     // Seats first: they don't depend on the usage events, so an events failure (e.g. a new event kind) can't hold them back.
-    const seatRows = await upsertSpendFacts(supabase, resolved);
+    const seatRows = await upsertSpendFacts(supabase, await priceSeatsByTier(supabase, resolved));
     const events = await syncCursorEvents(supabase, runId, eventsWindow(window, opts.eventsDays), eventsFetcher, employees, await serviceAccountRegistry(supabase));
 
     const rowsWritten = seatRows + events.rowsWritten;
@@ -199,6 +202,21 @@ export async function syncCursor(
     });
     throw err;
   }
+}
+
+/**
+ * Price each seat by the member's roster tier for its own month (a sync window
+ * can span two). Seats stay $40 where no roster says otherwise; non-seat facts pass through.
+ */
+async function priceSeatsByTier(supabase: SupabaseClient, facts: ResolvedFact[]): Promise<ResolvedFact[]> {
+  const seats = facts.filter((f) => f.costType === "seat");
+  if (seats.length === 0) return facts;
+  const prices = await cursorSeatPrices(supabase);
+  const pricedSeats: ResolvedFact[] = [];
+  for (const day of new Set(seats.map((f) => f.day))) {
+    pricedSeats.push(...priceCursorSeats(seats.filter((f) => f.day === day), await cursorSeatTiers(supabase, day), prices));
+  }
+  return [...facts.filter((f) => f.costType !== "seat"), ...pricedSeats];
 }
 
 /**

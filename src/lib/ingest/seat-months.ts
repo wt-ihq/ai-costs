@@ -302,3 +302,60 @@ export async function resolveSeatTiers(
   }
   return new Map([...byEmployee.entries()].map(([id, list]) => [id, pickTier(list, month)]));
 }
+
+export type CursorTier = "standard" | "premium" | "free";
+
+/**
+ * Cursor's tier for a month: the latest assignment AT OR BEFORE it. Unlike
+ * pickTier there is no fallback to a later row (null = no roster says), and
+ * Cursor also has a free tier; any other string is standard.
+ */
+export function pickCursorTier(assignments: { seatType: string; periodStart: string }[], month: string): CursorTier | null {
+  const atOrBefore = assignments.filter((x) => x.periodStart <= month);
+  if (atOrBefore.length === 0) return null;
+  const winner = atOrBefore.reduce((best, x) => (x.periodStart > best.periodStart ? x : best));
+  return winner.seatType === "premium" || winner.seatType === "free" ? winner.seatType : "standard";
+}
+
+/** employee_id → Cursor tier for a month, from seat_assignments (paginated, gotcha #1); employees with no row at or before it are omitted. */
+export async function cursorSeatTiers(supabase: SupabaseClient, month: string): Promise<Map<string, CursorTier>> {
+  const byEmployee = new Map<string, { seatType: string; periodStart: string }[]>();
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from("seat_assignments")
+      .select("employee_id, seat_type, period_start")
+      .eq("vendor", "cursor")
+      .order("id")
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(`cursorSeatTiers: ${error.message}`);
+    for (const r of data ?? []) {
+      if (!r.employee_id) continue;
+      const list = byEmployee.get(r.employee_id as string) ?? [];
+      list.push({ seatType: r.seat_type as string, periodStart: r.period_start as string });
+      byEmployee.set(r.employee_id as string, list);
+    }
+    if (!data || data.length < PAGE) break;
+  }
+  const tiers = new Map<string, CursorTier>();
+  for (const [id, list] of byEmployee) {
+    const tier = pickCursorTier(list, month);
+    if (tier) tiers.set(id, tier);
+  }
+  return tiers;
+}
+
+const CURSOR_PRICE_DEFAULTS: Record<CursorTier, number> = { standard: 40, premium: 120, free: 0 };
+
+/** Monthly price per Cursor tier from seat_prices `cursor:*`; a missing row keeps its default. */
+export async function cursorSeatPrices(supabase: SupabaseClient): Promise<Record<CursorTier, number>> {
+  const { data, error } = await supabase
+    .from("seat_prices")
+    .select("seat_type, monthly_price_usd")
+    .eq("vendor", "cursor")
+    .in("seat_type", ["standard", "premium", "free"]);
+  if (error) throw new Error(`cursorSeatPrices: ${error.message}`);
+  const prices = { ...CURSOR_PRICE_DEFAULTS };
+  for (const r of data ?? []) prices[r.seat_type as CursorTier] = Number(r.monthly_price_usd);
+  return prices;
+}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { computeSeatFacts, replaceSeatMonth, UNASSIGNED_SEATS_KEY, pickTier, isTieredVendor } from "./seat-months";
-import { computeTieredSeatFacts, UNASSIGNED_TIER_KEY, defaultSeatPrice, rebuildSeatMonth } from "./seat-months";
+import { computeTieredSeatFacts, UNASSIGNED_TIER_KEY, defaultSeatPrice, rebuildSeatMonth, pickCursorTier } from "./seat-months";
 
 const MONTH = "2026-06-01";
 const members = (n: number) =>
@@ -531,5 +531,18 @@ describe("rebuildSeatMonth(chatgpt_business) — tiers from seat_assignments", (
       "unassigned seats (premium)": 125, // 2 premium seats, 1 member
       "unassigned seats (standard)": 50, // 3 standard seats, 1 member
     });
+  });
+});
+
+describe("pickCursorTier", () => {
+  it("latest assignment at or before the month wins; a later month never applies", () => {
+    const rows = [{ seatType: "premium", periodStart: "2026-09-01" }, { seatType: "standard", periodStart: "2026-11-01" }];
+    expect(pickCursorTier(rows, "2026-10-01")).toBe("premium");
+    expect(pickCursorTier(rows, "2026-11-01")).toBe("standard");
+    expect(pickCursorTier(rows, "2026-08-01")).toBeNull();
+  });
+  it("knows free; anything unknown is standard", () => {
+    expect(pickCursorTier([{ seatType: "free", periodStart: "2026-10-01" }], "2026-10-01")).toBe("free");
+    expect(pickCursorTier([{ seatType: "ultra", periodStart: "2026-10-01" }], "2026-10-01")).toBe("standard");
   });
 });
