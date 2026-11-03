@@ -5,7 +5,7 @@ import { FACTS_TAG } from "@/lib/queries/cached";
 import { actorEmail, requireAdmin } from "@/lib/auth-guard";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { recentWindow, runAllSyncs, type SyncOutcome } from "@/lib/ingest/run-all";
-import { rebuildCursorOverage, syncCursor } from "@/lib/ingest/run-cursor";
+import { rebuildCursorDailyUsage, rebuildCursorOverage, syncCursor } from "@/lib/ingest/run-cursor";
 import { syncAnthropic, syncOpenAI } from "@/lib/ingest/run-platforms";
 import { syncVercel } from "@/lib/ingest/run-vercel";
 import { parseClaudeSpend } from "@/lib/ingest/parsers/claude-spend";
@@ -758,6 +758,25 @@ export async function rebuildCursorMonth(month: unknown): Promise<CursorRebuildR
   updateTag(FACTS_TAG);
   revalidatePath("/data");
   return { month, written: r.rowsWritten, notPeople: r.unmatched.filter((k) => k.startsWith("cursor service account")).length };
+}
+
+/**
+ * Re-import one calendar month of Cursor's per-person daily usage (active days, agent requests,
+ * lines of code) into cursor_daily_usage. Run once per month from July 2026 after the table
+ * shipped; safe to repeat (upserts on day + person). Spend facts are untouched.
+ */
+export async function rebuildCursorUsageMonth(month: unknown): Promise<{ month: string; rows: number }> {
+  await requireAdmin();
+  if (typeof month !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error("Pick a month");
+  const [y, m] = month.split("-").map(Number);
+  const startDate = `${month}-01`;
+  const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+  if (startDate >= tomorrow) throw new Error("That month hasn't started");
+  const monthEnd = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
+  const r = await rebuildCursorDailyUsage(getSupabaseAdminClient(), { startDate, endDate: monthEnd < tomorrow ? monthEnd : tomorrow });
+  updateTag(FACTS_TAG);
+  revalidatePath("/data");
+  return { month, rows: r.rows };
 }
 
 /**

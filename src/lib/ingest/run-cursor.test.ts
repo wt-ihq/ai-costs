@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CursorEventsResponse } from "./normalizers/cursor";
-import { eventChunks, eventsWindow, fetchUsageInChunks, syncCursorEvents, USAGE_CHUNK_DAYS } from "./run-cursor";
+import { cursorUsageFixture } from "./fixtures/cursor-usage";
+import { eventChunks, eventsWindow, fetchUsageInChunks, rebuildCursorDailyUsage, syncCursorEvents, USAGE_CHUNK_DAYS } from "./run-cursor";
 
 describe("eventChunks", () => {
   it("splits a window into consecutive exclusive-end chunks, the last one short", () => {
@@ -180,5 +181,32 @@ describe("syncCursorEvents", () => {
     const db = fakeDb([fact("2026-10-15", "a@intenthq.com", "gpt-5", 4)]);
     await syncCursorEvents(db.client, "run1", { startDate: "2026-10-14", endDate: "2026-10-17" }, fetcher, employees);
     expect(db.rows).toHaveLength(1);
+  });
+});
+
+describe("rebuildCursorDailyUsage", () => {
+  it("re-reads the window's daily usage and upserts one row per person per day, attributed by email", async () => {
+    const upserts: Record<string, unknown>[][] = [];
+    const client = {
+      from: (table: string) =>
+        table === "employees"
+          ? { select: () => ({ order: () => ({ range: () => Promise.resolve({ data: [{ id: "e1", email: "gareth.jones@intenthq.com" }], error: null }) }) }) }
+          : {
+              upsert: (rows: Record<string, unknown>[]) => {
+                if (table === "cursor_daily_usage") upserts.push(rows);
+                return Promise.resolve({ error: null });
+              },
+            },
+    } as unknown as SupabaseClient;
+    const fetcher = async () => cursorUsageFixture;
+
+    const r = await rebuildCursorDailyUsage(client, { startDate: "2026-06-01", endDate: "2026-07-01" }, fetcher);
+
+    // The fixture's five rows are all distinct person-days (one keyed by epoch `date`).
+    expect(r).toEqual({ rows: 5 });
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0]).toHaveLength(5);
+    expect(upserts[0].find((x) => x.entity_key === "gareth.jones@intenthq.com" && x.day === "2026-06-01")?.employee_id).toBe("e1");
+    expect(upserts[0].find((x) => x.entity_key === "contractor@external.dev")?.employee_id).toBeNull();
   });
 });

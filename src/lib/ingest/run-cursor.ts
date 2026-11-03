@@ -134,6 +134,26 @@ export async function rebuildCursorOverage(
   }
 }
 
+/**
+ * Re-read one window's per-person daily usage (requests, lines, tabs) into cursor_daily_usage
+ * (Data → Sync; backfills history the nightly sync only started storing recently). Usage only:
+ * no events, no spend facts, no sync run, no raw payload. Unlike the nightly run it is not
+ * best-effort — a failure throws so the admin sees it.
+ */
+export async function rebuildCursorDailyUsage(
+  supabase: SupabaseClient,
+  window: Window,
+  fetcher: CursorFetcher = fetchCursorUsage,
+): Promise<{ rows: number }> {
+  const raw = await fetchUsageInChunks(fetcher, window);
+  const employees = await loadEmployees(supabase);
+  const daily = normalizeCursorDailyUsage(raw).map((r) => ({
+    ...r,
+    employeeId: matchIdentity(r.entityKey, employees).employeeId,
+  }));
+  return { rows: await upsertCursorDailyUsage(supabase, daily) };
+}
+
 export interface CursorSyncResult {
   rowsWritten: number;
   unmatched: string[];
