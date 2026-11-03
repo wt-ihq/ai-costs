@@ -3,6 +3,7 @@ import { Panel } from "@/components/ui";
 import { BlockKitPreview } from "@/components/notifications/block-kit-preview";
 import { CompanyRecipients } from "@/components/notifications/company-recipients";
 import { DigestsTable } from "@/components/notifications/digests-table";
+import { RecommendationsPanel, type RecommendationsStatus } from "@/components/notifications/recommendations-panel";
 import { ReminderRecipients } from "@/components/notifications/reminder-recipients";
 import { FixedCostsPanel } from "@/components/notifications/fixed-costs-panel";
 import { ModePanel } from "@/components/notifications/mode-panel";
@@ -21,14 +22,17 @@ import { chartLayoutsFor, chartLayoutsForCompany, chartLayoutsForTeam, loadDashb
 import { parseAdminEmails } from "@/lib/dashboard-access";
 import { isCompanyDigest, isTeamDigest } from "@/lib/notify/digest";
 import { renderCompanyDigest, renderDigest, renderTeamDigest, type SlackBlock } from "@/lib/notify/render";
-import { defaultPreviewKey, periodFor, stepKey } from "@/lib/notify/schedule";
+import { defaultPreviewKey, latestCompleteKey, periodFor, stepKey } from "@/lib/notify/schedule";
 import { supabaseNotifyStore } from "@/lib/notify/store";
 import { previewHref, type TestSubject } from "@/lib/notify/subject";
 import { activeDepartments, CADENCES, isActiveEmployee, isCadence, isUuid, type Cadence } from "@/lib/notify/types";
 import { appBaseUrl } from "@/lib/notify/wiring";
 import { firstName } from "@/lib/notify/intro";
+import { getRecommendationsCached } from "@/lib/queries/cached";
+import { outstandingShort } from "@/lib/notify/readiness";
+import { renderRecommendations } from "@/lib/notify/render-recommendations";
 
-export interface NotificationsParams { preview?: string; team?: string; company?: string; cadence?: string; at?: string }
+export interface NotificationsParams { preview?: string; team?: string; company?: string; cadence?: string; at?: string; recommendations?: string }
 
 interface PreviewState {
   subject: TestSubject;
@@ -139,11 +143,39 @@ async function safePreview(p: NotificationsParams): Promise<PreviewState | { err
   }
 }
 
+interface RecommendationsView {
+  status: RecommendationsStatus | { error: string };
+  blocks: SlackBlock[] | null; // only when ?recommendations=1
+}
+
+/** The Recommendations panel's status (and, on request, the message): a loader failure shows in the panel, not as a broken tab. */
+async function loadRecommendationsView(params: NotificationsParams, mode: string, recipients: number): Promise<RecommendationsView> {
+  try {
+    const now = new Date();
+    const periodKey = latestCompleteKey("weekly", now);
+    const store = supabaseNotifyStore(getSupabaseAdminClient());
+    const sendMode = mode === "preview" ? "preview" : "live";
+    const [data, states] = await Promise.all([getRecommendationsCached(), store.sendStates([periodKey], sendMode)]);
+    const sent = states.filter((s) => s.report === "recommendations" && s.status === "sent").length;
+    const blocks = params.recommendations === "1" ? renderRecommendations({ data, dashboardUrl: `${appBaseUrl()}/recommendations`, links: true }).blocks : null;
+    return {
+      status: {
+        weekLabel: periodFor("weekly", periodKey, now).label, periodKey, ready: data.readiness.ready,
+        outstanding: data.readiness.outstanding.map(outstandingShort), recipients, sent,
+      },
+      blocks,
+    };
+  } catch (err) {
+    return { status: { error: err instanceof Error ? err.message : String(err) }, blocks: null };
+  }
+}
+
 const FIXED_SOURCE: Record<FixedCostChoice["source"], string> = { person: "their own setting", team: "team setting", default: "the default" };
 
 export async function NotificationsTab({ params }: { params: NotificationsParams }) {
   const [data, preview] = await Promise.all([loadNotificationsAdmin(getSupabaseAdminClient()), safePreview(params)]);
   const mode = data.mode;
+  const recs = await loadRecommendationsView(params, mode, data.recommendationRecipients.filter((r) => !r.left).length);
   // What the picker shows as open: the loaded subject, else whatever the URL asked for (a failed preview still has one).
   const current: TestSubject | null =
     preview && !("error" in preview) ? preview.subject
@@ -233,6 +265,14 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
               and on the month&apos;s last working day at 15:00 a reminder to paste Claude Team spend before its table resets.
             </p>
             <ReminderRecipients rows={data.reminderRecipients} people={data.reminderPeople} />
+          </div>
+          <div className="mt-6 border-t border-border pt-4">
+            <h2 className="mb-1 text-sm font-medium">Premium recommendations · {data.recommendationRecipients.length}</h2>
+            <p className="mb-3 text-xs text-muted">
+              A Slack message each week, once the data is complete, listing who may benefit from a Premium seat. Same link as the Recommendations page.
+            </p>
+            <RecommendationsPanel rows={data.recommendationRecipients} people={data.recommendationPeople} status={recs.status} mode={mode} previewHref="/data?tab=notifications&recommendations=1" />
+            {recs.blocks && <div className="mt-4"><BlockKitPreview blocks={recs.blocks} images={{}} /></div>}
           </div>
         </Panel>
 

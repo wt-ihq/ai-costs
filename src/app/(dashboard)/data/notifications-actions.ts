@@ -5,11 +5,13 @@ import { actorEmail, requireAdmin } from "@/lib/auth-guard";
 import { parseAdminEmails } from "@/lib/dashboard-access";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchEmployeesAll } from "@/lib/queries/common";
-import { addReminderRecipients, addSubscriptions, removeAllSubscriptions, removeReminderRecipient, removeSubscriptions, setFixedCostSetting, setSubscription } from "@/lib/notify/admin-store";
+import { addRecommendationRecipients, addReminderRecipients, removeRecommendationRecipient, addSubscriptions, removeAllSubscriptions, removeReminderRecipient, removeSubscriptions, setFixedCostSetting, setSubscription } from "@/lib/notify/admin-store";
 import { renderChartPng, renderWelcomeBannerPng } from "@/lib/notify/chart-image";
 import { currentMode, readMonthlyFrom, writeMonthlyFrom, writeStoredMode } from "@/lib/notify/mode-store";
-import { periodFor } from "@/lib/notify/schedule";
-import { catchUp, sendLiveTest, sendNow, type SendNowDeps, type SendNowResult } from "@/lib/notify/send-now";
+import { runRecommendations, type RunRecommendationsResult } from "@/lib/notify/run-recommendations";
+import { latestCompleteKey, periodFor } from "@/lib/notify/schedule";
+import { catchUp, MODE_CHANGED, sendLiveTest, sendNow, type SendNowDeps, type SendNowResult } from "@/lib/notify/send-now";
+import { loadRecommendations } from "@/lib/recommendations/load";
 import type { TestSubject, TestTarget } from "@/lib/notify/subject";
 import { supabaseNotifyStore } from "@/lib/notify/store";
 import { sendTest, type TestSendResult } from "@/lib/notify/test-send";
@@ -231,4 +233,51 @@ export async function sendTestDigest(subject: TestSubject, cadence: string, peri
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+/** The recommendations run's deps: the digests' send-now deps plus the loader. */
+async function recommendationsDeps() {
+  return { ...(await sendNowDeps()), loadData: (now: Date) => loadRecommendations(getSupabaseAdminClient(), now) };
+}
+
+/**
+ * Adds someone to the Monday Premium recommendations message. `sendLatest` also sends them the latest
+ * complete week now (claimed like a scheduled send), unless the mode is off.
+ */
+export async function addRecommendationRecipient(employeeId: string, sendLatest: boolean): Promise<{ added: number; sent?: RunRecommendationsResult }> {
+  await requireAdmin();
+  if (!isUuid(employeeId) || typeof sendLatest !== "boolean") throw new Error("Invalid input");
+  const added = await addRecommendationRecipients(getSupabaseAdminClient(), [employeeId], await actorEmail());
+  let result: { added: number; sent?: RunRecommendationsResult } = { added };
+  if (sendLatest) {
+    const deps = await recommendationsDeps();
+    const mode = deps.mode;
+    if (mode !== "off") {
+      result = { added, sent: await runRecommendations({ ...deps, mode, only: { periodKey: latestCompleteKey("weekly", deps.now), employeeIds: [employeeId] } }) };
+    }
+  }
+  revalidatePath("/data");
+  return result;
+}
+
+export async function removeRecommendationRecipientAction(employeeId: string): Promise<void> {
+  await requireAdmin();
+  if (!isUuid(employeeId)) throw new Error("Invalid input");
+  await removeRecommendationRecipient(getSupabaseAdminClient(), employeeId);
+  revalidatePath("/data");
+}
+
+/**
+ * Sends this week's recommendations message to every recipient now, in the current mode. `force` sends
+ * even though the week's data isn't complete. Public POST endpoint: validates every argument.
+ */
+export async function sendRecommendationsNow(force: boolean, expectedMode: string): Promise<{ ok: true; result: RunRecommendationsResult } | { ok: false; error: string }> {
+  await requireAdmin();
+  if (typeof force !== "boolean" || !isNotifyMode(expectedMode)) return { ok: false, error: "Invalid input" };
+  const deps = await recommendationsDeps();
+  if (deps.mode !== expectedMode) return { ok: false, error: MODE_CHANGED };
+  if (deps.mode === "off") return { ok: false, error: "Choose Preview or Live first" };
+  const result = await runRecommendations({ ...deps, mode: deps.mode, only: { periodKey: latestCompleteKey("weekly", deps.now), force } });
+  revalidatePath("/data");
+  return { ok: true, result };
 }
