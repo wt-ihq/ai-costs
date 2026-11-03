@@ -9,6 +9,7 @@ import { getPersonCursorUsageScope, getTeamCursorUsageScope } from "./cursor-usa
 import { getCursorTopModelScope } from "./cursor-top-model";
 import { getCursorSpendScope } from "./cursor-spend";
 import { getOpenRouterScope } from "./openrouter";
+import { loadRecommendations } from "@/lib/recommendations/load";
 
 /**
  * Single invalidation tag for every derived-from-spend-facts read. The data
@@ -136,4 +137,10 @@ export const getOpenRouterScopeCached = instrumented(
   "openrouter-scope",
   async () => getOpenRouterScope(getSupabaseAdminClient()),
   ["openrouter-scope", CACHE_VERSION],
+);
+
+export const getRecommendationsCached = instrumented(
+  "recommendations",
+  async () => loadRecommendations(getSupabaseAdminClient(), new Date()),
+  ["recommendations", CACHE_VERSION],
 );
