@@ -64,4 +64,26 @@ describe("parseSeatRoster", () => {
       ["sam@example.com", "User", "standard"],
     ]);
   });
+
+  const cursorCsv = [
+    "Name,Email,Role,Seat Type,Included Usage,Free Usage,On-Demand Usage",
+    "Ada Example,ada.example@intenthq.com,Member,Standard,$12.00,$0.00,$184.20",
+    "Bo Sample,bo.sample@intenthq.com,Team Admin,Premium,$40.00,$0.00,$0.00",
+    "Cy Gone,cy.gone@intenthq.com,Removed,Standard,$0.00,$0.00,$0.00",
+    "Di Trial,di.trial@intenthq.com,Member,Free,$0.00,$3.10,$0.00",
+  ].join("\n");
+
+  it("parses Cursor's members export: Seat Type column, Removed rows skipped, Free kept", () => {
+    const { seats, errors } = parseSeatRoster(cursorCsv);
+    expect(errors).toEqual([]);
+    expect(seats.map((s) => [s.email, s.seatType, s.role])).toEqual([
+      ["ada.example@intenthq.com", "standard", "Member"],
+      ["bo.sample@intenthq.com", "premium", "Team Admin"],
+      ["di.trial@intenthq.com", "free", "Member"],
+    ]);
+  });
+
+  it("still requires a tier column under either name", () => {
+    expect(parseSeatRoster("Name,Email,Role\nA,a@intenthq.com,Member").errors[0].message).toMatch(/Seat Tier/);
+  });
 });
