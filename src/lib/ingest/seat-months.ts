@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Vendor } from "@/lib/types";
-import { replaceWindowFacts, type ResolvedFact } from "@/lib/ingest/persist";
+import { replaceWindowFacts, upsertSpendFacts, type ResolvedFact } from "@/lib/ingest/persist";
 
 /** Entity key for seats paid for but not attributed to a pasted member. */
 export const UNASSIGNED_SEATS_KEY = "unassigned seats";
@@ -8,11 +8,11 @@ export const UNASSIGNED_SEATS_KEY = "unassigned seats";
 /** All unassigned-seat keys start with this prefix. */
 export const UNASSIGNED_PREFIX = "unassigned seats";
 
-/** Vendors whose seats are priced per tier (roster CSV "Seat Tier"). */
-export type TieredVendor = Extract<Vendor, "chatgpt_business" | "claude_team">;
+/** Vendors whose seats are priced per tier (roster CSV "Seat Tier"; Cursor's "Seat Type"). */
+export type TieredVendor = Extract<Vendor, "chatgpt_business" | "claude_team" | "cursor">;
 
 export function isTieredVendor(v: unknown): v is TieredVendor {
-  return v === "chatgpt_business" || v === "claude_team";
+  return v === "chatgpt_business" || v === "claude_team" || v === "cursor";
 }
 
 export type SeatTier = "standard" | "premium";
@@ -101,7 +101,7 @@ export interface TierInput {
 }
 
 /** A tiered month = the single-tier computation per tier, concatenated. */
-export function computeTieredSeatFacts(month: string, source: TieredVendor, tiers: TierInput[]): ResolvedFact[] {
+export function computeTieredSeatFacts(month: string, source: Exclude<TieredVendor, "cursor">, tiers: TierInput[]): ResolvedFact[] {
   return tiers.flatMap((t) =>
     computeSeatFacts(month, t.entry, t.members, t.defaultPriceUsd, {
       source,
@@ -238,7 +238,7 @@ export async function defaultSeatPrice(
  */
 export async function writeTieredSeatMonth(
   supabase: SupabaseClient,
-  vendor: TieredVendor,
+  vendor: Exclude<TieredVendor, "cursor">,
   month: string, // YYYY-MM-01
   members: SeatMember[],
 ): Promise<number> {
@@ -262,7 +262,7 @@ export async function writeTieredSeatMonth(
  * Rebuild a month after an entry change or roster (tier) upload: members from
  * the month's stored seat facts, tiers re-resolved, entries authoritative per tier.
  */
-export async function rebuildSeatMonth(supabase: SupabaseClient, vendor: TieredVendor, month: string): Promise<number> {
+export async function rebuildSeatMonth(supabase: SupabaseClient, vendor: Exclude<TieredVendor, "cursor">, month: string): Promise<number> {
   const members = await readSeatMonthMembers(supabase, vendor, month);
   return writeTieredSeatMonth(supabase, vendor, month, members);
 }
@@ -279,7 +279,7 @@ export function pickTier(assignments: { seatType: string; periodStart: string }[
 /** employee_id → tier for a month, from the vendor's seat_assignments (paginated, gotcha #1). */
 export async function resolveSeatTiers(
   supabase: SupabaseClient,
-  vendor: TieredVendor,
+  vendor: Exclude<TieredVendor, "cursor">,
   month: string,
 ): Promise<Map<string, SeatTier>> {
   const byEmployee = new Map<string, { seatType: string; periodStart: string }[]>();
@@ -358,4 +358,61 @@ export async function cursorSeatPrices(supabase: SupabaseClient): Promise<Record
   const prices = { ...CURSOR_PRICE_DEFAULTS };
   for (const r of data ?? []) prices[r.seat_type as CursorTier] = Number(r.monthly_price_usd);
   return prices;
+}
+
+/** Pure core of repriceCursorSeatMonth: new costs for matched members, plus how many changed. */
+export function repriceSeatRows<T extends { employeeId: string | null; costUsd: number }>(
+  rows: T[],
+  tiers: Map<string, CursorTier>,
+  prices: Record<CursorTier, number>,
+): { rows: T[]; changed: number } {
+  let changed = 0;
+  const out = rows.map((r) => {
+    const tier = r.employeeId ? tiers.get(r.employeeId) : undefined;
+    if (!tier || prices[tier] === r.costUsd) return r;
+    changed++;
+    return { ...r, costUsd: prices[tier] };
+  });
+  return { rows: out, changed };
+}
+
+/**
+ * Re-price a month's Cursor seat facts in place after a members upload: each
+ * matched member's seat takes their tier's price. Membership itself still
+ * comes from the nightly sync. Returns the number of facts changed.
+ */
+export async function repriceCursorSeatMonth(supabase: SupabaseClient, month: string): Promise<number> {
+  const [tiers, prices] = await Promise.all([cursorSeatTiers(supabase, month), cursorSeatPrices(supabase)]);
+  const facts: ResolvedFact[] = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from("spend_facts")
+      .select("id, day, entity_key, model, cost_usd, tokens, requests, employee_id, department")
+      .eq("source", "cursor")
+      .eq("cost_type", "seat")
+      .eq("day", month)
+      .order("id")
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(`repriceCursorSeatMonth: ${error.message}`);
+    for (const r of data ?? []) {
+      facts.push({
+        source: "cursor",
+        day: r.day as string,
+        costType: "seat",
+        entityKey: r.entity_key as string,
+        costUsd: Number(r.cost_usd),
+        tokens: r.tokens as number | null,
+        requests: r.requests as number | null,
+        employeeId: (r.employee_id as string | null) ?? null,
+        model: (r.model as string | null) ?? "",
+        department: (r.department as string | null) ?? null,
+      });
+    }
+    if (!data || data.length < PAGE) break;
+  }
+  const { rows, changed } = repriceSeatRows(facts, tiers, prices);
+  if (changed === 0) return 0;
+  await upsertSpendFacts(supabase, rows.filter((r, i) => r !== facts[i]));
+  return changed;
 }

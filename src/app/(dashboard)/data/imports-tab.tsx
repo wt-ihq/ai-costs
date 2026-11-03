@@ -41,7 +41,7 @@ async function fetchSeatEntries(supabase: SupabaseClient): Promise<SeatMonthEntr
   }
 }
 
-function VendorHeading({ id, vendor, children }: { id: string; vendor: "chatgpt_business" | "claude_team"; children: React.ReactNode }) {
+function VendorHeading({ id, vendor, children }: { id: string; vendor: "chatgpt_business" | "claude_team" | "cursor"; children: React.ReactNode }) {
   return (
     <h2 id={id} className="flex items-center gap-2 text-base font-semibold">
       <VendorDot vendor={vendor} size={10} />
@@ -166,6 +166,21 @@ export async function ImportsTab() {
             </details>
           </section>
         </FxRateProvider>
+
+        <section aria-labelledby="imports-cursor" className="space-y-3">
+          <div className="flex min-h-9 flex-wrap items-center justify-between gap-2">
+            <VendorHeading id="imports-cursor" vendor="cursor">Cursor</VendorHeading>
+          </div>
+          <details className="rounded-xl border border-border bg-surface px-5 py-4">
+            <summary className="cursor-pointer text-sm font-medium">
+              Seat tiers <span className="text-xs font-normal text-muted">· only when someone moves between Standard and Premium</span>
+            </summary>
+            <p className="my-3 text-xs text-muted">
+              Membership and seats sync nightly from Cursor&rsquo;s Admin API, which does not say the tier. Export Members from Cursor&rsquo;s dashboard (Name, Email, Role, Seat Type, &hellip;) and upload it to set Standard / Premium / Free per member; it re-prices that month&rsquo;s seats.
+            </p>
+            <SeatRosterImport vendor="cursor" />
+          </details>
+        </section>
       </div>
 
       <Panel>

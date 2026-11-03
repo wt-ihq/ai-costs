@@ -14,7 +14,7 @@ import { parseOpenAiCreditsCsv, coveredWindow, type CreditUsageFact } from "@/li
 import { loadEmployeesFull, replaceWindowFacts, type ResolvedFact } from "@/lib/ingest/persist";
 import { claudeSnapshotMonths, rebuildClaudeSpend, saveClaudePaste } from "@/lib/ingest/run-claude-spend";
 import { cleanServiceAccountInput, serviceAccountEntity } from "@/lib/ingest/cursor-service-accounts";
-import { isTieredVendor, rebuildSeatMonth, type TieredVendor } from "@/lib/ingest/seat-months";
+import { isTieredVendor, rebuildSeatMonth, repriceCursorSeatMonth, type TieredVendor } from "@/lib/ingest/seat-months";
 import {
   fetchRecurringEntries,
   rebuildRecurringFacts,
@@ -57,7 +57,7 @@ export async function saveSeatMonthEntries(
   fxRate: number | null,
 ): Promise<{ written: number }> {
   await requireAdmin();
-  if (!isTieredVendor(vendor)) throw new Error(`Invalid vendor "${vendor}".`);
+  if (!isTieredVendor(vendor) || vendor === "cursor") throw new Error(`Invalid vendor "${vendor}".`);
   if (!MONTH_RE.test(month)) throw new Error(`Invalid month "${month}" — expected YYYY-MM.`);
   if (!inputs.length) throw new Error("Nothing to save — no tier rows.");
   const isClaude = vendor === "claude_team";
@@ -100,7 +100,7 @@ export async function deleteSeatMonthEntry(
   seatType: string,
 ): Promise<{ written: number }> {
   await requireAdmin();
-  if (!isTieredVendor(vendor)) throw new Error(`Invalid vendor "${vendor}".`);
+  if (!isTieredVendor(vendor) || vendor === "cursor") throw new Error(`Invalid vendor "${vendor}".`);
   if (!MONTH_RE.test(month)) throw new Error(`Invalid month "${month}" — expected YYYY-MM.`);
   const supabase = getSupabaseAdminClient();
   const day = `${month}-01`;
@@ -486,7 +486,9 @@ export async function commitSeatRoster(
 
   // Tier changes re-price the month immediately; membership itself comes from
   // the nightly Okta group sync (entries stay authoritative when present).
-  const written = await rebuildSeatMonth(supabase, vendor, day);
+  // Cursor has no Okta-group seat machinery: re-price the synced seat facts in place.
+  const written =
+    vendor === "cursor" ? await repriceCursorSeatMonth(supabase, day) : await rebuildSeatMonth(supabase, vendor, day);
 
   updateTag(FACTS_TAG);
   revalidatePath("/data");

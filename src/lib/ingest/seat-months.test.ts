@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { computeSeatFacts, replaceSeatMonth, UNASSIGNED_SEATS_KEY, pickTier, isTieredVendor } from "./seat-months";
-import { computeTieredSeatFacts, UNASSIGNED_TIER_KEY, defaultSeatPrice, rebuildSeatMonth, pickCursorTier } from "./seat-months";
+import { computeTieredSeatFacts, UNASSIGNED_TIER_KEY, defaultSeatPrice, rebuildSeatMonth, pickCursorTier, repriceSeatRows, type CursorTier } from "./seat-months";
 
 const MONTH = "2026-06-01";
 const members = (n: number) =>
@@ -200,10 +200,11 @@ describe("computeTieredSeatFacts", () => {
 });
 
 describe("isTieredVendor", () => {
-  it("accepts the two roster vendors and rejects anything else (server-action input guard)", () => {
+  it("accepts the roster vendors and rejects anything else (server-action input guard)", () => {
     expect(isTieredVendor("chatgpt_business")).toBe(true);
     expect(isTieredVendor("claude_team")).toBe(true);
-    expect(isTieredVendor("cursor")).toBe(false);
+    expect(isTieredVendor("cursor")).toBe(true);
+    expect(isTieredVendor("openai")).toBe(false);
     expect(isTieredVendor(undefined)).toBe(false);
   });
 });
@@ -544,5 +545,21 @@ describe("pickCursorTier", () => {
   it("knows free; anything unknown is standard", () => {
     expect(pickCursorTier([{ seatType: "free", periodStart: "2026-10-01" }], "2026-10-01")).toBe("free");
     expect(pickCursorTier([{ seatType: "ultra", periodStart: "2026-10-01" }], "2026-10-01")).toBe("standard");
+  });
+});
+
+describe("repriceSeatRows", () => {
+  it("re-prices only matched members' facts for that month", () => {
+    const rows = [
+      { employeeId: "a", costUsd: 40 },
+      { employeeId: "b", costUsd: 40 },
+      { employeeId: null, costUsd: 40 },
+    ];
+    const tiers = new Map<string, CursorTier>([["a", "premium"], ["b", "standard"]]);
+    const out = repriceSeatRows(rows, tiers, { standard: 40, premium: 120, free: 0 });
+    expect(out.changed).toBe(1);
+    expect(out.rows[0].costUsd).toBe(120);
+    expect(out.rows[1].costUsd).toBe(40);
+    expect(out.rows[2].costUsd).toBe(40);
   });
 });

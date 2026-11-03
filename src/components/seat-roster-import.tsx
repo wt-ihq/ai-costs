@@ -80,7 +80,11 @@ export function SeatRosterImport({ vendor }: { vendor: TieredVendor }) {
         value={text}
         onChange={(e) => setText(e.target.value)}
         rows={3}
-        placeholder="…or paste the roster CSV here (Name,Email,Role,Status,Seat Tier)"
+        placeholder={
+          vendor === "cursor"
+            ? "…or paste the members CSV here (Name,Email,Role,Seat Type,…)"
+            : "…or paste the roster CSV here (Name,Email,Role,Status,Seat Tier)"
+        }
         className="w-full rounded-md border border-border bg-surface-2 p-3 font-mono text-xs outline-none focus:border-accent"
       />
 

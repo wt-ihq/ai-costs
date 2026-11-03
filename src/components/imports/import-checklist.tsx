@@ -1,7 +1,7 @@
 import type { ChecklistItem, ImportChecklist as Checklist } from "@/lib/imports/checklist";
 
 /** A vendor's colour dot (its colour is a plain CSS variable in globals.css). */
-export function VendorDot({ vendor, size = 8 }: { vendor: ChecklistItem["vendor"]; size?: number }) {
+export function VendorDot({ vendor, size = 8 }: { vendor: ChecklistItem["vendor"] | "cursor"; size?: number }) {
   return <span aria-hidden="true" className="shrink-0 rounded-full" style={{ width: size, height: size, background: `var(--color-vendor-${vendor})` }} />;
 }
 
