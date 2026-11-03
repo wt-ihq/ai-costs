@@ -7,10 +7,10 @@ import { cn } from "@/lib/utils";
 const PAGES: { href: string; label: string; admin?: boolean }[] = [
   { href: "/explore", label: "Explore" },
   { href: "/cursor", label: "Cursor" },
-  { href: "/recommendations", label: "Recommendations" },
   { href: "/api", label: "API" },
   { href: "/openrouter", label: "OpenRouter" },
   { href: "/data", label: "Data" },
+  { href: "/recommendations", label: "Recommendations" },
 ];
 
 export function Nav({ isAdmin = false }: { isAdmin?: boolean }) {
