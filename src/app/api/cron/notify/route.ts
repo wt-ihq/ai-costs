@@ -4,11 +4,13 @@ import { parseAdminEmails } from "@/lib/dashboard-access";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { renderChartPng, renderWelcomeBannerPng } from "@/lib/notify/chart-image";
 import { runNotify } from "@/lib/notify/run-notify";
+import { runRecommendations } from "@/lib/notify/run-recommendations";
 import { runReminders } from "@/lib/notify/run-reminders";
 import { resolveRunDate } from "@/lib/notify/schedule";
 import { currentMode, readMonthlyFrom } from "@/lib/notify/mode-store";
 import { supabaseNotifyStore } from "@/lib/notify/store";
 import { appBaseUrl, slackClientFromEnv } from "@/lib/notify/wiring";
+import { loadRecommendations } from "@/lib/recommendations/load";
 
 export const dynamic = "force-dynamic";
 // Each DM is ~4 Slack calls; runNotify stops claiming at 240 s inside this.
@@ -16,8 +18,9 @@ export const maxDuration = 300;
 
 /**
  * Slack spend digests. Vercel Cron runs this hourly at :30; each run first sends the update
- * reminders that are due (Monday 09:30 / the month's last working day 15:00 — runReminders), then
- * DMs whoever it's now 10:30+ for on a working day in their own Slack time zone (runNotify).
+ * reminders that are due (Monday 09:30 / the month's last working day 15:00 — runReminders) and the
+ * weekly Premium seat recommendations once the week is ready (runRecommendations), then DMs whoever
+ * it's now 10:30+ for on a working day in their own Slack time zone (runNotify).
  * CRON_SECRET-gated (fails closed). Mode off|preview|live as chosen on Data → Notifications
  * (mode-store.ts; SLACK_NOTIFY_MODE when nothing is chosen) — off (the default) returns without
  * touching anything. ?date=YYYY-MM-DD replays that day straight away (no 10:30 wait), preview mode only.
@@ -49,8 +52,9 @@ export async function GET(req: Request) {
     };
     // Reminders first: tiny, and their 09:30 slot is before the digests' 10:30.
     const reminders = await runReminders(deps);
+    const recommendations = await runRecommendations({ ...deps, loadData: (now) => loadRecommendations(supabase, now) });
     const result = await runNotify(deps);
-    return NextResponse.json({ ranAt: new Date().toISOString(), mode, ...result, reminders });
+    return NextResponse.json({ ranAt: new Date().toISOString(), mode, ...result, reminders, recommendations });
   } catch (err) {
     return NextResponse.json({ mode, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
   }
