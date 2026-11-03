@@ -8,6 +8,7 @@ import {
   normalizeCursorEvents,
   normalizeCursorMembers,
   normalizeCursorTopModels,
+  normalizeCursorDailyUsage,
   priceCursorSeats,
   type CursorUsageResponse,
 } from "@/lib/ingest/normalizers/cursor";
@@ -30,6 +31,7 @@ import {
   upsertSpendFacts,
   type ResolvedFact,
   upsertCursorTopModels,
+  upsertCursorDailyUsage,
 } from "@/lib/ingest/persist";
 
 type Window = { startDate: string; endDate: string };
@@ -191,6 +193,18 @@ export async function syncCursor(
       await upsertCursorTopModels(supabase, topModels);
     } catch {
       // ignore — model signal is non-critical
+    }
+
+    // The whole daily-usage row (requests, lines, tabs, ...) — same best-effort
+    // rule: cursor_daily_usage may not be migrated yet, and spend must not wait on it.
+    try {
+      const daily = normalizeCursorDailyUsage(raw).map((r) => ({
+        ...r,
+        employeeId: matchIdentity(r.entityKey, employees).employeeId,
+      }));
+      await upsertCursorDailyUsage(supabase, daily);
+    } catch {
+      // ignore — usage detail is non-critical
     }
 
     await finishSyncRun(supabase, runId, { status: "success", rowsWritten });

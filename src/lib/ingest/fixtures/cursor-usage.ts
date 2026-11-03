@@ -7,9 +7,10 @@ import type { CursorUsageResponse } from "@/lib/ingest/normalizers/cursor";
  */
 export const cursorUsageFixture: CursorUsageResponse = {
   data: [
-    { day: "2026-06-01", email: "gareth.jones@intenthq.com", isActive: true, mostUsedModel: "claude-sonnet-4-6", usageBasedReqs: 42 },
+    { day: "2026-06-01", email: "gareth.jones@intenthq.com", isActive: true, mostUsedModel: "claude-sonnet-4-6", usageBasedReqs: 42, totalLinesAdded: 120, totalAccepts: 9, clientVersion: "1.2.3" },
     { day: "2026-06-15", email: "gareth.jones@intenthq.com", isActive: true, usageBasedReqs: 5 }, // same user, same month -> deduped
-    { day: "2026-06-01", email: "tom.reeve@intenthq.com", isActive: true, usageBasedReqs: 11 },
+    { day: "2026-06-01", email: "tom.reeve@intenthq.com", isActive: true, usageBasedReqs: 11, agentRequests: 7, totalTabsShown: 30, totalTabsAccepted: 12 },
     { day: "2026-06-02", email: "contractor@external.dev", isActive: false, usageBasedReqs: 3 }, // no matching employee
+    { date: Date.UTC(2026, 5, 3), email: "tom.reeve@intenthq.com", isActive: true, agentRequests: 4 }, // epoch `date` only, no `day`
   ],
 };

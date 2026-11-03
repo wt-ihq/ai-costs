@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SpendFact, ModelUsageFact, CostType } from "@/lib/types";
 import { matchIdentity } from "@/lib/ingest/identity";
+import type { CursorDailyUsageRow } from "@/lib/ingest/normalizers/cursor";
 
 export interface ResolvedFact extends SpendFact {
   employeeId: string | null;
@@ -356,6 +357,43 @@ export async function upsertCursorTopModels(
   const r = rows.map((x) => ({ day: x.day, entity_key: x.entityKey, model: x.model, employee_id: x.employeeId }));
   const { error } = await supabase.from("cursor_top_model").upsert(r, { onConflict: "day,entity_key" });
   if (error) throw new Error(`upsertCursorTopModels: ${error.message}`);
+  return r.length;
+}
+
+/** Idempotent upsert of Cursor per-user/day usage rows on (day, entity_key), 1000 rows per statement. */
+export async function upsertCursorDailyUsage(
+  supabase: SupabaseClient,
+  rows: (CursorDailyUsageRow & { employeeId: string | null })[],
+): Promise<number> {
+  if (rows.length === 0) return 0;
+  const r = rows.map((x) => ({
+    day: x.day,
+    entity_key: x.entityKey,
+    employee_id: x.employeeId,
+    is_active: x.isActive,
+    agent_requests: x.agentRequests,
+    subscription_included_reqs: x.subscriptionIncludedReqs,
+    usage_based_reqs: x.usageBasedReqs,
+    api_key_reqs: x.apiKeyReqs,
+    total_lines_added: x.totalLinesAdded,
+    total_lines_deleted: x.totalLinesDeleted,
+    accepted_lines_added: x.acceptedLinesAdded,
+    accepted_lines_deleted: x.acceptedLinesDeleted,
+    total_accepts: x.totalAccepts,
+    total_rejects: x.totalRejects,
+    total_applies: x.totalApplies,
+    total_tabs_shown: x.totalTabsShown,
+    total_tabs_accepted: x.totalTabsAccepted,
+    bugbot_usages: x.bugbotUsages,
+    most_used_model: x.mostUsedModel,
+    client_version: x.clientVersion,
+  }));
+  for (let i = 0; i < r.length; i += UPSERT_BATCH) {
+    const { error } = await supabase
+      .from("cursor_daily_usage")
+      .upsert(r.slice(i, i + UPSERT_BATCH), { onConflict: "day,entity_key" });
+    if (error) throw new Error(`upsertCursorDailyUsage: ${error.message}`);
+  }
   return r.length;
 }
 
