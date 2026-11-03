@@ -1,0 +1,108 @@
+<h2>Slack message: what should the recommendation DM say?</h2>
+<p class="subtitle">Sent on Monday once the week's data is ready (same readiness rule as the weekly digests), to the people chosen on Data → Notifications. Two versions: a full list, or just what changed. Names are made up.</p>
+
+<style>
+  .slack { background: #fff; color: #1d1c1d; border-radius: 8px; padding: 14px 16px; font-family: -apple-system, "Segoe UI", Lato, sans-serif; font-size: 14px; line-height: 1.45; max-width: 620px; }
+  .slack .from { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .slack .avatar { width: 34px; height: 34px; border-radius: 6px; background: #4a6fa5; color: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+  .slack .name { font-weight: 700; } .slack .time { color: #616061; font-size: 12px; margin-left: 4px; }
+  .slack .app { font-size: 10px; background: #e8e8e8; color: #616061; padding: 0 4px; border-radius: 3px; margin-left: 4px; }
+  .slack h4 { margin: 10px 0 2px; font-size: 14px; }
+  .slack ul { margin: 2px 0 6px 18px; padding: 0; }
+  .slack li { margin: 1px 0; }
+  .slack .ctx { color: #616061; font-size: 12px; margin-top: 8px; }
+  .slack .btn { display: inline-block; border: 1px solid #bbb; border-radius: 4px; padding: 4px 10px; font-weight: 600; font-size: 13px; margin-top: 10px; }
+  .slack .new { background: #e3f1df; color: #1f6d2f; font-size: 11px; padding: 0 5px; border-radius: 3px; margin-left: 4px; }
+  .slack hr { border: 0; border-top: 1px solid #e0e0e0; margin: 10px 0; }
+  .mockup-body { padding: 12px 14px; }
+</style>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>The full list, every week</h3>
+      <p>Everyone currently flagged, grouped by tool, biggest potential saving first. Same people appear week after week while they stay over the line. Easy to act on without opening the dashboard.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>What changed, with a count</h3>
+      <p>Who was flagged for the first time this week and who dropped off, plus a one-line count per tool. The dashboard holds the full list. Shorter, and quiet in a week where nothing moved.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="mockup">
+    <div class="mockup-header">A · Monday 9 Nov, 10:30 in the recipient's time zone</div>
+    <div class="mockup-body">
+      <div class="slack">
+        <div class="from"><div class="avatar">AI</div><div><span class="name">AI costs</span><span class="app">APP</span><span class="time">10:30</span></div></div>
+        <div><b>Premium seat recommendations</b> · four weeks to Sunday 8 November</div>
+        <div class="ctx">People on a Standard seat whose extra spend over the last four weeks was more than the step up to Premium. 28 people, $6,420 potential saving a month.</div>
+
+        <h4>Cursor · 15 people · Standard → Premium is +$80 a month</h4>
+        <ul>
+          <li><b>$951</b> Tom Okafor, Engineering · steady</li>
+          <li><b>$462</b> Lena Fischer, Data · recent <span class="new">new this week</span></li>
+          <li><b>$188</b> Sofia Rossi, Engineering · one-off</li>
+          <li>… and 12 more</li>
+        </ul>
+
+        <h4>Claude Team · 12 people · Standard → Premium is +$98 a month</h4>
+        <ul>
+          <li><b>$969</b> Priya Nair, Engineering · steady</li>
+          <li><b>$314</b> Marc Dubois, Product · steady</li>
+          <li>… and 10 more</li>
+        </ul>
+
+        <h4>ChatGPT · 1 person · Standard → Premium is +$100 a month</h4>
+        <ul>
+          <li><b>$18</b> Ben Carter, Marketing · recent <span class="new">new this week</span></li>
+        </ul>
+
+        <div class="ctx">Amounts are the potential saving: extra spend minus the step up. Premium would have cost less, it would not have covered all of it. Seat tiers from the latest rosters (Cursor export 3 Nov).</div>
+        <span class="btn">Open recommendations</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="mockup">
+    <div class="mockup-header">B · Monday 9 Nov, 10:30 in the recipient's time zone</div>
+    <div class="mockup-body">
+      <div class="slack">
+        <div class="from"><div class="avatar">AI</div><div><span class="name">AI costs</span><span class="app">APP</span><span class="time">10:30</span></div></div>
+        <div><b>Premium seat recommendations</b> · four weeks to Sunday 8 November</div>
+        <div class="ctx">28 people flagged, $6,420 potential saving a month: Cursor 15 · Claude Team 12 · ChatGPT 1.</div>
+
+        <h4>New this week</h4>
+        <ul>
+          <li><b>$462</b> Lena Fischer, Data · Cursor · recent</li>
+          <li><b>$18</b> Ben Carter, Marketing · ChatGPT · recent</li>
+        </ul>
+
+        <h4>No longer flagged</h4>
+        <ul>
+          <li>Jonas Berg, Engineering · Cursor · under the line for 4 weeks</li>
+        </ul>
+
+        <h4>Biggest potential saving</h4>
+        <ul>
+          <li><b>$969</b> Priya Nair, Engineering · Claude Team · steady</li>
+          <li><b>$951</b> Tom Okafor, Engineering · Cursor · steady</li>
+          <li><b>$462</b> Lena Fischer, Data · Cursor · recent</li>
+        </ul>
+
+        <div class="ctx">Amounts are the potential saving: extra spend minus the step up. The full list, by tool, is on the dashboard.</div>
+        <span class="btn">Open recommendations</span>
+      </div>
+      <p class="muted" style="font-size:12px;margin:10px 0 0;opacity:.65">In a week where nobody joins or leaves the list, B sends just the count line and the top three.</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle">Pick A or B, then tell me in the terminal who the recipients are and what you'd like them to do with it.</p>
