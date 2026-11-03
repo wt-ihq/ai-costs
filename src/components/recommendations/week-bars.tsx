@@ -35,14 +35,21 @@ export function WeekBars({ cells, tool }: { cells: RecWeekCell[]; tool: RecTool 
           if (c.activeDays != null) text += ` · ${c.activeDays} active days`;
         }
         return (
-          <span key={c.from} className="group relative inline-flex h-full items-end">
+          <span
+            key={c.from}
+            tabIndex={0}
+            title={text}
+            aria-label={text}
+            className="group relative inline-flex h-full items-end outline-none"
+          >
             <i
               className="block w-[7px] rounded-[1px]"
               style={{ height: h, background: VENDOR_COLORS[tool], opacity: 0.8 }}
             />
             <span
               role="tooltip"
-              className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-surface-2 px-2 py-1 text-xs text-foreground shadow-lg group-hover:block"
+              aria-hidden="true"
+              className="pointer-events-none absolute bottom-full right-0 z-10 mb-1 hidden whitespace-nowrap rounded-md border border-border bg-surface-2 px-2 py-1 text-xs text-foreground shadow-lg group-hover:block group-focus:block"
             >
               {text}
             </span>

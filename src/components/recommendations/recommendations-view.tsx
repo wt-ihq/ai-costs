@@ -121,7 +121,7 @@ export function RecommendationsView({ data }: { data: RecommendationsData }) {
               Nobody on a Standard seat is over the line.
             </p>
           ) : (
-            <div className="overflow-x-auto rounded-xl border border-border bg-surface">
+            <div className="overflow-x-auto rounded-xl md:overflow-visible border border-border bg-surface">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted">
