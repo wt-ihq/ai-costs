@@ -7,7 +7,7 @@ import { fetchAccessList } from "@/lib/queries/dashboard-access";
 import { NO_FIXED_COST_SETTINGS, type FixedCostSettings } from "./fixed-costs";
 import type { SyncRunRow } from "./freshness";
 import type { ManualImportRow } from "./readiness";
-import { NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence, type NotifyEmployee, type ReportKind, type SendMode, type SendReport } from "./types";
+import { NOTIFY_EMPLOYEE_COLUMNS, toNotifyEmployee, type Cadence, type NotifyEmployee, type SendMode, type SendReport } from "./types";
 
 export interface SendKey {
   employeeId: string;
@@ -30,6 +30,8 @@ export interface NotifyStore {
   subscriptions(cadences: Cadence[]): Promise<{ employeeId: string; cadence: Cadence }[]>;
   /** notification_reminder_recipients: who gets the update reminders. */
   reminderRecipients(): Promise<string[]>;
+  /** notification_recommendation_recipients: who gets the weekly Premium seat recommendations. */
+  recommendationRecipients(): Promise<string[]>;
   /** notification_company_recipients: who gets the whole-company report, on which cadences. */
   companyRecipients(cadences: Cadence[]): Promise<{ employeeId: string; cadence: Cadence }[]>;
   employees(): Promise<NotifyEmployee[]>;
@@ -55,7 +57,7 @@ export interface NotifyStore {
   /** Insert a pending row; its id = this run owns the send (the id carries the DM's tracked open link), null = it doesn't. */
   claimSend(key: SendKey): Promise<string | null>;
   /** Stamp a send's first open (the digest's "Open in dashboard" click); its recipient and report kind, or null for an unknown id. */
-  markOpened(sendId: string): Promise<{ employeeId: string; department: string | null; report: ReportKind } | null>;
+  markOpened(sendId: string): Promise<{ employeeId: string; department: string | null; report: Exclude<SendReport, "reminder"> } | null>;
   finishSend(key: SendKey, r: SendResult): Promise<void>;
   /** Pending rows older than the cutoff → failed "interrupted", never retried. Returns how many. */
   expireStalePending(olderThanIso: string): Promise<number>;
@@ -120,6 +122,13 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
       const rows = await pageAll<{ employee_id: string }>(
         (a, b) => supabase.from("notification_reminder_recipients").select("employee_id").order("employee_id").range(a, b),
         "notification_reminder_recipients",
+      );
+      return rows.map((r) => r.employee_id);
+    },
+    async recommendationRecipients() {
+      const rows = await pageAll<{ employee_id: string }>(
+        (a, b) => supabase.from("notification_recommendation_recipients").select("employee_id").order("employee_id").range(a, b),
+        "notification_recommendation_recipients",
       );
       return rows.map((r) => r.employee_id);
     },
@@ -226,7 +235,7 @@ export function supabaseNotifyStore(supabase: SupabaseClient): NotifyStore {
         if (upErr) throw new Error(`markOpened(update): ${upErr.message}`);
       }
       const { data: emp } = await supabase.from("employees").select("department").eq("id", send.employee_id).maybeSingle();
-      return { employeeId: send.employee_id as string, department: (emp?.department as string | null) ?? null, report: send.report as ReportKind };
+      return { employeeId: send.employee_id as string, department: (emp?.department as string | null) ?? null, report: send.report as Exclude<SendReport, "reminder"> };
     },
     async finishSend(key, r) {
       const { error } = await supabase

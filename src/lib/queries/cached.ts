@@ -5,9 +5,11 @@ import { packScope } from "@/lib/explore/build";
 import { getDataHealth } from "./data-health";
 import { getImportCoverageScope } from "./import-coverage";
 import { getModelUsageScope } from "./cursor-models";
+import { getPersonCursorUsageScope, getTeamCursorUsageScope } from "./cursor-usage";
 import { getCursorTopModelScope } from "./cursor-top-model";
 import { getCursorSpendScope } from "./cursor-spend";
 import { getOpenRouterScope } from "./openrouter";
+import { loadRecommendations } from "@/lib/recommendations/load";
 
 /**
  * Single invalidation tag for every derived-from-spend-facts read. The data
@@ -81,6 +83,18 @@ export const getPersonScopeCached = instrumented(
   ["scope-person", CACHE_VERSION],
 );
 
+export const getTeamCursorUsageCached = instrumented(
+  "team-cursor-usage",
+  async () => getTeamCursorUsageScope(getSupabaseAdminClient()),
+  ["team-cursor-usage", CACHE_VERSION],
+);
+
+export const getPersonCursorUsageCached = instrumented(
+  "person-cursor-usage",
+  async (employeeId: string) => getPersonCursorUsageScope(getSupabaseAdminClient(), employeeId),
+  ["person-cursor-usage", CACHE_VERSION],
+);
+
 export const getSearchIndexCached = instrumented(
   "search-index",
   async () => getSearchIndex(getSupabaseAdminClient()),
@@ -123,4 +137,10 @@ export const getOpenRouterScopeCached = instrumented(
   "openrouter-scope",
   async () => getOpenRouterScope(getSupabaseAdminClient()),
   ["openrouter-scope", CACHE_VERSION],
+);
+
+export const getRecommendationsCached = instrumented(
+  "recommendations",
+  async () => loadRecommendations(getSupabaseAdminClient(), new Date()),
+  ["recommendations", CACHE_VERSION],
 );

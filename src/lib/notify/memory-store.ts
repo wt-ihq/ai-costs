@@ -4,7 +4,7 @@ import { NO_FIXED_COST_SETTINGS, type FixedCostSettings } from "./fixed-costs";
 import type { SyncRunRow } from "./freshness";
 import type { ManualImportRow } from "./readiness";
 import { canRetakeClaim, MAX_SEND_ATTEMPTS, type NotifyStore, type SendKey } from "./store";
-import type { Cadence, NotifyEmployee, ReportKind, SendReport } from "./types";
+import type { Cadence, NotifyEmployee, SendReport } from "./types";
 
 /** In-memory NotifyStore for unit tests. Claim semantics share canRetakeClaim with the Supabase store. */
 export interface SendRow extends SendKey {
@@ -31,6 +31,7 @@ export interface MemorySeed {
   sourceHorizons?: Record<string, string>;
   companyRecipients?: { employeeId: string; cadence: Cadence }[];
   reminderRecipients?: string[];
+  recommendationRecipients?: string[];
   /** Make reminderRecipients() throw (the table unreadable). */
   reminderRecipientsFails?: boolean;
   sends?: SeedSendRow[];
@@ -74,6 +75,9 @@ export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.no
       if (seed.reminderRecipientsFails) throw new Error("notification_reminder_recipients: simulated outage");
       return seed.reminderRecipients ?? [];
     },
+    async recommendationRecipients() {
+      return seed.recommendationRecipients ?? [];
+    },
     async companyRecipients(cadences) {
       return (seed.companyRecipients ?? []).filter((s) => cadences.includes(s.cadence));
     },
@@ -101,7 +105,7 @@ export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.no
       if (seed.everLiveFails) throw new Error("notification_sends: simulated outage");
       return new Set(
         sends
-          .filter((s) => s.mode === "live" && s.report !== "reminder" && ids.includes(s.employeeId) && (s.status === "sent" || s.status === "pending" || s.detail === "interrupted"))
+          .filter((s) => s.mode === "live" && (s.report === "personal" || s.report === "company") && ids.includes(s.employeeId) && (s.status === "sent" || s.status === "pending" || s.detail === "interrupted"))
           .map((s) => s.employeeId),
       );
     },
@@ -124,7 +128,7 @@ export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.no
       if (!row || row.report === "reminder") return null; // reminders carry no tracked link
       row.openedAt ??= nowIso();
       const e = (seed.employees ?? []).find((x) => x.id === row.employeeId);
-      return { employeeId: row.employeeId, department: e?.department ?? null, report: row.report as ReportKind };
+      return { employeeId: row.employeeId, department: e?.department ?? null, report: row.report as Exclude<SendReport, "reminder"> };
     },
     async finishSend(key, r) {
       if (store.failNextFinish) {

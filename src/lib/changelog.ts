@@ -11,6 +11,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-11-03",
+    title: "Premium seat recommendations and Cursor usage",
+    items: [
+      "A new Recommendations page lists people on a Standard seat whose extra spend over the last four weeks was more than the step up to Premium, with each week's extra spend and what Premium could save.",
+      "Data → Imports can take Cursor's members export. Premium Cursor seats now count at $120 a month from the month the export is uploaded.",
+      "A Monday Slack message lists the week's recommendations once the data is complete. Pick who gets it on Data → Notifications (Premium recommendations), preview it there, and send it now.",
+      "Admins see Cursor usage on person pages and the Cursor page: active days, requests and lines of code kept, the most active people, and seats with little or no use.",
+      "Data → Sync has a new \"Rebuild Cursor usage\" to fill it from July 2026; from now on it is collected every night.",
+    ],
+  },
+  {
     date: "2026-11-02",
     title: "Cursor sync no longer fails at month end",
     items: [

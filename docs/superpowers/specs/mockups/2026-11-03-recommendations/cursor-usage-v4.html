@@ -1,0 +1,89 @@
+<h2>Person page › Cursor usage (v4)</h2>
+<p class="subtitle">Same as v3 with the requests / on-demand line left-aligned under each week's date. On the Recommendations page the column is "Last 4 weeks" with no dates; hover a bar for its week.</p>
+
+<style>
+  .muted { opacity: .65; }
+  .tiles { display: flex; gap: 10px; margin: 8px 0 12px; }
+  .tile { flex: 1; border: 1px solid rgba(128,128,128,.3); border-radius: 8px; padding: 8px 10px; }
+  .tile .big { font-size: 20px; font-weight: 700; }
+  .tile .small { font-size: 11px; opacity: .7; }
+  .mockup-body { padding: 12px 14px; }
+  .weeks { display: flex; gap: 10px; margin-top: 6px; }
+  .week { flex: 1; }
+  .week .days { display: flex; gap: 3px; align-items: flex-end; height: 56px; border-bottom: 1px solid rgba(128,128,128,.35); }
+  .week .days i { flex: 1; background: rgba(80,140,255,.55); border-radius: 2px 2px 0 0; }
+  .week .days i.od { background: rgba(230,120,80,.7); }
+  .week .days i.off { background: rgba(128,128,128,.2); height: 3px !important; }
+  .week .days i.none { background: transparent; }
+  .week .wl { font-size: 11px; margin-top: 4px; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+  .week .wl b { font-weight: 600; }
+  .legend { font-size: 11px; opacity: .7; margin-top: 8px; }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: middle; margin: 0 3px 0 8px; }
+  .rec-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
+  .rec-table th { text-align: left; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; opacity: .7; padding: 6px 8px; border-bottom: 1px solid rgba(128,128,128,.35); }
+  .rec-table td { padding: 7px 8px; border-bottom: 1px solid rgba(128,128,128,.18); vertical-align: middle; }
+  .rec-table td.num, .rec-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .wk { display: inline-flex; align-items: flex-end; gap: 3px; height: 18px; vertical-align: middle; }
+  .wk i { display: inline-block; width: 9px; background: rgba(80,140,255,.55); border-radius: 1px; cursor: default; }
+  .wk i:hover { background: rgba(80,140,255,.95); }
+  .tip { position: relative; display: inline-block; }
+  .tip .bubble { position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); white-space: nowrap; background: #222; color: #eee; font-size: 11px; padding: 4px 8px; border-radius: 4px; display: none; }
+  .tip:hover .bubble { display: block; }
+</style>
+
+<div class="mockup">
+  <div class="mockup-header">Person page › Cursor usage · October 2026</div>
+  <div class="mockup-body">
+    <div class="tiles">
+      <div class="tile"><div class="small">Active days</div><div class="big">18 <span class="small">of 22 working days</span></div><div class="small">most-used model: Claude Sonnet 4.5</div></div>
+      <div class="tile"><div class="small">Agent requests</div><div class="big">4,120</div><div class="small">3,400 included · 720 on-demand</div></div>
+      <div class="tile"><div class="small">Lines of code kept</div><div class="big">12,300</div><div class="small">of 13,100 suggested · 94% kept</div></div>
+      <div class="tile"><div class="small">Spend</div><div class="big">$582</div><div class="small">$40 seat · $20 allowance used by 9 Oct · $542 on-demand</div></div>
+    </div>
+
+    <div class="label">Agent requests per day</div>
+    <div class="weeks">
+      <div class="week">
+        <div class="days"><i class="none"></i><i class="none"></i><i class="none"></i><i style="height:30%"></i><i style="height:44%"></i><i class="off"></i><i class="off"></i></div>
+        <div class="wl"><b>28 Sep</b><span class="muted">310 requests</span></div>
+      </div>
+      <div class="week">
+        <div class="days"><i style="height:20%"></i><i style="height:52%"></i><i style="height:38%"></i><i style="height:60%"></i><i style="height:70%"></i><i class="off"></i><i class="off"></i></div>
+        <div class="wl"><b>5 Oct</b><span class="muted">1,040 requests</span></div>
+      </div>
+      <div class="week">
+        <div class="days"><i class="od" style="height:85%"></i><i class="od" style="height:95%"></i><i style="height:40%"></i><i class="off"></i><i style="height:35%"></i><i class="off"></i><i class="off"></i></div>
+        <div class="wl"><b>12 Oct</b><span class="muted">1,210 requests · $268 on-demand</span></div>
+      </div>
+      <div class="week">
+        <div class="days"><i class="od" style="height:78%"></i><i class="od" style="height:88%"></i><i style="height:50%"></i><i style="height:42%"></i><i style="height:48%"></i><i class="off"></i><i class="off"></i></div>
+        <div class="wl"><b>19 Oct</b><span class="muted">1,180 requests · $184 on-demand</span></div>
+      </div>
+      <div class="week">
+        <div class="days"><i class="od" style="height:90%"></i><i style="height:33%"></i><i class="off"></i><i style="height:28%"></i><i style="height:36%"></i><i class="none"></i><i class="none"></i></div>
+        <div class="wl"><b>26 Oct</b><span class="muted">380 requests · $90 on-demand</span></div>
+      </div>
+    </div>
+    <div class="legend">Each group is a week starting on the Monday shown, Mon to Sun.<i style="background:rgba(80,140,255,.55)"></i>included<i style="background:rgba(230,120,80,.7)"></i>day with on-demand charges<i style="background:rgba(128,128,128,.25)"></i>not active · blank = outside October. Hover a day for its date and figures.</div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="mockup">
+    <div class="mockup-header">Recommendations page › "Last 4 weeks" column (hover the third bar of the first row)</div>
+    <div class="mockup-body">
+      <table class="rec-table">
+        <tr><th>Person</th><th>Team</th><th class="num">On-demand, 4 weeks</th><th class="num">Potential saving</th><th>Last 4 weeks</th></tr>
+        <tr><td>Tom Okafor</td><td>Engineering</td><td class="num">$1,031</td><td class="num"><b>$951</b></td><td>
+          <span class="wk"><i style="height:14px"></i><i style="height:18px"></i><span class="tip"><i style="height:9px;display:block"></i><span class="bubble" style="display:block">19 to 25 Oct · $184 on-demand · 1,180 requests · 5 active days</span></span><i style="height:16px"></i></span> <span class="muted">steady</span>
+        </td></tr>
+        <tr><td>Sofia Rossi</td><td>Engineering</td><td class="num">$268</td><td class="num"><b>$188</b></td><td>
+          <span class="wk"><i style="height:4px"></i><i style="height:18px"></i><i style="height:2px"></i><i style="height:3px"></i></span> <span class="muted">one-off</span>
+        </td></tr>
+      </table>
+      <p class="muted" style="font-size:12px;margin:10px 0 0">Each bar is one week's extra spend, oldest on the left. Hovering a bar shows the week's dates, extra spend and, for Cursor, requests and active days.</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle">If this is right, the next screen is the Slack message.</p>

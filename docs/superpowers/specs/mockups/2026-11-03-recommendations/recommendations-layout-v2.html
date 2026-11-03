@@ -1,0 +1,71 @@
+<h2>Recommendations, grouped by tool (v2)</h2>
+<p class="subtitle">Changes from v1: "Potential saving"; the window is the last four complete weeks rather than the calendar month, and each row shows those four weeks as small bars. Names are made up.</p>
+
+<style>
+  .rec-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .rec-table th { text-align: left; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; opacity: .7; padding: 6px 8px; border-bottom: 1px solid rgba(128,128,128,.35); }
+  .rec-table td { padding: 7px 8px; border-bottom: 1px solid rgba(128,128,128,.18); vertical-align: middle; }
+  .rec-table td.num, .rec-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .rec-table .saving { font-weight: 700; }
+  .pill { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; border: 1px solid rgba(128,128,128,.4); }
+  .pill.cursor { background: rgba(80,140,255,.15); } .pill.claude { background: rgba(230,150,80,.18); } .pill.chatgpt { background: rgba(60,180,120,.15); }
+  .muted { opacity: .65; }
+  .tiles { display: flex; gap: 12px; margin: 10px 0 14px; }
+  .tile { flex: 1; border: 1px solid rgba(128,128,128,.3); border-radius: 8px; padding: 10px 12px; }
+  .tile .big { font-size: 22px; font-weight: 700; }
+  .tile .small { font-size: 12px; opacity: .7; }
+  .group-head { display: flex; justify-content: space-between; align-items: baseline; margin: 14px 0 4px; }
+  .group-head h4 { margin: 0; font-size: 14px; }
+  .mockup-body { padding: 12px 14px; }
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; font-size: 12px; }
+  .wk { display: inline-flex; align-items: flex-end; gap: 2px; height: 18px; }
+  .wk i { display: inline-block; width: 7px; background: rgba(80,140,255,.55); border-radius: 1px; }
+  .wk.cl i { background: rgba(230,150,80,.65); } .wk.gp i { background: rgba(60,180,120,.6); }
+  .wk i.line { background: transparent; border-top: 1px dashed rgba(128,128,128,.6); width: 0; }
+  .legend { font-size: 12px; margin: 10px 0 0; }
+</style>
+
+<div class="mockup">
+  <div class="mockup-header">Recommendations</div>
+  <div class="mockup-body">
+    <div class="toolbar">
+      <span class="label">Four weeks to Sunday 1 November</span>
+      <span class="muted">·</span>
+      <span>Team: <b>All</b> ▾</span>
+      <span class="muted" style="margin-left:auto">Updated Monday 2 Nov, after the weekly sync</span>
+    </div>
+
+    <div class="tiles">
+      <div class="tile"><div class="small">Cursor · Standard → Premium is +$80 a month</div><div class="big">15 people</div><div class="small">$3,870 potential saving · 13 already on Premium</div></div>
+      <div class="tile"><div class="small">Claude Team · Standard → Premium is +$98 a month</div><div class="big">12 people</div><div class="small">$2,530 potential saving · 33 already on Premium</div></div>
+      <div class="tile"><div class="small">ChatGPT · Standard → Premium is +$100 a month</div><div class="big">1 person</div><div class="small">$18 potential saving · 0 on Premium</div></div>
+    </div>
+
+    <div class="group-head"><h4><span class="pill cursor">Cursor</span> &nbsp;15 people</h4><span class="muted" style="font-size:12px">Seat tiers from the members export of 3 Nov · on-demand spend from the nightly sync</span></div>
+    <table class="rec-table">
+      <tr><th>Person</th><th>Team</th><th class="num">On-demand, 4 weeks</th><th class="num">Potential saving</th><th>Last four weeks</th></tr>
+      <tr><td>Tom Okafor</td><td>Engineering</td><td class="num">$1,031</td><td class="num saving">$951</td><td><span class="wk"><i style="height:14px"></i><i style="height:18px"></i><i style="height:9px"></i><i style="height:16px"></i></span> <span class="muted">steady</span></td></tr>
+      <tr><td>Lena Fischer</td><td>Data</td><td class="num">$542</td><td class="num saving">$462</td><td><span class="wk"><i style="height:2px"></i><i style="height:3px"></i><i style="height:18px"></i><i style="height:12px"></i></span> <span class="muted">recent</span></td></tr>
+      <tr><td>Sofia Rossi</td><td>Engineering</td><td class="num">$268</td><td class="num saving">$188</td><td><span class="wk"><i style="height:4px"></i><i style="height:18px"></i><i style="height:2px"></i><i style="height:3px"></i></span> <span class="muted">one-off</span></td></tr>
+      <tr><td colspan="5" class="muted">… 12 more</td></tr>
+    </table>
+
+    <div class="group-head"><h4><span class="pill claude">Claude Team</span> &nbsp;12 people</h4><span class="muted" style="font-size:12px">Seat tiers from the roster · extra usage from the Monday paste dated 1 Nov</span></div>
+    <table class="rec-table">
+      <tr><th>Person</th><th>Team</th><th class="num">Extra usage, 4 weeks</th><th class="num">Potential saving</th><th>Last four weeks</th></tr>
+      <tr><td>Priya Nair</td><td>Engineering</td><td class="num">$1,067</td><td class="num saving">$969</td><td><span class="wk cl"><i style="height:12px"></i><i style="height:15px"></i><i style="height:18px"></i><i style="height:14px"></i></span> <span class="muted">steady</span></td></tr>
+      <tr><td>Marc Dubois</td><td>Product</td><td class="num">$412</td><td class="num saving">$314</td><td><span class="wk cl"><i style="height:8px"></i><i style="height:9px"></i><i style="height:7px"></i><i style="height:10px"></i></span> <span class="muted">steady</span></td></tr>
+      <tr><td colspan="5" class="muted">… 10 more</td></tr>
+    </table>
+
+    <div class="group-head"><h4><span class="pill chatgpt">ChatGPT</span> &nbsp;1 person</h4><span class="muted" style="font-size:12px">Seat tiers from the roster · credits from the latest import</span></div>
+    <table class="rec-table">
+      <tr><th>Person</th><th>Team</th><th class="num">Credits, 4 weeks</th><th class="num">Potential saving</th><th>Last four weeks</th></tr>
+      <tr><td>Ben Carter</td><td>Marketing</td><td class="num">$118</td><td class="num saving">$18</td><td><span class="wk gp"><i style="height:3px"></i><i style="height:4px"></i><i style="height:6px"></i><i style="height:18px"></i></span> <span class="muted">recent</span></td></tr>
+    </table>
+
+    <p class="legend muted">Flagged when four weeks of extra spend exceed the monthly step up to Premium. "Potential saving" is extra spend minus the step up; Premium would have cost less, it would not have covered all of it. The bars are each week's extra spend; the word next to them says whether it is steady, recent or a one-off.</p>
+  </div>
+</div>
+
+<p class="subtitle">Does the four-week window with weekly bars say what you meant by "last four weeks"? Tell me in the terminal.</p>

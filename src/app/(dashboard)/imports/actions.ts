@@ -5,7 +5,7 @@ import { FACTS_TAG } from "@/lib/queries/cached";
 import { actorEmail, requireAdmin } from "@/lib/auth-guard";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { recentWindow, runAllSyncs, type SyncOutcome } from "@/lib/ingest/run-all";
-import { rebuildCursorOverage, syncCursor } from "@/lib/ingest/run-cursor";
+import { rebuildCursorDailyUsage, rebuildCursorOverage, syncCursor } from "@/lib/ingest/run-cursor";
 import { syncAnthropic, syncOpenAI } from "@/lib/ingest/run-platforms";
 import { syncVercel } from "@/lib/ingest/run-vercel";
 import { parseClaudeSpend } from "@/lib/ingest/parsers/claude-spend";
@@ -14,7 +14,7 @@ import { parseOpenAiCreditsCsv, coveredWindow, type CreditUsageFact } from "@/li
 import { loadEmployeesFull, replaceWindowFacts, type ResolvedFact } from "@/lib/ingest/persist";
 import { claudeSnapshotMonths, rebuildClaudeSpend, saveClaudePaste } from "@/lib/ingest/run-claude-spend";
 import { cleanServiceAccountInput, serviceAccountEntity } from "@/lib/ingest/cursor-service-accounts";
-import { isTieredVendor, rebuildSeatMonth, type TieredVendor } from "@/lib/ingest/seat-months";
+import { isTieredVendor, rebuildSeatMonth, repriceCursorSeatMonth, type TieredVendor } from "@/lib/ingest/seat-months";
 import {
   fetchRecurringEntries,
   rebuildRecurringFacts,
@@ -57,7 +57,7 @@ export async function saveSeatMonthEntries(
   fxRate: number | null,
 ): Promise<{ written: number }> {
   await requireAdmin();
-  if (!isTieredVendor(vendor)) throw new Error(`Invalid vendor "${vendor}".`);
+  if (!isTieredVendor(vendor) || vendor === "cursor") throw new Error(`Invalid vendor "${vendor}".`);
   if (!MONTH_RE.test(month)) throw new Error(`Invalid month "${month}" — expected YYYY-MM.`);
   if (!inputs.length) throw new Error("Nothing to save — no tier rows.");
   const isClaude = vendor === "claude_team";
@@ -100,7 +100,7 @@ export async function deleteSeatMonthEntry(
   seatType: string,
 ): Promise<{ written: number }> {
   await requireAdmin();
-  if (!isTieredVendor(vendor)) throw new Error(`Invalid vendor "${vendor}".`);
+  if (!isTieredVendor(vendor) || vendor === "cursor") throw new Error(`Invalid vendor "${vendor}".`);
   if (!MONTH_RE.test(month)) throw new Error(`Invalid month "${month}" — expected YYYY-MM.`);
   const supabase = getSupabaseAdminClient();
   const day = `${month}-01`;
@@ -486,7 +486,9 @@ export async function commitSeatRoster(
 
   // Tier changes re-price the month immediately; membership itself comes from
   // the nightly Okta group sync (entries stay authoritative when present).
-  const written = await rebuildSeatMonth(supabase, vendor, day);
+  // Cursor has no Okta-group seat machinery: re-price the synced seat facts in place.
+  const written =
+    vendor === "cursor" ? await repriceCursorSeatMonth(supabase, day) : await rebuildSeatMonth(supabase, vendor, day);
 
   updateTag(FACTS_TAG);
   revalidatePath("/data");
@@ -756,6 +758,25 @@ export async function rebuildCursorMonth(month: unknown): Promise<CursorRebuildR
   updateTag(FACTS_TAG);
   revalidatePath("/data");
   return { month, written: r.rowsWritten, notPeople: r.unmatched.filter((k) => k.startsWith("cursor service account")).length };
+}
+
+/**
+ * Re-import one calendar month of Cursor's per-person daily usage (active days, agent requests,
+ * lines of code) into cursor_daily_usage. Run once per month from July 2026 after the table
+ * shipped; safe to repeat (upserts on day + person). Spend facts are untouched.
+ */
+export async function rebuildCursorUsageMonth(month: unknown): Promise<{ month: string; rows: number }> {
+  await requireAdmin();
+  if (typeof month !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error("Pick a month");
+  const [y, m] = month.split("-").map(Number);
+  const startDate = `${month}-01`;
+  const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+  if (startDate >= tomorrow) throw new Error("That month hasn't started");
+  const monthEnd = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
+  const r = await rebuildCursorDailyUsage(getSupabaseAdminClient(), { startDate, endDate: monthEnd < tomorrow ? monthEnd : tomorrow });
+  updateTag(FACTS_TAG);
+  revalidatePath("/data");
+  return { month, rows: r.rows };
 }
 
 /**

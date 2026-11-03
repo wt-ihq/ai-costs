@@ -36,4 +36,10 @@ describe("openRedirectPath", () => {
     expect(await openRedirectPath(store, ID)).toBe("/explore");
     expect(store.sends[0].openedAt).not.toBeNull();
   });
+
+  it("sends a recommendations send to /recommendations and records the open", async () => {
+    const store = memoryStore({ employees: [emp], sends: [row({ report: "recommendations" })] });
+    expect(await openRedirectPath(store, ID)).toBe("/recommendations");
+    expect(store.sends[0].openedAt).not.toBeNull();
+  });
 });

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { addSubscriptions, lastSentLabels, openRate, removeAllSubscriptions, removeSubscriptions, setSubscription, summariseLastRun } from "./admin-store";
+import { addSubscriptions, lastSentLabels, openRate, periodDigestSends, removeAllSubscriptions, removeSubscriptions, setSubscription, summariseLastRun } from "./admin-store";
 
-const row = (employee_id: string, mode: string, cadence: string, updated_at: string, status = "sent") => ({ employee_id, mode, cadence, status, updated_at });
+const row = (employee_id: string, mode: string, cadence: string, updated_at: string, status = "sent") => ({ employee_id, mode, cadence, status, updated_at, report: "personal" });
 
 describe("lastSentLabels", () => {
   it("takes each person's newest LIVE send; a preview only when they have no live one", () => {
@@ -33,6 +33,16 @@ describe("summariseLastRun", () => {
     expect(summariseLastRun([{ ...row("g", "live", "weekly", "2026-10-19T08:30:00Z"), report: "reminder" }])).toBeNull();
   });
 
+  it("leaves the recommendations message out: it shares the weekly key but isn't a digest", () => {
+    const r = summariseLastRun([
+      { ...row("g", "live", "weekly", "2026-11-09T10:45:00Z"), report: "recommendations" },
+      { ...row("g", "live", "weekly", "2026-11-09T10:40:00Z", "failed"), report: "recommendations" },
+      { ...row("m", "preview", "weekly", "2026-11-08T10:30:00Z"), report: "company" },
+    ]);
+    expect(r).toEqual({ day: "2026-11-08", mode: "preview", cadences: ["weekly"], sent: 1, skipped: 0, failed: 0, plusPreview: 0 });
+    expect(summariseLastRun([{ ...row("g", "live", "weekly", "2026-11-09T10:45:00Z"), report: "recommendations" }])).toBeNull();
+  });
+
   it("reports the latest day's mode, cadences and counts", () => {
     expect(
       summariseLastRun([
@@ -57,15 +67,28 @@ describe("summariseLastRun", () => {
 });
 
 describe("openRate", () => {
-  it("counts live digests sent and how many were opened; previews and failures don't count", () => {
+  it("counts live digests sent and how many were opened; previews, failures and recommendations don't count", () => {
     expect(
       openRate([
-        { mode: "live", status: "sent", opened_at: null },
-        { mode: "live", status: "sent", opened_at: "2026-10-12T10:00:00Z" },
-        { mode: "preview", status: "sent", opened_at: "2026-10-12T10:00:00Z" },
-        { mode: "live", status: "failed", opened_at: null },
+        { mode: "live", status: "sent", report: "personal", opened_at: null },
+        { mode: "live", status: "sent", report: "company", opened_at: "2026-10-12T10:00:00Z" },
+        { mode: "preview", status: "sent", report: "personal", opened_at: "2026-10-12T10:00:00Z" },
+        { mode: "live", status: "failed", report: "personal", opened_at: null },
+        { mode: "live", status: "sent", report: "recommendations", opened_at: "2026-10-12T11:00:00Z" },
       ]),
     ).toEqual({ sent: 2, opened: 1 });
+  });
+});
+
+describe("periodDigestSends (the Digests table's weekly row)", () => {
+  const state = (report: string, status = "sent", periodKey = "2026-W45", cadence = "weekly") => ({ report, status, periodKey, cadence, updatedAt: "2026-11-09T10:45:00Z" });
+  it("counts the week's personal and company digests only — not a recommendations send on the same key, nor a reminder", () => {
+    expect(
+      periodDigestSends([state("personal"), state("company", "failed"), state("recommendations"), state("reminder"), state("personal", "sent", "2026-W44"), state("personal", "sent", "2026-11", "monthly")], "weekly", "2026-W45"),
+    ).toEqual([{ status: "sent", updatedAt: "2026-11-09T10:45:00Z" }, { status: "failed", updatedAt: "2026-11-09T10:45:00Z" }]);
+  });
+  it("a week whose only send is the recommendations message has no digest sends", () => {
+    expect(periodDigestSends([state("recommendations")], "weekly", "2026-W45")).toEqual([]);
   });
 });
 

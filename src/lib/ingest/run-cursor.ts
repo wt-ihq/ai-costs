@@ -1,12 +1,15 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SpendFact } from "@/lib/types";
 import { matchIdentity } from "@/lib/ingest/identity";
+import { cursorSeatPrices, cursorSeatTiers } from "@/lib/ingest/seat-months";
 import { SchemaDriftError } from "@/lib/ingest/types";
 import {
   normalizeCursor,
   normalizeCursorEvents,
   normalizeCursorMembers,
   normalizeCursorTopModels,
+  normalizeCursorDailyUsage,
+  priceCursorSeats,
   type CursorUsageResponse,
 } from "@/lib/ingest/normalizers/cursor";
 import { applyServiceAccountTeams, serviceAccountRegistry, type ServiceAccountRegistry } from "@/lib/ingest/cursor-service-accounts";
@@ -26,7 +29,9 @@ import {
   saveRawPayload,
   startSyncRun,
   upsertSpendFacts,
+  type ResolvedFact,
   upsertCursorTopModels,
+  upsertCursorDailyUsage,
 } from "@/lib/ingest/persist";
 
 type Window = { startDate: string; endDate: string };
@@ -129,6 +134,26 @@ export async function rebuildCursorOverage(
   }
 }
 
+/**
+ * Re-read one window's per-person daily usage (requests, lines, tabs) into cursor_daily_usage
+ * (Data → Sync; backfills history the nightly sync only started storing recently). Usage only:
+ * no events, no spend facts, no sync run, no raw payload. Unlike the nightly run it is not
+ * best-effort — a failure throws so the admin sees it.
+ */
+export async function rebuildCursorDailyUsage(
+  supabase: SupabaseClient,
+  window: Window,
+  fetcher: CursorFetcher = fetchCursorUsage,
+): Promise<{ rows: number }> {
+  const raw = await fetchUsageInChunks(fetcher, window);
+  const employees = await loadEmployees(supabase);
+  const daily = normalizeCursorDailyUsage(raw).map((r) => ({
+    ...r,
+    employeeId: matchIdentity(r.entityKey, employees).employeeId,
+  }));
+  return { rows: await upsertCursorDailyUsage(supabase, daily) };
+}
+
 export interface CursorSyncResult {
   rowsWritten: number;
   unmatched: string[];
@@ -170,7 +195,7 @@ export async function syncCursor(
     const employees = await loadEmployees(supabase);
     const { facts: resolved, unmatched: seatUnmatched } = attachEmployees([...seatFacts, ...memberSeatFacts], employees);
     // Seats first: they don't depend on the usage events, so an events failure (e.g. a new event kind) can't hold them back.
-    const seatRows = await upsertSpendFacts(supabase, resolved);
+    const seatRows = await upsertSpendFacts(supabase, await priceSeatsByTier(supabase, resolved));
     const events = await syncCursorEvents(supabase, runId, eventsWindow(window, opts.eventsDays), eventsFetcher, employees, await serviceAccountRegistry(supabase));
 
     const rowsWritten = seatRows + events.rowsWritten;
@@ -190,6 +215,18 @@ export async function syncCursor(
       // ignore — model signal is non-critical
     }
 
+    // The whole daily-usage row (requests, lines, tabs, ...) — same best-effort
+    // rule: cursor_daily_usage may not be migrated yet, and spend must not wait on it.
+    try {
+      const daily = normalizeCursorDailyUsage(raw).map((r) => ({
+        ...r,
+        employeeId: matchIdentity(r.entityKey, employees).employeeId,
+      }));
+      await upsertCursorDailyUsage(supabase, daily);
+    } catch {
+      // ignore — usage detail is non-critical
+    }
+
     await finishSyncRun(supabase, runId, { status: "success", rowsWritten });
     return { rowsWritten, unmatched };
   } catch (err) {
@@ -199,6 +236,21 @@ export async function syncCursor(
     });
     throw err;
   }
+}
+
+/**
+ * Price each seat by the member's roster tier for its own month (a sync window
+ * can span two). Seats stay $40 where no roster says otherwise; non-seat facts pass through.
+ */
+async function priceSeatsByTier(supabase: SupabaseClient, facts: ResolvedFact[]): Promise<ResolvedFact[]> {
+  const seats = facts.filter((f) => f.costType === "seat");
+  if (seats.length === 0) return facts;
+  const prices = await cursorSeatPrices(supabase);
+  const pricedSeats: ResolvedFact[] = [];
+  for (const day of new Set(seats.map((f) => f.day))) {
+    pricedSeats.push(...priceCursorSeats(seats.filter((f) => f.day === day), await cursorSeatTiers(supabase, day), prices));
+  }
+  return [...facts.filter((f) => f.costType !== "seat"), ...pricedSeats];
 }
 
 /**

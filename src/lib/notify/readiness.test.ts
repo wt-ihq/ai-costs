@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SyncRunRow } from "./freshness";
-import { importsInUseSince, outstandingShort, readinessSyncSince, syncsOutstanding, weekReadiness, type ManualImportRow } from "./readiness";
+import { importsInUseSince, outstandingShort, readinessSyncSince, recommendationsReadiness, syncsOutstanding, weekReadiness, type ManualImportRow } from "./readiness";
 
 const WEEK = { from: "2026-10-12", toExclusive: "2026-10-19" }; // Mon 12 – Sun 18 Oct
 const ok = (source: string, startedAt: string): SyncRunRow => ({ source, status: "success", startedAt });
@@ -69,5 +69,48 @@ describe("helpers", () => {
     expect(outstandingShort({ kind: "claudeSpend", asOf: "2026-10-11" })).toBe("Claude Team (pasted as of 11 Oct)");
     expect(outstandingShort({ kind: "chatgptCredits", through: "2026-10-11" })).toBe("ChatGPT credits (through 11 Oct)");
     expect(outstandingShort({ kind: "sync", source: "openai", lastSuccessDay: null })).toBe("OpenAI API sync");
+  });
+});
+
+describe("recommendationsReadiness", () => {
+  const base = [ok("cursor", "2026-10-19T06:00:00Z"), ok("anthropic", "2026-10-19T06:00:00Z"), ok("openai", "2026-10-17T06:00:00Z"), ok("vercel", "2026-10-17T06:00:00Z")];
+
+  it("is not held by sources it does not read (openai, vercel stale)", () => {
+    const args = { week: WEEK, syncRuns: base, imports };
+    expect(weekReadiness(args).ready).toBe(false);
+    expect(recommendationsReadiness(args)).toEqual({ ready: true, outstanding: [] });
+  });
+
+  it("waits for a stale cursor sync", () => {
+    const args = { week: WEEK, syncRuns: [ok("cursor", "2026-10-17T06:00:00Z"), ...base.slice(1)], imports };
+    const r = recommendationsReadiness(args);
+    expect(weekReadiness(args).ready).toBe(false);
+    expect(r.ready).toBe(false);
+    expect(r.outstanding).toEqual([{ kind: "sync", source: "cursor", lastSuccessDay: "2026-10-17" }]);
+  });
+
+  it("still waits for the imports", () => {
+    const r = recommendationsReadiness({ week: WEEK, syncRuns: runs, imports: [imp("claude_team", "clipboard", "2026-10-11")] });
+    expect(r.outstanding).toEqual([{ kind: "claudeSpend", asOf: "2026-10-11" }]);
+  });
+
+  it("always requires Cursor: no cursor runs at all is not ready, even when other sources make it look unused", () => {
+    const args = { week: WEEK, syncRuns: [ok("anthropic", "2026-10-19T06:00:00Z")], imports };
+    expect(weekReadiness(args).ready).toBe(true); // to weekReadiness, Cursor is "not in use"
+    const r = recommendationsReadiness(args);
+    expect(r.ready).toBe(false);
+    expect(r.outstanding).toEqual([{ kind: "sync", source: "cursor", lastSuccessDay: null }]);
+    expect(r.outstanding.map(outstandingShort)).toEqual(["Cursor sync"]);
+  });
+
+  it("names Cursor once when nothing synced at all", () => {
+    const r = recommendationsReadiness({ week: WEEK, syncRuns: [], imports });
+    expect(r.ready).toBe(false);
+    expect(r.outstanding).toEqual([{ kind: "sync", source: "cursor", lastSuccessDay: null }]);
+  });
+
+  it("a failed cursor run since the week ended still leaves Cursor outstanding", () => {
+    const r = recommendationsReadiness({ week: WEEK, syncRuns: [ok("anthropic", "2026-10-19T06:00:00Z"), bad("cursor", "2026-10-19T06:00:00Z")], imports });
+    expect(r.outstanding).toEqual([{ kind: "sync", source: "cursor", lastSuccessDay: null }]);
   });
 });

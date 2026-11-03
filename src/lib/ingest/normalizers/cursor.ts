@@ -1,6 +1,8 @@
 import type { SpendFact } from "@/lib/types";
 import { CURSOR_SERVICE_ACCOUNT } from "@/lib/pseudo-entities";
 import { SchemaDriftError, type Normalizer } from "@/lib/ingest/types";
+import type { ResolvedFact } from "@/lib/ingest/persist";
+import type { CursorTier } from "@/lib/ingest/seat-months";
 
 /**
  * Cursor Admin API — daily-usage-data. Confirmed shape: per-user/day rows with
@@ -12,11 +14,25 @@ import { SchemaDriftError, type Normalizer } from "@/lib/ingest/types";
  */
 export interface CursorUsageRow {
   day?: string; // ISO date, e.g. "2026-06-09"
-  date?: number; // epoch ms (unused)
+  date?: number; // epoch ms
   email?: string;
   isActive?: boolean;
   mostUsedModel?: string;
+  clientVersion?: string;
+  agentRequests?: number;
+  subscriptionIncludedReqs?: number;
   usageBasedReqs?: number;
+  apiKeyReqs?: number;
+  totalLinesAdded?: number;
+  totalLinesDeleted?: number;
+  acceptedLinesAdded?: number;
+  acceptedLinesDeleted?: number;
+  totalAccepts?: number;
+  totalRejects?: number;
+  totalApplies?: number;
+  totalTabsShown?: number;
+  totalTabsAccepted?: number;
+  bugbotUsages?: number;
 }
 export interface CursorUsageResponse {
   data: CursorUsageRow[];
@@ -178,6 +194,74 @@ export function normalizeCursorTopModels(raw: CursorUsageResponse): CursorTopMod
   return out;
 }
 
+export interface CursorDailyUsageRow {
+  day: string;
+  entityKey: string;
+  isActive: boolean;
+  agentRequests: number;
+  subscriptionIncludedReqs: number;
+  usageBasedReqs: number;
+  apiKeyReqs: number;
+  totalLinesAdded: number;
+  totalLinesDeleted: number;
+  acceptedLinesAdded: number;
+  acceptedLinesDeleted: number;
+  totalAccepts: number;
+  totalRejects: number;
+  totalApplies: number;
+  totalTabsShown: number;
+  totalTabsAccepted: number;
+  bugbotUsages: number;
+  mostUsedModel: string | null;
+  clientVersion: string | null;
+}
+
+/**
+ * Every daily-usage-data row, one per (day, email); later duplicates win.
+ * Cursor documents the day as `date` (epoch ms) while the stored fixture uses
+ * an ISO `day` string, so both are accepted (`day` first). Rows without an
+ * email or a day are skipped; missing counters are 0.
+ */
+export function normalizeCursorDailyUsage(raw: CursorUsageResponse): CursorDailyUsageRow[] {
+  if (!raw || !Array.isArray(raw.data)) {
+    throw new SchemaDriftError("cursor", "missing `data` array");
+  }
+  const byKey = new Map<string, CursorDailyUsageRow>();
+  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  for (const row of raw.data) {
+    const email = (row.email ?? "").toString().toLowerCase();
+    const day =
+      typeof row.day === "string"
+        ? row.day
+        : typeof row.date === "number" && Number.isFinite(row.date)
+          ? new Date(row.date).toISOString().slice(0, 10)
+          : "";
+    if (!email || !day) continue;
+    byKey.set(`${day}|${email}`, {
+      day,
+      entityKey: email,
+      isActive: row.isActive === true,
+      agentRequests: n(row.agentRequests),
+      subscriptionIncludedReqs: n(row.subscriptionIncludedReqs),
+      usageBasedReqs: n(row.usageBasedReqs),
+      apiKeyReqs: n(row.apiKeyReqs),
+      totalLinesAdded: n(row.totalLinesAdded),
+      totalLinesDeleted: n(row.totalLinesDeleted),
+      acceptedLinesAdded: n(row.acceptedLinesAdded),
+      acceptedLinesDeleted: n(row.acceptedLinesDeleted),
+      totalAccepts: n(row.totalAccepts),
+      totalRejects: n(row.totalRejects),
+      totalApplies: n(row.totalApplies),
+      totalTabsShown: n(row.totalTabsShown),
+      totalTabsAccepted: n(row.totalTabsAccepted),
+      bugbotUsages: n(row.bugbotUsages),
+      mostUsedModel: row.mostUsedModel ? String(row.mostUsedModel) : null,
+      clientVersion: row.clientVersion ? String(row.clientVersion) : null,
+    });
+  }
+  return [...byKey.values()];
+}
+
 export function normalizeCursorMembers(
   raw: CursorMembersResponse | CursorMember[],
   month: string,
@@ -196,4 +280,16 @@ export function normalizeCursorMembers(
     facts.push({ source: "cursor", day: month, costType: "seat", entityKey: email, costUsd: CURSOR_SEAT_USD });
   }
   return facts;
+}
+
+/** Re-price Cursor seat facts by the member's tier; facts without a tier (or not seats) stay as emitted. */
+export function priceCursorSeats(
+  facts: ResolvedFact[],
+  tiers: Map<string, CursorTier>,
+  prices: Record<CursorTier, number>,
+): ResolvedFact[] {
+  return facts.map((f) => {
+    const tier = f.costType === "seat" && f.employeeId ? tiers.get(f.employeeId) : undefined;
+    return tier ? { ...f, costUsd: prices[tier] } : f;
+  });
 }

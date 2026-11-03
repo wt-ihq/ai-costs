@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { normalizeCursor, normalizeCursorEvents, normalizeCursorMembers, normalizeCursorTopModels, type CursorUsageResponse, type CursorEventsResponse, type CursorMembersResponse } from "./cursor";
+import { priceCursorSeats, normalizeCursor, normalizeCursorEvents, normalizeCursorMembers, normalizeCursorTopModels, normalizeCursorDailyUsage, type CursorUsageResponse, type CursorEventsResponse, type CursorMembersResponse } from "./cursor";
 import { cursorUsageFixture } from "@/lib/ingest/fixtures/cursor-usage";
 import { cursorEventsFixture } from "@/lib/ingest/fixtures/cursor-events";
 import { cursorMembersFixture } from "@/lib/ingest/fixtures/cursor-members";
 import { SchemaDriftError } from "@/lib/ingest/types";
+import type { ResolvedFact } from "@/lib/ingest/persist";
 
 describe("normalizeCursor", () => {
   it("emits one monthly $40 seat fact per distinct user, keyed by email", () => {
@@ -114,5 +115,36 @@ describe("normalizeCursorTopModels", () => {
 
   it("fails loudly on schema drift", () => {
     expect(() => normalizeCursorTopModels({} as CursorUsageResponse)).toThrow(SchemaDriftError);
+  });
+});
+
+describe("priceCursorSeats", () => {
+  const seat = (employeeId: string | null): ResolvedFact => ({
+    source: "cursor",
+    day: "2026-10-01",
+    costType: "seat",
+    entityKey: `${employeeId ?? "nobody"}@intenthq.com`,
+    costUsd: 40,
+    employeeId,
+  });
+  it("prices seats by the employee's tier and leaves the rest at $40", () => {
+    const facts = [seat("e1"), seat("e2"), seat(null)];
+    const out = priceCursorSeats(facts, new Map([["e1", "premium"], ["e2", "free"]]), { standard: 40, premium: 120, free: 0 });
+    expect(out.map((f) => f.costUsd)).toEqual([120, 0, 40]);
+  });
+});
+
+describe("normalizeCursorDailyUsage", () => {
+  it("maps one row per (day, email) with every counter, zero when absent", () => {
+    const rows = normalizeCursorDailyUsage(cursorUsageFixture);
+    const ada = rows.find((r) => r.day === "2026-06-01" && r.entityKey === "gareth.jones@intenthq.com")!;
+    expect(ada).toMatchObject({ isActive: true, usageBasedReqs: 42, agentRequests: 0, mostUsedModel: "claude-sonnet-4-6" });
+  });
+  it("accepts an epoch `date` when `day` is absent", () => {
+    const rows = normalizeCursorDailyUsage({ data: [{ date: Date.UTC(2026, 5, 3), email: "x@intenthq.com", isActive: true }] });
+    expect(rows[0].day).toBe("2026-06-03");
+  });
+  it("fails loudly on schema drift", () => {
+    expect(() => normalizeCursorDailyUsage({} as CursorUsageResponse)).toThrow(SchemaDriftError);
   });
 });

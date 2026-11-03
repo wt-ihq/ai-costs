@@ -1,5 +1,5 @@
 import { requireDashboardAccess } from "@/lib/auth-guard";
-import { getModelUsageScopeCached, getCursorTopModelScopeCached, getCursorSpendScopeCached } from "@/lib/queries/cached";
+import { getModelUsageScopeCached, getCursorTopModelScopeCached, getCursorSpendScopeCached, getTeamCursorUsageCached } from "@/lib/queries/cached";
 import { CursorModelsView } from "@/components/cursor-models/cursor-models-view";
 import { TeamsModelView } from "@/components/cursor-models/teams-model-view";
 import { EnterpriseLocked } from "@/components/cursor-models/enterprise-locked";
@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/ui";
 export const dynamic = "force-dynamic";
 
 export default async function CursorModelsPage({ searchParams }: { searchParams: Promise<{ period?: string }> }) {
-  await requireDashboardAccess();
+  const role = await requireDashboardAccess();
   const sp = await searchParams;
   const header = (
     <PageHeader title="Cursor usage & spend" subtitle="Cursor model adoption and spend by model, team, and person." />
@@ -28,15 +28,16 @@ export default async function CursorModelsPage({ searchParams }: { searchParams:
 
   // Teams plan: fall back to the per-user most-used-model signal if we have it;
   // otherwise show the Enterprise-only state.
-  const [topModel, spend] = await Promise.all([
+  const [topModel, spend, usage] = await Promise.all([
     getCursorTopModelScopeCached(),
     getCursorSpendScopeCached(),
+    role === "admin" ? getTeamCursorUsageCached() : Promise.resolve(undefined),
   ]);
   return (
     <>
       {header}
       {topModel.rows.length > 0 ? (
-        <TeamsModelView scope={topModel} spend={spend} initialPeriodParam={sp.period} />
+        <TeamsModelView scope={topModel} spend={spend} initialPeriodParam={sp.period} usage={usage} />
       ) : (
         <EnterpriseLocked />
       )}

@@ -8,6 +8,11 @@ import type { SeatParseResult, SeatRow } from "./types";
  * generated from these rows via per-tier prices (seat_prices). Per-user
  * overage comes separately from the Claude spend dashboard (see claude-spend).
  *
+ * Cursor's members export is accepted too: Name, Email, Role, Seat Type,
+ * Included Usage, Free Usage, On-Demand Usage. "Seat Type" is the tier column,
+ * Role "Removed" marks people who no longer hold a seat (skipped), and "Free"
+ * is an extra tier.
+ *
  * Tiers seen in real data: Premium, Standard, Unassigned. "Unassigned" = a
  * member with no paid tier (a seat-hygiene signal), priced at 0.
  */
@@ -56,18 +61,19 @@ export function parseSeatRoster(csv: string): SeatParseResult {
   const cName = idx("name");
   const cRole = idx("role");
   const cStatus = idx("status");
-  const cTier = idx("seat tier");
+  const cTier = idx("seat tier") >= 0 ? idx("seat tier") : idx("seat type");
 
   if (cEmail < 0 || cTier < 0) {
     return {
       seats,
-      errors: [{ line: 0, message: "missing required columns: Email, Seat Tier" }],
+      errors: [{ line: 0, message: "missing required columns: Email, Seat Tier (or Seat Type)" }],
     };
   }
 
   lines.slice(1).forEach((line, i) => {
     const lineNo = i + 2;
     const cells = splitCsvLine(line);
+    if (cRole >= 0 && cells[cRole]?.toLowerCase() === "removed") return; // Cursor: no longer holds a seat
     const email = cells[cEmail]?.toLowerCase();
     if (!email || !email.includes("@")) {
       errors.push({ line: lineNo, message: `invalid email: "${cells[cEmail]}"` });

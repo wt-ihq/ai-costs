@@ -1,0 +1,114 @@
+<h2>Cursor usage: how much to show on a person's page?</h2>
+<p class="subtitle">Both use data the nightly sync already fetches per person per day (active, agent requests split included / on-demand, lines suggested and kept, most-used model). Made-up person, real-looking numbers.</p>
+
+<style>
+  .muted { opacity: .65; }
+  .tiles { display: flex; gap: 10px; margin: 8px 0 12px; }
+  .tile { flex: 1; border: 1px solid rgba(128,128,128,.3); border-radius: 8px; padding: 8px 10px; }
+  .tile .big { font-size: 20px; font-weight: 700; }
+  .tile .small { font-size: 11px; opacity: .7; }
+  .mockup-body { padding: 12px 14px; }
+  .days { display: flex; gap: 3px; align-items: flex-end; height: 56px; margin: 6px 0 2px; }
+  .days i { flex: 1; background: rgba(80,140,255,.55); border-radius: 2px 2px 0 0; }
+  .days i.od { background: rgba(230,120,80,.7); }
+  .days i.off { background: rgba(128,128,128,.2); height: 3px !important; }
+  .axis { display: flex; justify-content: space-between; font-size: 10px; opacity: .6; }
+  .strip { display: flex; gap: 18px; font-size: 13px; padding: 8px 0; border-top: 1px solid rgba(128,128,128,.25); border-bottom: 1px solid rgba(128,128,128,.25); }
+  .strip b { font-variant-numeric: tabular-nums; }
+  .row { display: flex; justify-content: space-between; font-size: 13px; padding: 4px 0; border-bottom: 1px solid rgba(128,128,128,.15); }
+  .bar { display: inline-block; height: 8px; background: rgba(80,140,255,.5); border-radius: 2px; vertical-align: middle; margin-right: 8px; }
+  .two { display: flex; gap: 14px; }
+  .two > div { flex: 1; }
+  .legend { font-size: 11px; opacity: .7; }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: middle; margin: 0 3px 0 8px; }
+</style>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Full panel: tiles plus a daily chart</h3>
+      <p>Four tiles and a bar per day of agent requests, on-demand ones in a second colour, inactive days greyed. Sits under the person's spend sections.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Compact strip: one line of figures</h3>
+      <p>The same figures in one row under the Cursor line of the person's spend table. No chart. Less to build, less to read.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="mockup">
+    <div class="mockup-header">A · Person page › Cursor usage · October 2026</div>
+    <div class="mockup-body">
+      <div class="tiles">
+        <div class="tile"><div class="small">Active days</div><div class="big">18 <span class="small">of 22 working days</span></div><div class="small">most-used model: Claude Sonnet 4.5</div></div>
+        <div class="tile"><div class="small">Agent requests</div><div class="big">4,120</div><div class="small">3,400 included · 720 on-demand</div></div>
+        <div class="tile"><div class="small">Lines of code kept</div><div class="big">12,300</div><div class="small">of 13,100 suggested · 94% kept</div></div>
+        <div class="tile"><div class="small">Spend</div><div class="big">$582</div><div class="small">$40 seat · $20 allowance used by 9 Oct · $542 on-demand</div></div>
+      </div>
+      <div class="label">Agent requests per day</div>
+      <div class="days">
+        <i style="height:30%"></i><i style="height:44%"></i><i style="height:20%"></i><i style="height:52%"></i><i style="height:38%"></i><i class="off"></i><i class="off"></i>
+        <i style="height:60%"></i><i style="height:70%" ></i><i class="od" style="height:85%"></i><i class="od" style="height:95%"></i><i style="height:40%"></i><i class="off"></i><i class="off"></i>
+        <i class="off"></i><i style="height:35%"></i><i class="od" style="height:78%"></i><i class="od" style="height:88%"></i><i style="height:50%"></i><i class="off"></i><i class="off"></i>
+        <i style="height:42%"></i><i style="height:48%"></i><i class="od" style="height:90%"></i><i style="height:33%"></i><i class="off"></i><i class="off"></i><i class="off"></i>
+        <i style="height:28%"></i><i style="height:36%"></i><i style="height:22%"></i>
+      </div>
+      <div class="axis"><span>1 Oct</span><span>15 Oct</span><span>31 Oct</span></div>
+      <div class="legend">Each bar is a day.<i style="background:rgba(80,140,255,.55)"></i>included<i style="background:rgba(230,120,80,.7)"></i>day with on-demand charges<i style="background:rgba(128,128,128,.25)"></i>not active</div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="mockup">
+    <div class="mockup-header">B · Person page › spend table, Cursor row expanded · October 2026</div>
+    <div class="mockup-body">
+      <div class="row"><span><b>Cursor</b> &nbsp;<span class="muted">seat $40 · on-demand $542</span></span><b>$582</b></div>
+      <div class="strip">
+        <span>Active <b>18</b> <span class="muted">of 22 days</span></span>
+        <span>Agent requests <b>4,120</b> <span class="muted">(720 on-demand)</span></span>
+        <span>Lines kept <b>12,300</b> <span class="muted">94% of suggested</span></span>
+        <span>Allowance used <b>$20</b> <span class="muted">by 9 Oct</span></span>
+        <span>Model <b>Claude Sonnet 4.5</b></span>
+      </div>
+      <div class="row muted"><span>Claude Team</span><span>$212</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="mockup">
+    <div class="mockup-header">Cursor page additions (same in both options) · October 2026</div>
+    <div class="mockup-body">
+      <div class="tiles">
+        <div class="tile"><div class="small">People active</div><div class="big">52 <span class="small">of 64 seats</span></div><div class="small">12 seats unused all month</div></div>
+        <div class="tile"><div class="small">Agent requests</div><div class="big">157,000</div><div class="small">136,000 included · 21,000 on-demand</div></div>
+        <div class="tile"><div class="small">Lines of code kept</div><div class="big">478,000</div><div class="small">95% of suggested</div></div>
+        <div class="tile"><div class="small">Active days per person</div><div class="big">16 <span class="small">median</span></div><div class="small">of 22 working days</div></div>
+      </div>
+      <div class="two">
+        <div>
+          <div class="label">Most active people · agent requests</div>
+          <div class="row"><span><span class="bar" style="width:140px"></span>Tom Okafor</span><span>9,800 <span class="muted">· $1,031 on-demand</span></span></div>
+          <div class="row"><span><span class="bar" style="width:96px"></span>Priya Nair</span><span>6,700 <span class="muted">· $0</span></span></div>
+          <div class="row"><span><span class="bar" style="width:80px"></span>Lena Fischer</span><span>5,600 <span class="muted">· $542</span></span></div>
+          <div class="row muted"><span>… 49 more</span><span></span></div>
+        </div>
+        <div>
+          <div class="label">Seats with little or no use</div>
+          <div class="row"><span>Alex Moreau</span><span class="muted">0 active days · $40 seat</span></div>
+          <div class="row"><span>Dana Weiss</span><span class="muted">0 active days · $40 seat</span></div>
+          <div class="row"><span>Omar Haddad</span><span class="muted">1 active day · $40 seat</span></div>
+          <div class="row muted"><span>… 9 more · $480 a month in unused seats</span><span></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle">Pick A or B for the person page, and tell me in the terminal what's wrong or missing on either page.</p>

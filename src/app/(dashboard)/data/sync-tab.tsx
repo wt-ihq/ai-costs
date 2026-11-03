@@ -2,6 +2,7 @@ import { Panel } from "@/components/ui";
 import { SyncControls } from "@/components/sync-controls";
 import { ClaudeRebuild } from "@/components/claude-rebuild";
 import { CursorRebuild } from "@/components/cursor-rebuild";
+import { CursorUsageRebuild } from "@/components/cursor-usage-rebuild";
 
 /** On-demand sync trigger + backfill window controls, and the Cursor and Claude Team history rebuilds (admin). */
 export function SyncTab() {
@@ -21,6 +22,13 @@ export function SyncTab() {
           Use it to correct history after a change to how Cursor spend is counted. A busy month can take a few minutes.
         </p>
         <CursorRebuild />
+      </Panel>
+      <Panel>
+        <h2 className="mb-1 text-sm font-medium">Rebuild Cursor usage</h2>
+        <p className="mb-4 text-xs text-muted">
+          Re-reads one month of per-person daily usage (active days, agent requests, lines of code) from Cursor&rsquo;s API. Run it once for every month from July 2026 after this update; it&rsquo;s safe to run again.
+        </p>
+        <CursorUsageRebuild />
       </Panel>
       <Panel>
         <h2 className="mb-1 text-sm font-medium">Rebuild Claude Team spend</h2>
