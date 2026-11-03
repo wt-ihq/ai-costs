@@ -5,7 +5,27 @@ export interface UsageWeekDay { day: string; inMonth: boolean; active: boolean; 
 export interface UsageWeek { monday: string; days: UsageWeekDay[]; requests: number; onDemandUsd: number }
 export interface PersonMonthUsage { month: string; tiles: UsageTiles; weeks: UsageWeek[] }
 export interface PersonCursorUsageScope { rows: CursorUsageDay[]; facts: CursorFactLite[]; months: string[] } // months with rows, ascending
-export interface TeamCursorUsageScope { rows: CursorUsageDay[]; facts: CursorFactLite[]; people: { employeeId: string; name: string; department: string | null; href: string }[] }
+/**
+ * One person's Cursor month, summed in the reader (shape.ts:aggregateTeamMonths) so the cached team scope
+ * stays small: every daily row since July is megabytes, past unstable_cache's entry cap. `employeeId` null
+ * is the month's usage rows matched to nobody (they still count in the team totals).
+ */
+export interface TeamPersonMonth {
+  month: string; // "2026-10"
+  employeeId: string | null;
+  usageDays: number; // cursor_daily_usage rows; 0 = seat/on-demand facts only
+  activeDays: number;
+  agentRequests: number;
+  includedReqs: number;
+  onDemandReqs: number;
+  linesKept: number;
+  linesSuggested: number;
+  hasSeat: boolean; // any seat fact that month, even a $0 one (Free)
+  seatUsd: number;
+  onDemandUsd: number;
+}
+/** Ordered by each (person, month)'s first usage row (day, id), then fact-only entries: teamMonthUsage's ties follow it. */
+export interface TeamCursorUsageScope { months: TeamPersonMonth[]; people: { employeeId: string; name: string; department: string | null; href: string }[] }
 export interface TeamMonthUsage {
   month: string;
   tiles: { peopleActive: number; seats: number; unusedSeats: number; agentRequests: number; includedReqs: number; onDemandReqs: number; linesKept: number; keptShare: number | null; medianActiveDays: number; workingDays: number };

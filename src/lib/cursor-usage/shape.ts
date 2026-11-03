@@ -1,4 +1,4 @@
-import type { PersonCursorUsageScope, PersonMonthUsage, TeamCursorUsageScope, TeamMonthUsage, UsageWeek } from "./types";
+import type { CursorFactLite, CursorUsageDay, PersonCursorUsageScope, PersonMonthUsage, TeamCursorUsageScope, TeamMonthUsage, TeamPersonMonth, UsageWeek } from "./types";
 
 const DAY_MS = 86_400_000;
 const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
@@ -96,59 +96,84 @@ const median = (xs: number[]) => {
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 };
 
-/** One month of team-wide Cursor usage (admin view), or null when there are no rows in it. */
-export function teamMonthUsage(scope: TeamCursorUsageScope, month: string): TeamMonthUsage | null {
-  const rows = scope.rows.filter((r) => r.day.startsWith(month));
-  if (rows.length === 0) return null;
-  const facts = scope.facts.filter((f) => f.day.startsWith(month) && f.employeeId);
-  const byId = new Map(scope.people.map((p) => [p.employeeId, p]));
-
-  const activeDays = new Map<string, number>();
-  const requests = new Map<string, number>();
+/**
+ * Sum daily usage rows and Cursor seat/on-demand facts per (person, month) for the cached team scope.
+ * Usage rows first, in the order given (the reader's day, id), so each entry sits at its first usage
+ * row; facts of people with no usage that month come after. Facts without a person are ignored.
+ */
+export function aggregateTeamMonths(rows: CursorUsageDay[], facts: CursorFactLite[]): TeamPersonMonth[] {
+  const out = new Map<string, TeamPersonMonth>();
+  const entry = (month: string, employeeId: string | null) => {
+    const key = `${month}|${employeeId ?? ""}`;
+    let e = out.get(key);
+    if (!e) {
+      e = { month, employeeId, usageDays: 0, activeDays: 0, agentRequests: 0, includedReqs: 0, onDemandReqs: 0, linesKept: 0, linesSuggested: 0, hasSeat: false, seatUsd: 0, onDemandUsd: 0 };
+      out.set(key, e);
+    }
+    return e;
+  };
   for (const r of rows) {
-    if (!r.employeeId) continue;
-    if (r.isActive) activeDays.set(r.employeeId, (activeDays.get(r.employeeId) ?? 0) + 1);
-    requests.set(r.employeeId, (requests.get(r.employeeId) ?? 0) + r.agentRequests);
+    const e = entry(r.day.slice(0, 7), r.employeeId);
+    e.usageDays++;
+    if (r.isActive) e.activeDays++;
+    e.agentRequests += r.agentRequests;
+    e.includedReqs += r.includedReqs;
+    e.onDemandReqs += r.onDemandReqs;
+    e.linesKept += r.acceptedLinesAdded + r.acceptedLinesDeleted;
+    e.linesSuggested += r.linesAdded + r.linesDeleted;
   }
-  const seatUsd = new Map<string, number>();
-  const onDemandUsd = new Map<string, number>();
   for (const f of facts) {
-    const m = f.costType === "seat" ? seatUsd : onDemandUsd;
-    m.set(f.employeeId!, (m.get(f.employeeId!) ?? 0) + f.costUsd);
+    if (!f.employeeId) continue;
+    const e = entry(f.day.slice(0, 7), f.employeeId);
+    if (f.costType === "seat") {
+      e.hasSeat = true;
+      e.seatUsd += f.costUsd;
+    } else e.onDemandUsd += f.costUsd;
   }
+  return [...out.values()];
+}
 
-  const seatHolders = [...seatUsd.keys()].filter((id) => byId.has(id));
-  const days = (id: string) => activeDays.get(id) ?? 0;
+/** One month of team-wide Cursor usage (admin view), or null when there are no usage rows in it. */
+export function teamMonthUsage(scope: TeamCursorUsageScope, month: string): TeamMonthUsage | null {
+  const entries = scope.months.filter((m) => m.month === month);
+  const withUsage = entries.filter((m) => m.usageDays > 0);
+  if (withUsage.length === 0) return null;
+  const byId = new Map(scope.people.map((p) => [p.employeeId, p]));
+  const of = new Map(entries.flatMap((m) => (m.employeeId ? [[m.employeeId, m] as const] : [])));
+
+  const seatHolders = entries.filter((m) => m.employeeId && m.hasSeat && byId.has(m.employeeId)).map((m) => m.employeeId!);
+  const days = (id: string) => of.get(id)?.activeDays ?? 0;
   const unused = seatHolders.filter((id) => days(id) === 0);
   const little = seatHolders
     .filter((id) => days(id) <= 1)
     .sort((a, b) => days(a) - days(b) || byId.get(a)!.name.localeCompare(byId.get(b)!.name));
-  const linesSuggested = sum(rows.map((r) => r.linesAdded + r.linesDeleted));
-  const linesKept = sum(rows.map((r) => r.acceptedLinesAdded + r.acceptedLinesDeleted));
+  const people = withUsage.filter((m) => m.employeeId); // people with usage rows this month
+  const linesSuggested = sum(withUsage.map((m) => m.linesSuggested));
+  const linesKept = sum(withUsage.map((m) => m.linesKept));
   // Median over seat holders (so unused seats count as 0); fall back to people with rows when seats are unknown.
-  const medianBase = seatHolders.length ? seatHolders : [...requests.keys()];
+  const medianBase = seatHolders.length ? seatHolders : people.map((m) => m.employeeId!);
 
   return {
     month,
     tiles: {
-      peopleActive: [...activeDays.keys()].length,
+      peopleActive: people.filter((m) => m.activeDays > 0).length,
       seats: seatHolders.length,
       unusedSeats: unused.length,
-      agentRequests: sum(rows.map((r) => r.agentRequests)),
-      includedReqs: sum(rows.map((r) => r.includedReqs)),
-      onDemandReqs: sum(rows.map((r) => r.onDemandReqs)),
+      agentRequests: sum(withUsage.map((m) => m.agentRequests)),
+      includedReqs: sum(withUsage.map((m) => m.includedReqs)),
+      onDemandReqs: sum(withUsage.map((m) => m.onDemandReqs)),
       linesKept,
       keptShare: linesSuggested ? linesKept / linesSuggested : null,
       medianActiveDays: median(medianBase.map(days)),
       workingDays: workingDaysIn(month),
     },
-    mostActive: [...requests.entries()]
-      .filter(([id]) => byId.has(id))
-      .sort((a, b) => b[1] - a[1])
+    mostActive: people
+      .filter((m) => byId.has(m.employeeId!))
+      .sort((a, b) => b.agentRequests - a.agentRequests)
       .slice(0, 10)
-      .map(([id, agentRequests]) => ({ employeeId: id, name: byId.get(id)!.name, href: byId.get(id)!.href, agentRequests, onDemandUsd: onDemandUsd.get(id) ?? 0 })),
-    littleUse: little.slice(0, 10).map((id) => ({ employeeId: id, name: byId.get(id)!.name, href: byId.get(id)!.href, activeDays: days(id), seatUsd: seatUsd.get(id) ?? 0 })),
+      .map((m) => ({ employeeId: m.employeeId!, name: byId.get(m.employeeId!)!.name, href: byId.get(m.employeeId!)!.href, agentRequests: m.agentRequests, onDemandUsd: m.onDemandUsd })),
+    littleUse: little.slice(0, 10).map((id) => ({ employeeId: id, name: byId.get(id)!.name, href: byId.get(id)!.href, activeDays: days(id), seatUsd: of.get(id)?.seatUsd ?? 0 })),
     littleUseMore: Math.max(0, little.length - 10),
-    unusedSeatsUsd: sum(unused.map((id) => seatUsd.get(id) ?? 0)),
+    unusedSeatsUsd: sum(unused.map((id) => of.get(id)?.seatUsd ?? 0)),
   };
 }

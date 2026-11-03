@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CursorFactLite, CursorUsageDay, PersonCursorUsageScope, TeamCursorUsageScope } from "@/lib/cursor-usage/types";
 import { earliestFactDay, fetchEmployeesAll } from "@/lib/queries/common";
 import { personHref } from "@/lib/notify/digest";
+import { aggregateTeamMonths } from "@/lib/cursor-usage/shape";
 
 const PAGE = 1000;
 
@@ -81,10 +82,15 @@ export async function getPersonCursorUsageScope(supabase: SupabaseClient, employ
   return { rows, facts, months };
 }
 
-/** Everyone's Cursor daily usage rows plus Cursor seat/overage facts, bounded to the months with usage data (admin-only view). */
+/**
+ * Everyone's Cursor usage and Cursor seat/overage spend per (person, month), from the first month with
+ * usage data (admin-only view). Reads every daily row and fact since then (~2k usage rows a month) but
+ * returns only the per-person-month sums: the raw rows are ~0.6 MB a month and unstable_cache silently
+ * skips entries over its size cap, so caching them would mean a full re-read on every Cursor page load.
+ */
 export async function getTeamCursorUsageScope(supabase: SupabaseClient): Promise<TeamCursorUsageScope> {
   const earliest = await earliestFactDay(supabase, "cursor_daily_usage");
-  if (!earliest) return { rows: [], facts: [], people: [] };
+  if (!earliest) return { months: [], people: [] };
   const from = `${earliest.slice(0, 7)}-01`;
   const [usageRaw, factsRaw, employees] = await Promise.all([
     fetchAll("getTeamCursorUsageScope(usage)", (lo, hi, withCount) =>
@@ -110,16 +116,13 @@ export async function getTeamCursorUsageScope(supabase: SupabaseClient): Promise
     ),
     fetchEmployeesAll(supabase, "id, full_name, department"),
   ]);
-  const rows = usageRaw.map(toUsageDay);
-  const facts = factsRaw.map(toFactLite);
-  const wanted = new Set<string>();
-  for (const r of rows) if (r.employeeId) wanted.add(r.employeeId);
-  for (const f of facts) if (f.employeeId) wanted.add(f.employeeId);
+  const months = aggregateTeamMonths(usageRaw.map(toUsageDay), factsRaw.map(toFactLite));
+  const wanted = new Set(months.flatMap((m) => (m.employeeId ? [m.employeeId] : [])));
   const people = employees
     .filter((e) => wanted.has(e.id as string))
     .map((e) => {
       const department = (e.department as string | null) ?? null;
       return { employeeId: e.id as string, name: (e.full_name as string) ?? "Unknown", department, href: personHref("", { id: e.id as string, department }) };
     });
-  return { rows, facts, people };
+  return { months, people };
 }
