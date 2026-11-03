@@ -62,6 +62,8 @@ export interface NotificationsAdminData {
   opens: { sent: number; opened: number };
   reminderRecipients: ReminderRecipientRow[];
   reminderPeople: PersonOption[]; // active, not on the reminder list: its add-a-person picker
+  recommendationRecipients: ReminderRecipientRow[];
+  recommendationPeople: PersonOption[]; // active, not on the recommendations list
   /** The mode in force (mode-store.ts), and whether it was chosen on this page or comes from the Vercel variable. */
   mode: NotifyMode;
   modeSource: "page" | "env";
@@ -148,7 +150,7 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
   const opensSince = new Date(Date.now() - OPEN_RATE_DAYS * 86_400_000).toISOString();
   const [stored, monthlyFrom] = await Promise.all([readStoredMode(supabase), readMonthlyFrom(supabase)]);
   const mode = resolveNotifyMode(stored, process.env);
-  const [subs, companyRows, lastSent, empRows, slackRows, sendRes, fixedCosts, recentSent, reminderRows, digests] = await Promise.all([
+  const [subs, companyRows, lastSent, empRows, slackRows, sendRes, fixedCosts, recentSent, reminderRows, recommendationRows, digests] = await Promise.all([
     subsP,
     companyP,
     subsP.then((rows) => loadLastSent(supabase, [...new Set(rows.map((r) => r.employee_id))])),
@@ -168,6 +170,10 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
     pageAll<{ employee_id: string }>(
       (a, b) => supabase.from("notification_reminder_recipients").select("employee_id").order("employee_id").range(a, b),
       "notification_reminder_recipients",
+    ),
+    pageAll<{ employee_id: string }>(
+      (a, b) => supabase.from("notification_recommendation_recipients").select("employee_id").order("employee_id").range(a, b),
+      "notification_recommendation_recipients",
     ),
     loadDigests(supabase, new Date(), mode, monthlyFrom),
   ]);
@@ -211,6 +217,14 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
     })
     .sort((a, b) => a.name.localeCompare(b.name));
 
+  const recommendationSet = new Set(recommendationRows.map((r) => r.employee_id));
+  const recommendationRecipients: ReminderRecipientRow[] = [...recommendationSet]
+    .map((id) => {
+      const e = byId.get(id);
+      return { employeeId: id, name: e?.fullName ?? "Unknown", team: e?.department ?? null, slack: slackStatus(id), left: e ? !isActiveEmployee(e) : true };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
   const companyRecipients: CompanyRecipientRow[] = [...companyBy].map(([id, cadences]): CompanyRecipientRow => {
     const e = byId.get(id);
     return { employeeId: id, name: e?.fullName ?? "Unknown", team: e?.department ?? null, cadences, slack: slackStatus(id), left: e ? !isActiveEmployee(e) : true };
@@ -240,6 +254,8 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
     opens: openRate(recentSent),
     reminderRecipients,
     reminderPeople: activePeople.filter((p) => !reminderSet.has(p.id)),
+    recommendationRecipients,
+    recommendationPeople: activePeople.filter((p) => !recommendationSet.has(p.id)),
     mode,
     modeSource: stored !== null && stored === mode ? "page" : "env",
     monthlyFrom,
@@ -365,4 +381,18 @@ export async function removeAllSubscriptions(supabase: SupabaseClient, report: R
   const { data, error } = await supabase.from(RECIPIENT_TABLE[report]).delete().neq("cadence", "").select("employee_id");
   if (error) throw new Error(`removeAllSubscriptions: ${error.message}`);
   return data?.length ?? 0;
+}
+
+export async function addRecommendationRecipients(supabase: SupabaseClient, employeeIds: string[], createdBy: string): Promise<number> {
+  const { data, error } = await supabase
+    .from("notification_recommendation_recipients")
+    .upsert(employeeIds.map((employee_id) => ({ employee_id, created_by: createdBy })), { onConflict: "employee_id", ignoreDuplicates: true })
+    .select("employee_id");
+  if (error) throw new Error(`addRecommendationRecipients: ${error.message}`);
+  return data?.length ?? 0;
+}
+
+export async function removeRecommendationRecipient(supabase: SupabaseClient, employeeId: string): Promise<void> {
+  const { error } = await supabase.from("notification_recommendation_recipients").delete().eq("employee_id", employeeId);
+  if (error) throw new Error(`removeRecommendationRecipient: ${error.message}`);
 }
