@@ -105,7 +105,7 @@ export function memoryStore(seed: MemorySeed = {}, clock: () => number = Date.no
       if (seed.everLiveFails) throw new Error("notification_sends: simulated outage");
       return new Set(
         sends
-          .filter((s) => s.mode === "live" && s.report !== "reminder" && ids.includes(s.employeeId) && (s.status === "sent" || s.status === "pending" || s.detail === "interrupted"))
+          .filter((s) => s.mode === "live" && (s.report === "personal" || s.report === "company") && ids.includes(s.employeeId) && (s.status === "sent" || s.status === "pending" || s.detail === "interrupted"))
           .map((s) => s.employeeId),
       );
     },

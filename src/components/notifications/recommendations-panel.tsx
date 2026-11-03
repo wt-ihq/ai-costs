@@ -16,10 +16,10 @@ export interface RecommendationsStatus {
   sent: number;
 }
 
-/** What a run did, in a line. A Sunday run is held as a window mismatch: the message is not available until Monday. */
+/** What a run did, in a line. */
 function describe(r: RunRecommendationsResult): string {
   if (r.error) return `Stopped: ${r.error}`;
-  if (r.held) return r.held === "data window mismatch" ? "Available from Monday" : `Held: ${r.held}`;
+  if (r.held) return `Held: ${r.held}`;
   const parts = [`${r.sent} sent`];
   if (r.alreadyHandled) parts.push(`${r.alreadyHandled} already had it`);
   if (r.failed) parts.push(`${r.failed} failed`);

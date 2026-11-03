@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { RecommendationsData } from "@/lib/recommendations/load";
 import { latestSunday } from "@/lib/recommendations/rule";
+import type { SyncRunRow } from "./freshness";
 import { memoryStore, type MemorySeed } from "./memory-store";
+import type { ManualImportRow } from "./readiness";
 import { runRecommendations, type RecommendationsRunDeps } from "./run-recommendations";
 import type { SlackClient } from "./slack-client";
 import type { NotifyEmployee } from "./types";
@@ -21,34 +23,40 @@ function fakeSlack(tz = "Europe/London") {
   };
   return { client, posts };
 }
-const data = (sunday: string, ready = true): RecommendationsData => ({
+const data = (sunday: string): RecommendationsData => ({
   sunday,
   weeks: [],
   tools: [{
-    tool: "cursor", stepUpUsd: 80, premiumCount: 0, totalSavingUsd: 120,
+    tool: "cursor", stepUpUsd: 80, premiumCount: 0, totalSavingUsd: 120, noRoster: false, pricesMissing: false,
     rows: [{ employeeId: "e1", name: "Tom Okafor", department: "Eng", tierUnknown: false, extraUsd: 200, savingUsd: 120, weeks: [], pattern: "steady", newThisWeek: false }],
   }],
-  readiness: ready ? { ready: true, outstanding: [] } : { ready: false, outstanding: [{ kind: "claudeSpend", asOf: "2026-11-01" }, { kind: "sync", source: "cursor", lastSuccessDay: "2026-11-05" }] },
+  readiness: { ready: true, outstanding: [] }, // the page's; the run reads readiness from the store
   rosterAsOf: { cursor: "2026-11-02" },
   cursorRosterStale: false,
   departments: ["Eng"],
   updatedAt: "2026-11-09T09:00:00Z",
 });
 /** A loader stub serving the week ending the Sunday before `now`, as loadRecommendations does; records its calls. */
-function loader(ready = true) {
+function loader() {
   const calls: Date[] = [];
   const loadData = async (now: Date) => {
     calls.push(now);
-    return data(latestSunday(now), ready);
+    return data(latestSunday(now));
   };
   return { loadData, calls };
 }
+const ok = (source: string, startedAt: string): SyncRunRow => ({ source, status: "success", startedAt });
+const paste = (dataAsOf: string): ManualImportRow => ({ source: "claude_team", kind: "clipboard", dataAsOf });
+/** Ready for 2026-W45 (2–8 Nov): Cursor synced on Mon 9 Nov; no manual import in use. */
 const seed = (over: MemorySeed = {}): MemorySeed => ({
   employees: [emp("g"), emp("m"), emp("left", { leaveDate: "2026-10-01" })],
   recommendationRecipients: ["g", "left"],
   dashboardAccess: ["g@x.com"],
+  syncRuns: [ok("cursor", "2026-11-09T06:00:00Z")],
   ...over,
 });
+/** 2026-W45 not ready: Cursor last synced Thu 5 Nov, Claude Team pasted as of Sun 1 Nov. */
+const unready = (over: MemorySeed = {}): MemorySeed => seed({ syncRuns: [ok("cursor", "2026-11-05T06:00:00Z")], manualImports: [paste("2026-11-01")], ...over });
 const deps = (store: ReturnType<typeof memoryStore>, slack: SlackClient, loadData: RecommendationsRunDeps["loadData"], over: Partial<RecommendationsRunDeps> = {}): RecommendationsRunDeps => {
   const now = over.now ?? MON;
   return {
@@ -85,18 +93,25 @@ describe("runRecommendations", () => {
     expect(calls).toHaveLength(0); // nothing loaded when nobody is due
   });
 
-  it("an unready week is never claimed; the next Monday moves on", async () => {
+  it("an unready week is never claimed, nor its data loaded; the next Monday moves on", async () => {
     const fri = new Date("2026-11-13T10:45:00Z");
-    const store = memoryStore(seed(), () => fri.getTime());
+    const s = unready();
+    const store = memoryStore(s, () => fri.getTime());
     const slack = fakeSlack();
-    expect(await runRecommendations(deps(store, slack.client, loader(false).loadData, { now: fri }))).toMatchObject({
-      periodKey: "2026-W45", sent: 0, failed: 0, held: "Claude Team (pasted as of 1 Nov) · Cursor sync",
+    const { loadData, calls } = loader();
+    expect(await runRecommendations(deps(store, slack.client, loadData, { now: fri }))).toMatchObject({
+      periodKey: "2026-W45", sent: 0, failed: 0, held: "Cursor sync · Claude Team (pasted as of 1 Nov)",
     });
+    expect(calls).toHaveLength(0); // readiness is decided before the heavy load
     expect(store.sends).toHaveLength(0);
     expect(slack.posts).toHaveLength(0);
 
+    // By the next Monday, 2026-W46 (9–15 Nov) has its Cursor sync and Sunday's paste.
+    s.syncRuns!.push(ok("cursor", "2026-11-16T06:00:00Z"));
+    s.manualImports!.push(paste("2026-11-15"));
     const nextMon = new Date("2026-11-16T10:45:00Z");
-    expect(await runRecommendations(deps(store, slack.client, loader().loadData, { now: nextMon }))).toMatchObject({ periodKey: "2026-W46", sent: 1, held: null });
+    expect(await runRecommendations(deps(store, slack.client, loadData, { now: nextMon }))).toMatchObject({ periodKey: "2026-W46", sent: 1, held: null });
+    expect(calls).toEqual([nextMon]);
     expect(store.sends).toHaveLength(1);
     expect(store.sends[0]).toMatchObject({ employeeId: "g", periodKey: "2026-W46", report: "recommendations", status: "sent" });
   });
@@ -114,15 +129,15 @@ describe("runRecommendations", () => {
 
   it("only: sends now for the given week and people, forced past readiness", async () => {
     const sat = new Date("2026-11-14T08:00:00Z"); // a Saturday morning: Send now doesn't wait
-    const store = memoryStore(seed({ recommendationRecipients: ["g", "m"] }), () => sat.getTime());
+    const store = memoryStore(unready({ recommendationRecipients: ["g", "m"] }), () => sat.getTime());
     const slack = fakeSlack();
     const only = { periodKey: "2026-W45", employeeIds: ["m"] };
-    expect(await runRecommendations(deps(store, slack.client, loader(false).loadData, { now: sat, only }))).toMatchObject({
-      periodKey: "2026-W45", sent: 0, held: "Claude Team (pasted as of 1 Nov) · Cursor sync",
+    expect(await runRecommendations(deps(store, slack.client, loader().loadData, { now: sat, only }))).toMatchObject({
+      periodKey: "2026-W45", sent: 0, held: "Cursor sync · Claude Team (pasted as of 1 Nov)",
     });
     expect(store.sends).toHaveLength(0);
 
-    expect(await runRecommendations(deps(store, slack.client, loader(false).loadData, { now: sat, only: { ...only, force: true } }))).toMatchObject({
+    expect(await runRecommendations(deps(store, slack.client, loader().loadData, { now: sat, only: { ...only, force: true } }))).toMatchObject({
       periodKey: "2026-W45", sent: 1, waiting: 0, held: null,
     });
     expect(slack.posts.map((p) => p.channel)).toEqual(["D-U-m"]);
@@ -145,6 +160,13 @@ describe("runRecommendations", () => {
     expect(slack.posts[0].channel).toBe("D-U-p");
     expect(slack.posts[0].text.startsWith("[Preview for Person g] ")).toBe(true);
     expect(store.sends[0]).toMatchObject({ employeeId: "g", mode: "preview", report: "recommendations", dashboardLink: true });
+  });
+
+  it("a recommendations send doesn't use up someone's first-message intro", async () => {
+    const store = memoryStore(seed(), () => MON.getTime());
+    expect(await runRecommendations(deps(store, fakeSlack().client, loader().loadData))).toMatchObject({ sent: 1 });
+    expect(store.sends[0]).toMatchObject({ employeeId: "g", mode: "live", report: "recommendations", status: "sent" });
+    expect(await store.everLive(["g"])).toEqual(new Set()); // like store.ts: personal and company sends only
   });
 
   it("loader failure is contained", async () => {

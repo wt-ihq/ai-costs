@@ -12,6 +12,7 @@ import {
   type RecSpend,
   type RecTier,
   type RecTool,
+  type RecToolInput,
   type RecToolResult,
   type RecUsage,
   type RecWeek,
@@ -42,7 +43,8 @@ export function latestTierByEmployee(
   for (const r of rows) {
     if (r.periodStart > month) continue;
     const cur = best.get(r.employeeId);
-    if (!cur || r.periodStart > cur.periodStart) best.set(r.employeeId, r);
+    // Two tiers in one month: the alphabetically first wins, whatever order the rows arrive in.
+    if (!cur || r.periodStart > cur.periodStart || (r.periodStart === cur.periodStart && r.seatType < cur.seatType)) best.set(r.employeeId, r);
   }
   const KNOWN = new Set(["premium", "standard", "free", "unassigned"]);
   const out = new Map<string, RecTier>();
@@ -54,9 +56,41 @@ export function isRosterStale(asOf: string | undefined, sunday: string): boolean
   return !asOf || asOf < addDays(sunday, -ROSTER_STALE_DAYS);
 }
 
+/**
+ * The data as a viewer gets it: spend stays, the Cursor activity figures (requests, active days) in the
+ * week bars' hover go. Spec "Who may see Cursor activity": activity of named people is admin-only.
+ */
+export function withoutCursorActivity(data: RecommendationsData): RecommendationsData {
+  return {
+    ...data,
+    tools: data.tools.map((t) => ({ ...t, rows: t.rows.map((r) => ({ ...r, weeks: r.weeks.map((c) => ({ ...c, requests: null, activeDays: null })) })) })),
+  };
+}
+
+/** No roster uploaded for the tool: every tier is unknown, so it lists nobody and counts nothing. */
+export function gateByRoster(result: RecToolResult, hasRoster: boolean): RecToolResult {
+  return hasRoster ? result : { ...result, rows: [], totalSavingUsd: 0, premiumCount: 0, noRoster: true };
+}
+
+/**
+ * One tool's result. A step up of zero or less (Premium not dearer than Standard in seat_prices) would
+ * flag every spender, so the rule is not run and the tool says its prices are missing; without a
+ * roster it lists nobody (gateByRoster).
+ */
+export function recommendTool(input: RecToolInput, sunday: string, hasRoster: boolean): RecToolResult {
+  const result: RecToolResult =
+    input.stepUpUsd <= 0
+      ? { tool: input.tool, stepUpUsd: input.stepUpUsd, rows: [], premiumCount: 0, totalSavingUsd: 0, noRoster: false, pricesMissing: true }
+      : recommend(input, sunday);
+  return gateByRoster(result, hasRoster);
+}
+
 export async function loadRecommendations(supabase: SupabaseClient, now: Date): Promise<RecommendationsData> {
   const sunday = latestSunday(now);
-  const month = sunday.slice(0, 7) + "-01";
+  const month = sunday.slice(0, 7) + "-01"; // the step up is priced at the window's month
+  // Tiers are today's: a roster uploaded this month (say on 2 Nov, for a window ending Sun 1 Nov)
+  // is what the recommendation acts on, and a Premium upgrade made since must stop the listing.
+  const tierMonth = now.toISOString().slice(0, 7) + "-01";
   const from = weeksEnding(addDays(sunday, -7), 4)[0].from; // 35 days ending sunday inclusive
   const toExclusive = addDays(sunday, 1);
 
@@ -99,21 +133,21 @@ export async function loadRecommendations(supabase: SupabaseClient, now: Date): 
       defaultSeatPrice(supabase, tool, "standard", month),
     ]);
 
-    const assignments = await pageAll<{ employee_id: string; seat_type: string; period_start: string }>(
+    const assignments = await pageAll<{ employee_id: string | null; seat_type: string; period_start: string }>(
       (a, b) =>
         supabase
           .from("seat_assignments")
           .select("employee_id, seat_type, period_start")
           .eq("vendor", tool)
-          .order("employee_id")
-          .order("period_start")
-          .order("seat_type")
+          .order("id") // unique: employee_id is nullable, so (employee_id, period_start, seat_type) is not
           .range(a, b),
       `seat_assignments ${tool}`,
     );
     const tiers = latestTierByEmployee(
-      assignments.map((r) => ({ employeeId: r.employee_id, seatType: r.seat_type, periodStart: r.period_start })),
-      month,
+      assignments
+        .filter((r): r is typeof r & { employee_id: string } => !!r.employee_id) // an unmatched roster row is nobody's tier
+        .map((r) => ({ employeeId: r.employee_id, seatType: r.seat_type, periodStart: r.period_start })),
+      tierMonth,
     );
 
     const factRows = await pageAll<{ day: string; employee_id: string; cost_usd: number | string }>(
@@ -166,7 +200,7 @@ export async function loadRecommendations(supabase: SupabaseClient, now: Date): 
       });
     }
 
-    tools.push(recommend({ tool, stepUpUsd: premium - standard, candidates, spend, usage }, sunday));
+    tools.push(recommendTool({ tool, stepUpUsd: premium - standard, candidates, spend, usage }, sunday, !!rosterAsOf[tool]));
   }
 
   const departments = [...new Set(tools.flatMap((t) => t.rows.map((r) => r.department)).filter((d): d is string => !!d))].sort();

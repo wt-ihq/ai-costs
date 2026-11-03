@@ -82,10 +82,17 @@ export function weekReadiness({ week, syncRuns, imports }: { week: { from: strin
  * Readiness for the weekly Premium-recommendations message. Narrower than `weekReadiness`: that
  * message reads only Cursor on-demand spend, Claude Team spend and ChatGPT credits, so a stale
  * OpenAI, Anthropic, Vercel or OpenRouter sync (OpenAI's nightly run was refused for weeks in
- * autumn 2026) must not hold it. Only the Cursor sync and the two imports are required.
+ * autumn 2026) must not hold it. Only the Cursor sync and the two imports are required — Cursor
+ * always, even when `syncsOutstanding` would call it "not in use" (no success in 14 days): a Cursor
+ * sync failing for a fortnight must hold the message, not let it go out on no Cursor data.
  */
 export function recommendationsReadiness(args: Parameters<typeof weekReadiness>[0]): Readiness {
   const outstanding = weekReadiness(args).outstanding.filter((o) => o.kind !== "sync" || o.source === "cursor");
+  const cursorSince = args.syncRuns.some((r) => r.source === "cursor" && r.status === "success" && r.startedAt.slice(0, 10) >= args.week.toExclusive);
+  if (!cursorSince && !outstanding.some((o) => o.kind === "sync" && o.source === "cursor")) {
+    const days = args.syncRuns.filter((r) => r.source === "cursor" && r.status === "success").map((r) => r.startedAt.slice(0, 10));
+    outstanding.unshift({ kind: "sync", source: "cursor", lastSuccessDay: days.length ? days.reduce((a, b) => (b > a ? b : a)) : null });
+  }
   return { ready: outstanding.length === 0, outstanding };
 }
 

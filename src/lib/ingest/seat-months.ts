@@ -192,6 +192,9 @@ export const SEAT_PRICE_FALLBACK: Record<string, number> = {
   "chatgpt_business:premium": 125,
   "claude_team:standard": 19.05,
   "claude_team:premium": 95.25,
+  "cursor:standard": 40,
+  "cursor:premium": 120,
+  "cursor:free": 0,
 };
 
 /**

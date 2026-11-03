@@ -1,6 +1,6 @@
 import type { RecommendationsData } from "@/lib/recommendations/load";
 import { deliverRendered, loadDashboardAccess, PostOutcomeUnknownError, resolveSlackUser, type SlackRecipient } from "./deliver";
-import { outstandingShort } from "./readiness";
+import { importsInUseSince, outstandingShort, readinessSyncSince, recommendationsReadiness } from "./readiness";
 import { renderRecommendations } from "./render-recommendations";
 import { claim, errorDetail, type RunNotifyDeps } from "./run-notify";
 import { latestCompleteKey, periodFor, sendDay, type DigestPeriod } from "./schedule";
@@ -95,17 +95,29 @@ async function recommend(deps: RecommendationsRunDeps, result: RunRecommendation
   });
   if (!open.length) return result;
 
-  // 3. The data, once. It serves only the week ending the Sunday before `now` (a ?date= replay or a
-  //    Send now for an older week can't be), and is sent only once that week is ready.
+  // 3. Is the week ready? Two small reads, BEFORE the heavy load: an unready week is held all day,
+  //    and the cron fires 24×/day. One period is checked: recipients due in the same run share the
+  //    week, and if they ever didn't, the data-window guard below holds the run.
+  const period = open[0].period;
+  if (!only?.force) {
+    const [syncRuns, imports] = await Promise.all([
+      store.recentSyncRuns(readinessSyncSince(now)),
+      store.manualImports(importsInUseSince(lastDayOf(period))),
+    ]);
+    const readiness = recommendationsReadiness({ week: { from: period.from, toExclusive: period.toExclusive }, syncRuns, imports });
+    if (!readiness.ready) {
+      result.held = readiness.outstanding.map(outstandingShort).join(" · ");
+      log(`[notify] recommendations held week=${result.periodKey}: ${result.held}`);
+      return result;
+    }
+  }
+
+  // 4. The data, once. It serves only the week ending the Sunday before `now` (a ?date= replay or a
+  //    Send now for an older week can't be).
   const data = await deps.loadData(now);
   if (open.some((w) => lastDayOf(w.period) !== data.sunday)) {
     result.held = "data window mismatch";
     log(`[notify] recommendations held week=${result.periodKey}: data is for the week to ${data.sunday}`);
-    return result;
-  }
-  if (!data.readiness.ready && !only?.force) {
-    result.held = data.readiness.outstanding.map(outstandingShort).join(" · ");
-    log(`[notify] recommendations held week=${result.periodKey}: ${result.held}`);
     return result;
   }
 

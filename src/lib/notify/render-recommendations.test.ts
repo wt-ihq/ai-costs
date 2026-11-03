@@ -13,7 +13,7 @@ const cursorRows = [
   ...Array.from({ length: 13 }, (_, i) => row(i + 2)),
 ];
 const tool = (t: RecToolResult["tool"], rows: RecRow[], stepUpUsd: number): RecToolResult => ({
-  tool: t, stepUpUsd, rows, premiumCount: 3, totalSavingUsd: rows.reduce((s, r) => s + r.savingUsd, 0),
+  tool: t, stepUpUsd, rows, premiumCount: 3, totalSavingUsd: rows.reduce((s, r) => s + r.savingUsd, 0), noRoster: false, pricesMissing: false,
 });
 const base: RecommendationsData = {
   sunday: "2026-11-08", weeks: [], readiness: { ready: true, outstanding: [] }, rosterAsOf: { cursor: "2026-11-03" },
@@ -49,11 +49,44 @@ describe("renderRecommendations", () => {
     expect(b.blocks.some((x) => x.type === "actions")).toBe(false);
   });
 
-  it("renders the two-block empty message", () => {
+  it("renders the empty message: header, the empty line and the roster context", () => {
     const empty = { ...base, tools: base.tools.map((t) => ({ ...t, rows: [], totalSavingUsd: 0 })) };
-    const r = renderRecommendations({ data: empty, dashboardUrl: "u", links: false });
-    expect(r.blocks).toHaveLength(2);
-    expect(text(r)).toContain("Nobody on a Standard seat is over the line this week");
+    const r = renderRecommendations({ data: empty, dashboardUrl: "u", links: true });
+    expect(r.blocks.map((b) => b.type)).toEqual(["header", "section", "context"]);
+    expect(r.blocks[1]).toMatchObject({ text: { text: "Nobody on a Standard seat is over the line this week" } });
+    expect(r.blocks[2]).toMatchObject({ elements: [{ text: "Seat tiers from the latest rosters (Cursor export 3 Nov)." }] });
+  });
+
+  it("an empty week still says the Cursor roster is stale or missing", () => {
+    const empty = { ...base, tools: base.tools.map((t) => ({ ...t, rows: [], totalSavingUsd: 0 })), cursorRosterStale: true };
+    const stale = renderRecommendations({ data: { ...empty, rosterAsOf: { cursor: "2026-09-01" } }, dashboardUrl: "u", links: false });
+    expect(stale.blocks).toHaveLength(3);
+    expect(stale.blocks[2]).toMatchObject({ type: "context", elements: [{ text: "Cursor seat tiers from 1 Sep — upload a newer members export." }] });
+    const none = renderRecommendations({ data: { ...empty, rosterAsOf: {} }, dashboardUrl: "u", links: false });
+    expect(none.blocks[2]).toMatchObject({ type: "context", elements: [{ text: "No Cursor members export uploaded yet." }] });
+  });
+
+  it("a tool with no roster says so and is left out of the totals", () => {
+    const noRoster: RecToolResult = { ...tool("cursor", [], 80), premiumCount: 0, noRoster: true };
+    const data = { ...base, rosterAsOf: {}, cursorRosterStale: true, tools: [noRoster, tool("claude_team", [row(20)], 100), tool("chatgpt_business", [], 30)] };
+    const r = renderRecommendations({ data, dashboardUrl: "u", links: false });
+    const s = text(r);
+    expect(s).toContain("*Cursor · no members export uploaded yet*");
+    expect(s).not.toContain("*Cursor · nobody over the line*");
+    expect(r.text).toBe("Premium seat recommendations: 1 person, $480 potential saving a month");
+    // Nobody listed anywhere: still not "nobody" for the tool whose tiers are unknown.
+    const empty = renderRecommendations({ data: { ...data, tools: [noRoster] }, dashboardUrl: "u", links: false });
+    expect(empty.blocks.map((b) => b.type)).toEqual(["header", "section", "section", "context"]);
+    expect(text(empty)).toContain("*Cursor · no members export uploaded yet*");
+  });
+
+  it("a tool whose seat prices are missing says so and is left out of the totals", () => {
+    const missing: RecToolResult = { ...tool("cursor", [], 0), premiumCount: 0, pricesMissing: true };
+    const r = renderRecommendations({ data: { ...base, tools: [missing, tool("claude_team", [row(20)], 100)] }, dashboardUrl: "u", links: false });
+    expect(text(r)).toContain("*Cursor · seat prices missing*");
+    expect(r.text).toBe("Premium seat recommendations: 1 person, $480 potential saving a month");
+    const empty = renderRecommendations({ data: { ...base, tools: [missing] }, dashboardUrl: "u", links: false });
+    expect(text(empty)).toContain("*Cursor · seat prices missing*");
   });
 
   it("warns when the Cursor roster is stale or missing", () => {

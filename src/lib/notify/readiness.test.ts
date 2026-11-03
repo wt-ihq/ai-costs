@@ -93,4 +93,24 @@ describe("recommendationsReadiness", () => {
     const r = recommendationsReadiness({ week: WEEK, syncRuns: runs, imports: [imp("claude_team", "clipboard", "2026-10-11")] });
     expect(r.outstanding).toEqual([{ kind: "claudeSpend", asOf: "2026-10-11" }]);
   });
+
+  it("always requires Cursor: no cursor runs at all is not ready, even when other sources make it look unused", () => {
+    const args = { week: WEEK, syncRuns: [ok("anthropic", "2026-10-19T06:00:00Z")], imports };
+    expect(weekReadiness(args).ready).toBe(true); // to weekReadiness, Cursor is "not in use"
+    const r = recommendationsReadiness(args);
+    expect(r.ready).toBe(false);
+    expect(r.outstanding).toEqual([{ kind: "sync", source: "cursor", lastSuccessDay: null }]);
+    expect(r.outstanding.map(outstandingShort)).toEqual(["Cursor sync"]);
+  });
+
+  it("names Cursor once when nothing synced at all", () => {
+    const r = recommendationsReadiness({ week: WEEK, syncRuns: [], imports });
+    expect(r.ready).toBe(false);
+    expect(r.outstanding).toEqual([{ kind: "sync", source: "cursor", lastSuccessDay: null }]);
+  });
+
+  it("a failed cursor run since the week ended still leaves Cursor outstanding", () => {
+    const r = recommendationsReadiness({ week: WEEK, syncRuns: [ok("anthropic", "2026-10-19T06:00:00Z"), bad("cursor", "2026-10-19T06:00:00Z")], imports });
+    expect(r.outstanding).toEqual([{ kind: "sync", source: "cursor", lastSuccessDay: null }]);
+  });
 });

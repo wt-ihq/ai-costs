@@ -54,6 +54,10 @@ export interface RecToolResult {
   rows: RecRow[];
   premiumCount: number;
   totalSavingUsd: number;
+  /** No roster uploaded for this tool: tiers are unknown, so nobody is listed (load.ts:gateByRoster). */
+  noRoster: boolean;
+  /** Premium is not dearer than Standard in seat_prices: the rule was not run (load.ts:gateByPrices). */
+  pricesMissing: boolean;
 }
 
 const DAY_MS = 86_400_000;
@@ -64,11 +68,14 @@ function addDays(day: string, n: number): string {
 
 const cents = (n: number) => Math.round(n * 100) / 100;
 
-/** The most recent Sunday (UTC) on or before `now`. */
+/**
+ * The latest complete Sunday (UTC): the Sunday before `now`. On a Sunday it is the Sunday a week
+ * earlier — today's week is still running — matching schedule.ts:latestCompleteKey("weekly").
+ */
 export function latestSunday(now: Date): string {
   const day = now.toISOString().slice(0, 10);
   const dow = new Date(`${day}T00:00:00Z`).getUTCDay(); // 0 = Sunday
-  return addDays(day, -dow);
+  return addDays(day, -(dow === 0 ? 7 : dow));
 }
 
 /** `count` Monday-to-Monday weeks ending on `sunday`, oldest first. */
@@ -173,5 +180,7 @@ export function recommend(input: RecToolInput, sunday: string): RecToolResult {
     rows,
     premiumCount,
     totalSavingUsd: cents(rows.reduce((a, r) => a + r.savingUsd, 0)),
+    noRoster: false,
+    pricesMissing: false,
   };
 }

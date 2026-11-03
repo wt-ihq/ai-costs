@@ -242,13 +242,14 @@ describe("upsertEmployees", () => {
  */
 function fakeOktaRemovalDb(
   rows: { id: string; okta_id: string | null }[],
-  opts: { referenced?: string[]; subscribed?: string[]; companyRecipients?: string[]; reminderRecipients?: string[] } = {},
+  opts: { referenced?: string[]; subscribed?: string[]; companyRecipients?: string[]; reminderRecipients?: string[]; recommendationRecipients?: string[] } = {},
 ) {
   const deleted: string[] = [];
   const lists: Record<string, string[]> = {
     notification_subscriptions: opts.subscribed ?? [],
     notification_company_recipients: opts.companyRecipients ?? [],
     notification_reminder_recipients: opts.reminderRecipients ?? [],
+    notification_recommendation_recipients: opts.recommendationRecipients ?? [],
   };
   const client = {
     from: (table: string) => ({
@@ -298,6 +299,12 @@ describe("removeOktaEmployees", () => {
   it("keeps anyone on the update-reminder list", async () => {
     const db = fakeOktaRemovalDb([{ id: "r", okta_id: "00ur" }, { id: "x", okta_id: "00ux" }], { reminderRecipients: ["r"] });
     expect(await removeOktaEmployees(db.client, ["00ur", "00ux"])).toEqual({ removed: 1, kept: ["00ur"] });
+    expect(db.deleted).toEqual(["x"]);
+  });
+
+  it("keeps anyone on the recommendations list", async () => {
+    const db = fakeOktaRemovalDb([{ id: "p", okta_id: "00up" }, { id: "x", okta_id: "00ux" }], { recommendationRecipients: ["p"] });
+    expect(await removeOktaEmployees(db.client, ["00up", "00ux"])).toEqual({ removed: 1, kept: ["00up"] });
     expect(db.deleted).toEqual(["x"]);
   });
 

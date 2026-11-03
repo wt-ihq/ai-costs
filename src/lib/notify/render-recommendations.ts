@@ -36,6 +36,9 @@ function item(r: RecRow): string {
 
 function toolSection(t: RecToolResult): SlackBlock {
   const label = toolLabel(t.tool);
+  // Neither lists anyone, so neither counts in the totals (rows and saving are empty: load.ts:recommendTool).
+  if (t.noRoster) return section(`*${label} · no ${t.tool === "cursor" ? "members export" : "roster"} uploaded yet*`);
+  if (t.pricesMissing) return section(`*${label} · seat prices missing*`);
   if (t.rows.length === 0) return section(`*${label} · nobody over the line*`);
   const heading = `*${label} · ${plural(t.rows.length, "person", "people")} · Standard → Premium is +${formatWholeUsd(t.stepUpUsd)} a month*`;
   const lines = t.rows.slice(0, REC_LIST_MAX).map(item);
@@ -43,11 +46,16 @@ function toolSection(t: RecToolResult): SlackBlock {
   return section(`${heading}\n${lines.join("\n")}`);
 }
 
+/** Where the seat tiers come from, or that the Cursor export is old or missing — on every message, so the list cannot go stale silently. */
+function rosterSentence(d: RecommendationsData): string {
+  const cursor = d.rosterAsOf.cursor;
+  if (!d.cursorRosterStale) return `Seat tiers from the latest rosters${cursor ? ` (Cursor export ${shortDay(cursor)})` : ""}.`;
+  return cursor ? `Cursor seat tiers from ${shortDay(cursor)} — upload a newer members export.` : "No Cursor members export uploaded yet.";
+}
+
 function caveat(d: RecommendationsData): string {
   const lead = "Amounts are the potential saving: extra spend minus the step up. Premium would have cost less, it would not have covered all of it.";
-  const cursor = d.rosterAsOf.cursor;
-  if (!d.cursorRosterStale) return `${lead} Seat tiers from the latest rosters${cursor ? ` (Cursor export ${shortDay(cursor)})` : ""}.`;
-  return `${lead} ${cursor ? `Cursor seat tiers from ${shortDay(cursor)} — upload a newer members export.` : "No Cursor members export uploaded yet."}`;
+  return `${lead} ${rosterSentence(d)}`;
 }
 
 export function renderRecommendations(i: RecommendationsMessageInput): RenderedDigest {
@@ -59,6 +67,8 @@ export function renderRecommendations(i: RecommendationsMessageInput): RenderedD
   const blocks: SlackBlock[] = [header(`Premium seat recommendations · four weeks to Sunday ${longDay(data.sunday)}`)];
   if (people === 0) {
     blocks.push(section("Nobody on a Standard seat is over the line this week"));
+    for (const t of data.tools) if (t.noRoster || t.pricesMissing) blocks.push(toolSection(t)); // not "nobody": unknown
+    blocks.push(context(rosterSentence(data)));
   } else {
     blocks.push(section(`People on a Standard seat whose extra spend over the last four weeks was more than the step up to Premium.\n${totals}.`));
     for (const t of data.tools) blocks.push(toolSection(t));

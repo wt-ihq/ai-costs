@@ -29,9 +29,10 @@ const baseInput = (): RecToolInput => ({
 });
 
 describe("recommendation rule", () => {
-  it("latestSunday: a Tuesday → the Sunday before; a Sunday → itself", () => {
+  it("latestSunday: a Tuesday → the Sunday before; a Sunday → the Sunday before (its week is incomplete)", () => {
     expect(latestSunday(new Date("2026-11-03T09:00:00Z"))).toBe("2026-11-01");
-    expect(latestSunday(new Date("2026-11-01T23:00:00Z"))).toBe("2026-11-01");
+    expect(latestSunday(new Date("2026-11-01T23:00:00Z"))).toBe("2026-10-25");
+    expect(latestSunday(new Date("2026-11-02T00:00:00Z"))).toBe("2026-11-01"); // Monday: last week is complete
   });
 
   it("weeksEnding gives four Monday-to-Monday weeks, oldest first", () => {
