@@ -78,6 +78,17 @@ export function weekReadiness({ week, syncRuns, imports }: { week: { from: strin
   return { ready: outstanding.length === 0, outstanding };
 }
 
+/**
+ * Readiness for the weekly Premium-recommendations message. Narrower than `weekReadiness`: that
+ * message reads only Cursor on-demand spend, Claude Team spend and ChatGPT credits, so a stale
+ * OpenAI, Anthropic, Vercel or OpenRouter sync (OpenAI's nightly run was refused for weeks in
+ * autumn 2026) must not hold it. Only the Cursor sync and the two imports are required.
+ */
+export function recommendationsReadiness(args: Parameters<typeof weekReadiness>[0]): Readiness {
+  const outstanding = weekReadiness(args).outstanding.filter((o) => o.kind !== "sync" || o.source === "cursor");
+  return { ready: outstanding.length === 0, outstanding };
+}
+
 /** A short name for the status line: "Claude Team (pasted as of 11 Oct)". */
 export function outstandingShort(o: Outstanding): string {
   if (o.kind === "claudeSpend") return `Claude Team (pasted as of ${short(o.asOf)})`;
