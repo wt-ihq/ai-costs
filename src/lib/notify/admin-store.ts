@@ -75,10 +75,26 @@ export interface NotificationsAdminData {
 
 export const OPEN_RATE_DAYS = 30;
 
-/** Live sent digests and how many were opened. Previews, skips and failures don't count. */
-export function openRate(rows: { mode: string; status: string; opened_at: string | null }[]): { sent: number; opened: number } {
-  const sent = rows.filter((r) => r.mode === "live" && r.status === "sent");
+/**
+ * A spend digest: the person's own or the company report. Update reminders and the recommendations
+ * message share notification_sends (and the weekly key), but count for neither the Digests table,
+ * Last run nor the open rate.
+ */
+export const isDigestReport = (report: string): boolean => report === "personal" || report === "company";
+
+/** Live sent digests and how many were opened. Previews, skips, failures and non-digest messages don't count. */
+export function openRate(rows: { mode: string; status: string; report: string; opened_at: string | null }[]): { sent: number; opened: number } {
+  const sent = rows.filter((r) => r.mode === "live" && r.status === "sent" && isDigestReport(r.report));
   return { sent: sent.length, opened: sent.filter((r) => r.opened_at).length };
+}
+
+/** A Digests-table row's sends: that period's personal and company digests, nothing else claimed on its key. */
+export function periodDigestSends(
+  states: { cadence: string; periodKey: string; report: string; status: string; updatedAt: string }[],
+  cadence: Cadence,
+  periodKey: string,
+): { status: string; updatedAt: string }[] {
+  return states.filter((s) => s.periodKey === periodKey && s.cadence === cadence && isDigestReport(s.report)).map((s) => ({ status: s.status, updatedAt: s.updatedAt }));
 }
 
 type SendRowLite = { employee_id: string; cadence: string; mode: string; status: string; updated_at: string; opened_at: string | null };
@@ -96,8 +112,8 @@ export function lastSentLabels(rows: Pick<SendRowLite, "employee_id" | "cadence"
 }
 
 /** Rows newest first. The latest day's run: its mode, cadences and that mode's outcome counts. */
-export function summariseLastRun(rows: (Pick<SendRowLite, "cadence" | "mode" | "status" | "updated_at"> & { report?: string })[]): LastRun | null {
-  const sends = rows.filter((s) => s.report !== "reminder"); // update reminders aren't digests
+export function summariseLastRun(rows: (Pick<SendRowLite, "cadence" | "mode" | "status" | "updated_at"> & { report: string })[]): LastRun | null {
+  const sends = rows.filter((s) => isDigestReport(s.report)); // reminders and recommendations aren't digests
   const day = sends[0]?.updated_at.slice(0, 10);
   if (!day) return null;
   const ofDay = sends.filter((s) => s.updated_at.startsWith(day));
@@ -162,9 +178,19 @@ export async function loadNotificationsAdmin(supabase: SupabaseClient): Promise<
     // Bounded newest-first read of a growing log — never a full scan.
     supabase.from("notification_sends").select("employee_id, cadence, period_key, mode, report, status, detail, updated_at, opened_at").order("updated_at", { ascending: false }).order("id").limit(200),
     supabaseNotifyStore(supabase).fixedCostSettings(),
-    pageAll<{ mode: string; status: string; opened_at: string | null }>(
-      // Only messages that had the button: people without dashboard access get none, so can't open one.
-      (a, b) => supabase.from("notification_sends").select("mode, status, opened_at").eq("mode", "live").eq("status", "sent").eq("dashboard_link", true).gte("updated_at", opensSince).order("id").range(a, b),
+    pageAll<{ mode: string; status: string; report: string; opened_at: string | null }>(
+      // Only digests that had the button: people without dashboard access get none, so can't open one.
+      (a, b) =>
+        supabase
+          .from("notification_sends")
+          .select("mode, status, report, opened_at")
+          .eq("mode", "live")
+          .eq("status", "sent")
+          .eq("dashboard_link", true)
+          .in("report", ["personal", "company"])
+          .gte("updated_at", opensSince)
+          .order("id")
+          .range(a, b),
       "notification_sends(opens)",
     ),
     pageAll<{ employee_id: string }>(
@@ -288,7 +314,7 @@ async function loadDigests(supabase: SupabaseClient, now: Date, mode: NotifyMode
     period: periodFor(w.cadence, w.key, now),
     readiness: readiness[i],
     recipients: { personal: count(personal, w.cadence), company: count(company, w.cadence) },
-    sends: states.filter((s) => s.periodKey === w.key && s.cadence === w.cadence && s.report !== "reminder").map((s) => ({ status: s.status, updatedAt: s.updatedAt })),
+    sends: periodDigestSends(states, w.cadence, w.key),
     previous: w.previous,
   }));
   // Latest week, latest month, then the previous ones.

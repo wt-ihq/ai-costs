@@ -380,7 +380,7 @@ export async function NotificationsTab({ params }: { params: NotificationsParams
                   <tr key={i} className="border-b border-border/60 last:border-0">
                     <td className="px-3 py-2 text-xs text-muted">{s.at.slice(0, 16).replace("T", " ")}</td>
                     <td className="px-3 py-2">{s.name}</td>
-                    <td className="px-3 py-2 text-xs">{s.report === "company" ? "Company" : s.report === "reminder" ? "Reminder" : "Personal"}</td>
+                    <td className="px-3 py-2 text-xs">{s.report === "company" ? "Company" : s.report === "reminder" ? "Reminder" : s.report === "recommendations" ? "Recommendations" : "Personal"}</td>
                     <td className="px-3 py-2">{s.cadence}</td>
                     <td className="px-3 py-2 text-xs">{s.periodKey}</td>
                     <td className="px-3 py-2 text-xs">{s.mode}</td>
