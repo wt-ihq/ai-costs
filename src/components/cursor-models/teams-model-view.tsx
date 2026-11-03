@@ -12,21 +12,34 @@ import { ModelBars } from "./model-bars";
 import { modelColor } from "@/lib/cursor-models/shape";
 import { modelLabel } from "@/lib/model-labels";
 import { formatCount, formatUsd } from "@/lib/utils";
+import { TeamUsagePanel } from "@/components/cursor-usage/team-usage-panel";
+import { teamMonthUsage } from "@/lib/cursor-usage/shape";
+import type { TeamCursorUsageScope } from "@/lib/cursor-usage/types";
 
 export function TeamsModelView({
   scope,
   spend,
   initialPeriodParam,
+  usage,
 }: {
   scope: { rows: TopModelRow[]; earliest: string };
   spend: CursorSpendScope;
   initialPeriodParam?: string;
+  /** Admin-only team usage; omitted for everyone else. */
+  usage?: TeamCursorUsageScope;
 }) {
   const [period, setPeriod] = useState<Period>(() =>
     initialPeriodParam === "all" ? allTimePeriod(scope.earliest, new Date()) : parsePeriod(initialPeriodParam, new Date()),
   );
   const data = useMemo(() => buildTopModelData(scope, period), [scope, period]);
   const spendData = useMemo(() => buildCursorSpendData(spend, period), [spend, period]);
+
+  // The calendar month containing the last day of the period.
+  const usageMonth = useMemo(
+    () => new Date(Date.parse(`${period.toExclusive}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 7),
+    [period],
+  );
+  const monthUsage = useMemo(() => (usage ? teamMonthUsage(usage, usageMonth) : null), [usage, usageMonth]);
 
   const changePeriod = (p: Period) => {
     setPeriod(p);
@@ -38,6 +51,8 @@ export function TeamsModelView({
   return (
     <div className="space-y-6">
       <PeriodControl period={period} earliest={scope.earliest} onChange={changePeriod} />
+
+      {usage ? <TeamUsagePanel usage={monthUsage} month={usageMonth} /> : null}
 
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-surface p-4">
         <span className="rounded bg-surface-2 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-muted">Teams plan</span>

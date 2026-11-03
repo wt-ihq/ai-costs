@@ -1,4 +1,4 @@
-import type { PersonCursorUsageScope, PersonMonthUsage, UsageWeek } from "./types";
+import type { PersonCursorUsageScope, PersonMonthUsage, TeamCursorUsageScope, TeamMonthUsage, UsageWeek } from "./types";
 
 const DAY_MS = 86_400_000;
 const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
@@ -86,5 +86,69 @@ export function personMonthUsage(scope: PersonCursorUsageScope, month: string): 
       onDemandFrom: onDemandDays[0] ?? null,
     },
     weeks,
+  };
+}
+
+const median = (xs: number[]) => {
+  if (xs.length === 0) return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = s.length >> 1;
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+};
+
+/** One month of team-wide Cursor usage (admin view), or null when there are no rows in it. */
+export function teamMonthUsage(scope: TeamCursorUsageScope, month: string): TeamMonthUsage | null {
+  const rows = scope.rows.filter((r) => r.day.startsWith(month));
+  if (rows.length === 0) return null;
+  const facts = scope.facts.filter((f) => f.day.startsWith(month) && f.employeeId);
+  const byId = new Map(scope.people.map((p) => [p.employeeId, p]));
+
+  const activeDays = new Map<string, number>();
+  const requests = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.employeeId) continue;
+    if (r.isActive) activeDays.set(r.employeeId, (activeDays.get(r.employeeId) ?? 0) + 1);
+    requests.set(r.employeeId, (requests.get(r.employeeId) ?? 0) + r.agentRequests);
+  }
+  const seatUsd = new Map<string, number>();
+  const onDemandUsd = new Map<string, number>();
+  for (const f of facts) {
+    const m = f.costType === "seat" ? seatUsd : onDemandUsd;
+    m.set(f.employeeId!, (m.get(f.employeeId!) ?? 0) + f.costUsd);
+  }
+
+  const seatHolders = [...seatUsd.keys()].filter((id) => byId.has(id));
+  const days = (id: string) => activeDays.get(id) ?? 0;
+  const unused = seatHolders.filter((id) => days(id) === 0);
+  const little = seatHolders
+    .filter((id) => days(id) <= 1)
+    .sort((a, b) => days(a) - days(b) || byId.get(a)!.name.localeCompare(byId.get(b)!.name));
+  const linesSuggested = sum(rows.map((r) => r.linesAdded + r.linesDeleted));
+  const linesKept = sum(rows.map((r) => r.acceptedLinesAdded + r.acceptedLinesDeleted));
+  // Median over seat holders (so unused seats count as 0); fall back to people with rows when seats are unknown.
+  const medianBase = seatHolders.length ? seatHolders : [...requests.keys()];
+
+  return {
+    month,
+    tiles: {
+      peopleActive: [...activeDays.keys()].length,
+      seats: seatHolders.length,
+      unusedSeats: unused.length,
+      agentRequests: sum(rows.map((r) => r.agentRequests)),
+      includedReqs: sum(rows.map((r) => r.includedReqs)),
+      onDemandReqs: sum(rows.map((r) => r.onDemandReqs)),
+      linesKept,
+      keptShare: linesSuggested ? linesKept / linesSuggested : null,
+      medianActiveDays: median(medianBase.map(days)),
+      workingDays: workingDaysIn(month),
+    },
+    mostActive: [...requests.entries()]
+      .filter(([id]) => byId.has(id))
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([id, agentRequests]) => ({ employeeId: id, name: byId.get(id)!.name, href: byId.get(id)!.href, agentRequests, onDemandUsd: onDemandUsd.get(id) ?? 0 })),
+    littleUse: little.slice(0, 10).map((id) => ({ employeeId: id, name: byId.get(id)!.name, href: byId.get(id)!.href, activeDays: days(id), seatUsd: seatUsd.get(id) ?? 0 })),
+    littleUseMore: Math.max(0, little.length - 10),
+    unusedSeatsUsd: sum(unused.map((id) => seatUsd.get(id) ?? 0)),
   };
 }

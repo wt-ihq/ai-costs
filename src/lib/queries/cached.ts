@@ -5,7 +5,7 @@ import { packScope } from "@/lib/explore/build";
 import { getDataHealth } from "./data-health";
 import { getImportCoverageScope } from "./import-coverage";
 import { getModelUsageScope } from "./cursor-models";
-import { getPersonCursorUsageScope } from "./cursor-usage";
+import { getPersonCursorUsageScope, getTeamCursorUsageScope } from "./cursor-usage";
 import { getCursorTopModelScope } from "./cursor-top-model";
 import { getCursorSpendScope } from "./cursor-spend";
 import { getOpenRouterScope } from "./openrouter";
@@ -80,6 +80,12 @@ export const getPersonScopeCached = instrumented(
   "scope-person",
   async (employeeId: string) => packScope(await getPersonScope(getSupabaseAdminClient(), employeeId)),
   ["scope-person", CACHE_VERSION],
+);
+
+export const getTeamCursorUsageCached = instrumented(
+  "team-cursor-usage",
+  async () => getTeamCursorUsageScope(getSupabaseAdminClient()),
+  ["team-cursor-usage", CACHE_VERSION],
 );
 
 export const getPersonCursorUsageCached = instrumented(
