@@ -5,7 +5,8 @@ import {
   buildPersonRows,
   buildPlatformRows,
   buildVendorTotals,
-  type ApiPlatformsScope,
+  unpackApiPlatformsScope,
+  type PackedApiPlatformsScope,
 } from "@/lib/queries/api-platforms";
 import { allTimePeriod, parsePeriod, type Period } from "@/lib/explore/period";
 import { PeriodControl } from "@/components/explore/period-control";
@@ -16,14 +17,16 @@ import { VENDOR_COLORS } from "@/lib/colors";
 import { cn, formatUsd } from "@/lib/utils";
 
 export function ApiPlatformsView({
-  scope,
+  scope: packedScope,
   initialPeriodParam,
   initialVendorParam,
 }: {
-  scope: ApiPlatformsScope;
+  scope: PackedApiPlatformsScope;
   initialPeriodParam?: string;
   initialVendorParam?: string;
 }) {
+  // The scope crosses the wire packed; unpack once.
+  const scope = useMemo(() => unpackApiPlatformsScope(packedScope), [packedScope]);
   // Vendors present anywhere in the scope — a stable tile set across periods.
   const vendors = useMemo(
     () =>

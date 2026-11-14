@@ -110,12 +110,15 @@ export async function getApiPlatformsScope(supabase: SupabaseClient): Promise<Ap
   const from = (firstDay ?? now.toISOString().slice(0, 10)).slice(0, 7) + "-01";
   const toExclusive = nextMonth(now.toISOString().slice(0, 7));
 
+  // The first page also asks for the exact total, so the rest are read a few at a time instead of
+  // one after another: this window is every metered fact on record (Vercel alone bills thousands
+  // of lines a month), and dozens of sequential round trips made the page take many seconds.
   const PAGE = 1000;
-  const rows: PlatformScopeRow[] = [];
-  for (let offset = 0; ; offset += PAGE) {
-    const { data, error } = await supabase
+  const CONCURRENCY = 6;
+  const page = (index: number, withCount: boolean) =>
+    supabase
       .from("spend_facts")
-      .select("day, source, entity_key, model, cost_usd, employees(full_name)")
+      .select("day, source, entity_key, model, cost_usd, employees(full_name)", withCount ? { count: "exact" } : undefined)
       .eq("cost_type", "metered")
       // OpenRouter has its own page with richer analytics (tokens/requests/
       // trend); here it would only duplicate that as bare per-email rows.
@@ -127,21 +130,42 @@ export async function getApiPlatformsScope(supabase: SupabaseClient): Promise<Ap
       // id tiebreaker keeps page boundaries stable across queries.
       .order("day")
       .order("id")
-      .range(offset, offset + PAGE - 1);
-    if (error) throw new Error(`getApiPlatformsScope: ${error.message}`);
-    if (!data || data.length === 0) break;
+      .range(index * PAGE, (index + 1) * PAGE - 1);
+
+  const first = await page(0, true);
+  if (first.error) throw new Error(`getApiPlatformsScope: ${first.error.message}`);
+  const pages = [first.data ?? []];
+  const pageCount = Math.ceil((first.count ?? pages[0].length) / PAGE);
+  for (let next = 1; next < pageCount; next += CONCURRENCY) {
+    const batch = await Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, pageCount - next) }, (_, i) => page(next + i, false)),
+    );
+    for (const p of batch) {
+      if (p.error) throw new Error(`getApiPlatformsScope: ${p.error.message}`);
+      pages.push(p.data ?? []);
+    }
+  }
+
+  let firstDayWithRows: string | null = null;
+  const rows: PlatformScopeRow[] = [];
+  for (const data of pages) {
     for (const r of data) {
+      const day = r.day as string;
+      if (firstDayWithRows === null || day < firstDayWithRows) firstDayWithRows = day;
+      const costUsd = Number(r.cost_usd);
+      // A $0 line adds nothing to any total on the page, and Vercel bills dozens of them per
+      // project per day: left out of what is cached and sent to the browser.
+      if (costUsd === 0) continue;
       const emp = Array.isArray(r.employees) ? r.employees[0] : r.employees;
       rows.push({
-        day: r.day as string,
+        day,
         source: r.source as Vendor,
         entityKey: r.entity_key as string,
         model: (r.model as string) ?? "",
-        costUsd: Number(r.cost_usd),
+        costUsd,
         ownerName: (emp as { full_name: string | null } | undefined)?.full_name ?? null,
       });
     }
-    if (data.length < PAGE) break;
   }
 
   // Friendly names for keys/projects (paginated past the 1000-row cap —
@@ -164,8 +188,70 @@ export async function getApiPlatformsScope(supabase: SupabaseClient): Promise<Ap
   for (const k of keys) if (k.name) names.push([`${k.vendor}:${k.external_key_id}`, k.name as string]);
   for (const p of projects) if (p.name) names.push([`${p.vendor}:${p.external_id}`, p.name as string]);
 
-  const earliest = rows.length
-    ? rows.reduce((min, r) => (r.day < min ? r.day : min), rows[0].day).slice(0, 7)
-    : now.toISOString().slice(0, 7);
+  const earliest = (firstDayWithRows ?? now.toISOString()).slice(0, 7);
   return { rows, earliest, names };
+}
+
+/**
+ * The cache/wire form of the scope: string tables plus index tuples, as Explore's scopes are
+ * (explore/pack.ts). Dates, keys, models and owner names repeat across thousands of rows, so the
+ * plain rows are mostly repetition — packed, the scope fits the data cache's item cap and is a
+ * fraction of the download.
+ */
+export interface PackedApiPlatformsScope {
+  earliest: string;
+  names: [string, string][];
+  days: string[];
+  sources: string[];
+  entityKeys: string[];
+  models: string[];
+  owners: string[];
+  /** [day, source, entityKey, model, owner (-1 = none), costUsd] */
+  rows: [number, number, number, number, number, number][];
+}
+
+export function packApiPlatformsScope(scope: ApiPlatformsScope): PackedApiPlatformsScope {
+  const table = () => {
+    const index = new Map<string, number>();
+    const values: string[] = [];
+    const intern = (value: string): number => {
+      let i = index.get(value);
+      if (i === undefined) {
+        i = values.length;
+        values.push(value);
+        index.set(value, i);
+      }
+      return i;
+    };
+    return { values, intern };
+  };
+  const days = table(), sources = table(), entityKeys = table(), models = table(), owners = table();
+  const rows = scope.rows.map(
+    (r) =>
+      [
+        days.intern(r.day), sources.intern(r.source), entityKeys.intern(r.entityKey), models.intern(r.model),
+        r.ownerName === null ? -1 : owners.intern(r.ownerName), r.costUsd,
+      ] as PackedApiPlatformsScope["rows"][number],
+  );
+  return {
+    earliest: scope.earliest, names: scope.names,
+    days: days.values, sources: sources.values, entityKeys: entityKeys.values, models: models.values, owners: owners.values,
+    rows,
+  };
+}
+
+/** Restore the plain scope client-side (memoize the call). */
+export function unpackApiPlatformsScope(packed: PackedApiPlatformsScope): ApiPlatformsScope {
+  return {
+    earliest: packed.earliest,
+    names: packed.names,
+    rows: packed.rows.map((r) => ({
+      day: packed.days[r[0]],
+      source: packed.sources[r[1]] as Vendor,
+      entityKey: packed.entityKeys[r[2]],
+      model: packed.models[r[3]],
+      ownerName: r[4] === -1 ? null : packed.owners[r[4]],
+      costUsd: r[5],
+    })),
+  };
 }

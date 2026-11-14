@@ -56,31 +56,34 @@ function VendorHeading({ id, vendor, children }: { id: string; vendor: "chatgpt_
  */
 export async function ImportsTab() {
   const supabase = getSupabaseAdminClient();
-  const { facts, imports } = await getImportCoverageScopeCached();
+  // Independent reads, so they run together rather than one after another.
+  const [{ facts, imports }, { data: lastCsv }, seatEntries, ecb] = await Promise.all([
+    getImportCoverageScopeCached(),
+    // Last successful credits-CSV import: drives the card's "imported through"
+    // line and the rate prefill. Single row — no pagination needed.
+    supabase
+      .from("imports")
+      .select("data_as_of, row_counts")
+      .eq("source", "chatgpt_business")
+      .eq("kind", "csv")
+      .eq("status", "success")
+      .order("created_at", { ascending: false })
+      .limit(1),
+    fetchSeatEntries(supabase),
+    latestEcbRates(supabase),
+  ]);
   const today = new Date().toISOString().slice(0, 10);
   const nowMonth = today.slice(0, 7);
   const coverage = buildImportCoverage(facts, imports, nowMonth);
-  // Last successful credits-CSV import: drives the card's "imported through"
-  // line and the rate prefill. Single row — no pagination needed.
-  const { data: lastCsv } = await supabase
-    .from("imports")
-    .select("data_as_of, row_counts")
-    .eq("source", "chatgpt_business")
-    .eq("kind", "csv")
-    .eq("status", "success")
-    .order("created_at", { ascending: false })
-    .limit(1);
   const importedThrough = (lastCsv?.[0]?.data_as_of as string | undefined) ?? null;
   const lastRate = (lastCsv?.[0]?.row_counts as { usd_per_credit?: number } | null)?.usd_per_credit;
   const defaultRate = typeof lastRate === "number" && lastRate > 0 ? lastRate : 0.04;
-  const seatEntries = await fetchSeatEntries(supabase);
 
   const checklist = importChecklist({ coverage, imports, seatEntries, today });
   const lastSpendPaste = imports
     .filter((r) => r.status === "success" && r.source === "claude_team" && r.kind === "clipboard")
     .reduce<string | null>((a, r) => (a === null || r.dataAsOf > a ? r.dataAsOf : a), null);
   // The Claude column's shared £ → $ rate starts from the latest ECB rate, else the latest seat month saved with one.
-  const ecb = await latestEcbRates(supabase);
   const claudeRate = String(ecb.GBP?.rate ?? seatEntries.find((e) => e.vendor === "claude_team" && e.fxRate)?.fxRate ?? 1.27);
 
   return (
