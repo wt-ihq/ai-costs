@@ -71,6 +71,8 @@ function instrumented<A extends unknown[], R>(name: string, fn: (...args: A) => 
 // Company and team scopes are also ROLLED UP first (explore/rollup.ts): rows those
 // pages can't tell apart are summed into one, so far fewer rows are cached, sent
 // and re-added in the browser. The person scope keeps every row (its line items).
+// Postgres does that summing when migration 0030's function is there (one response, not every
+// raw row); rollUpScope then changes nothing, and is the whole roll-up when it isn't.
 export const getCompanyScopeCached = instrumented(
   "scope-company",
   async () => packScope(rollUpScope(await getCompanyScope(getSupabaseAdminClient()))),

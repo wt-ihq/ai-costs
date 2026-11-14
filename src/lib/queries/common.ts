@@ -154,3 +154,48 @@ export async function fetchFactsInRange(
     };
   });
 }
+
+/**
+ * The same window as fetchFactsInRange, already summed to the company/team pages' grain by
+ * Postgres (migration 0030, `explore_facts_rollup`) and returned in ONE response — instead of
+ * every raw row, 1000 a request. Model and key are blank wherever those pages don't read them
+ * (the rule lives in explore/rollup.ts), so this is NOT for a person's page or anything else
+ * that needs raw facts.
+ *
+ * Returns null when the function is missing (migration not applied yet) or fails, so the caller
+ * can fall back to the paged read: slower, but the page still loads.
+ */
+export async function fetchRolledUpFacts(
+  supabase: SupabaseClient,
+  fromMonth: string,
+  toExclusive: string,
+  filter?: FactFilter,
+): Promise<EnrichedFact[] | null> {
+  if (filter && filter.employeeIds.length === 0 && !filter.includeNullEmployee && !filter.department) return [];
+  const { data, error } = await supabase.rpc("explore_facts_rollup", {
+    p_from: fromMonth,
+    p_to_exclusive: toExclusive,
+    p_employee_ids: filter ? filter.employeeIds : null,
+    p_department: filter?.department ?? null,
+    p_include_unattributed: filter?.includeNullEmployee ?? false,
+  });
+  if (error || !Array.isArray(data)) {
+    // PGRST202 = no such function: expected until 0030 is applied, so not worth an error line.
+    const log = error?.code === "PGRST202" ? console.warn : console.error;
+    log(`[facts] explore_facts_rollup unavailable, falling back to the paged read: ${error?.message ?? "unexpected response"}`);
+    return null;
+  }
+  // [day, source, cost_type, entity_key, model, employee_id, full_name, department, cost_usd]
+  return (data as unknown[][]).map((r) => ({
+    day: r[0] as string,
+    source: r[1] as EnrichedFact["source"],
+    costType: r[2] as EnrichedFact["costType"],
+    entityKey: (r[3] as string | null) ?? "",
+    model: (r[4] as string | null) ?? "",
+    employeeId: (r[5] as string | null) ?? null,
+    fullName: (r[6] as string | null) ?? null,
+    department: (r[7] as string | null) ?? null,
+    costUsd: Number(r[8]),
+    requests: null,
+  }));
+}

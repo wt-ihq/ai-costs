@@ -22,6 +22,7 @@ Next.js 16 (App Router) · TypeScript · Tailwind v4 · Supabase (Postgres) · A
 
 - **`src/app/(dashboard)/explore/`** — the dashboard: Company → Team (`[team]`) → Person (`[team]/[person]`) drill-down. Server components read via `src/lib/queries/`.
 - **`src/lib/queries/`** — read layer. `common.ts:fetchFactsInRange` is the main fact reader; `explore.ts`, `data-health.ts`, `api-platforms.ts` build page data.
+  - **Company and team Explore scopes are rolled up** before they are cached and sent to the browser: rows those pages can't tell apart (per model, per key, per Vercel billing line) are summed into one. The rule is `explore/rollup.ts:rollUpKey`, tested against the raw view; Postgres applies the same rule in `explore_facts_rollup` (migration `0030`), which answers a whole window in one response — `common.ts:fetchRolledUpFacts`, falling back to the paged read when the function is missing or fails. **Change the two together**: a shaper that starts reading `model` or `entityKey` on those pages must keep it in both, and the SQL may keep more than the TypeScript, never less. The person scope reads raw facts (its line items are per model and key).
 - **`src/lib/explore/`** — pure shapers (`shape.ts`) + types for the explore views. Unit-tested.
 - **`src/lib/ingest/`** — the write pipeline:
   - `sources/` — live API fetchers (injectable for tests).

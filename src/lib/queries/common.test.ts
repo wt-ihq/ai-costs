@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fetchFactsInRange } from "./common";
+import { fetchFactsInRange, fetchRolledUpFacts } from "./common";
 
 /**
  * Stateful fake covering exactly the chains fetchFactsInRange uses:
@@ -73,5 +73,56 @@ describe("fetchFactsInRange parallel pagination", () => {
     const facts = await fetchFactsInRange(client, "2026-01-01", "2026-07-01");
     expect(facts).toHaveLength(2000);
     expect(requestCount()).toBe(2);
+  });
+});
+
+describe("fetchRolledUpFacts", () => {
+  const client = (answer: { data: unknown; error: { code?: string; message: string } | null }) => {
+    const calls: { fn: string; args: Record<string, unknown> }[] = [];
+    const supabase = {
+      rpc: (fn: string, args: Record<string, unknown>) => {
+        calls.push({ fn, args });
+        return Promise.resolve(answer);
+      },
+    } as unknown as SupabaseClient;
+    return { supabase, calls };
+  };
+
+  it("maps the function's row arrays to facts", async () => {
+    const { supabase, calls } = client({
+      data: [
+        ["2026-05-01", "cursor", "overage", "", "", "e1", "Ada", "Eng", 12.5],
+        ["2026-05-01", "vercel", "metered", "web", "", null, null, null, "0.2500"],
+      ],
+      error: null,
+    });
+    const facts = await fetchRolledUpFacts(supabase, "2026-05-01", "2026-06-01");
+    expect(calls).toEqual([{
+      fn: "explore_facts_rollup",
+      args: { p_from: "2026-05-01", p_to_exclusive: "2026-06-01", p_employee_ids: null, p_department: null, p_include_unattributed: false },
+    }]);
+    expect(facts).toEqual([
+      { day: "2026-05-01", source: "cursor", costType: "overage", entityKey: "", model: "", employeeId: "e1", fullName: "Ada", department: "Eng", costUsd: 12.5, requests: null },
+      { day: "2026-05-01", source: "vercel", costType: "metered", entityKey: "web", model: "", employeeId: null, fullName: null, department: null, costUsd: 0.25, requests: null },
+    ]);
+  });
+
+  it("passes a team's filter through", async () => {
+    const { supabase, calls } = client({ data: [], error: null });
+    await fetchRolledUpFacts(supabase, "2026-05-01", "2026-06-01", { employeeIds: ["e1"], department: "Eng" });
+    expect(calls[0].args).toMatchObject({ p_employee_ids: ["e1"], p_department: "Eng", p_include_unattributed: false });
+  });
+
+  it("answers null when the function is missing or fails, so the caller falls back to the paged read", async () => {
+    const missing = client({ data: null, error: { code: "PGRST202", message: "Could not find the function" } });
+    expect(await fetchRolledUpFacts(missing.supabase, "2026-05-01", "2026-06-01")).toBeNull();
+    const odd = client({ data: { not: "an array" }, error: null });
+    expect(await fetchRolledUpFacts(odd.supabase, "2026-05-01", "2026-06-01")).toBeNull();
+  });
+
+  it("asks nothing for a filter that can match nothing", async () => {
+    const { supabase, calls } = client({ data: [], error: null });
+    expect(await fetchRolledUpFacts(supabase, "2026-05-01", "2026-06-01", { employeeIds: [] })).toEqual([]);
+    expect(calls).toHaveLength(0);
   });
 });

@@ -16,7 +16,9 @@ import type { ShapeFact } from "./shape";
  *   workspace usage (listed by workspace), which are the bulk of the person-less rows.
  * - `entityKey` tells person-less rows apart (project, workspace, "unkeyed", service account…)
  *   and marks backfilled "unassigned seats".
- * Everything else is blanked. rollup.test.ts holds the roll-up to giving `buildExploreData`
+ * Everything else is blanked. Postgres applies the same rule when it sums a scope's window
+ * (migration 0030, `explore_facts_rollup`): CHANGE THE TWO TOGETHER — the SQL may keep more than
+ * this does, never less, because what it has summed away can't be recovered here. rollup.test.ts holds the roll-up to giving `buildExploreData`
  * exactly the same answer as the raw facts; a shaper that starts reading a blanked field on
  * these pages must keep it here.
  */

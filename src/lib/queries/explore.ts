@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { earliestFactDay, fetchEmployeesAll, fetchFactsInRange, type EnrichedFact, type FactFilter } from "./common";
+import { earliestFactDay, fetchEmployeesAll, fetchFactsInRange, fetchRolledUpFacts, type EnrichedFact, type FactFilter } from "./common";
 import { UNATTRIBUTED, type ShapeFact } from "@/lib/explore/shape";
 import type { RawScope } from "@/lib/explore/build";
 import { OTHER_TOOL_PALETTE } from "@/lib/colors";
@@ -53,16 +53,22 @@ function nextMonth(m: string): string {
  * shown. The window starts at the first fact on record (a fixed N-month
  * lookback silently truncated "All time" once data outgrew it). `earliest` =
  * the scope's first month with data, used to cap back-stepping.
+ *
+ * `rolledUp` (company and team pages) asks Postgres for the window already summed to those pages'
+ * grain — one response instead of every raw row — and falls back to the raw read if that isn't
+ * available. A person's page needs the raw rows: its line items are per model and key.
  */
 async function fetchScope(
   supabase: SupabaseClient,
   filter?: FactFilter,
+  rolledUp = false,
 ): Promise<{ rows: ShapeFact[]; earliest: string }> {
   const now = new Date();
   const firstDay = await earliestFactDay(supabase);
   const from = (firstDay ?? now.toISOString().slice(0, 10)).slice(0, 7) + "-01";
   const toExclusive = nextMonth(now.toISOString().slice(0, 7));
-  const rows = (await fetchFactsInRange(supabase, from, toExclusive, filter)).map(asShape);
+  const rolled = rolledUp ? await fetchRolledUpFacts(supabase, from, toExclusive, filter) : null;
+  const rows = (rolled ?? (await fetchFactsInRange(supabase, from, toExclusive, filter))).map(asShape);
   const earliest = rows.length
     ? rows.reduce((min, r) => (r.day < min ? r.day : min), rows[0].day).slice(0, 7)
     : now.toISOString().slice(0, 7);
@@ -73,7 +79,7 @@ export async function getCompanyScope(supabase: SupabaseClient): Promise<RawScop
   // Independent reads run concurrently — sequential awaits added whole
   // round-trips of latency per page view.
   const [{ rows, earliest }, emps, toolColors, horizons, lastUpdated] = await Promise.all([
-    fetchScope(supabase),
+    fetchScope(supabase, undefined, true),
     fetchEmployeesAll(supabase, "id, full_name, department"),
     getToolColors(supabase),
     getSourceHorizons(supabase),
@@ -101,7 +107,7 @@ export async function getTeamScope(supabase: SupabaseClient, team: string): Prom
       employeeIds: employees.map((e) => e.id),
       includeNullEmployee: isUnattributed,
       department: isUnattributed ? undefined : team,
-    }),
+    }, true),
     getToolColors(supabase),
     getSourceHorizons(supabase),
     getLastUpdated(supabase),
