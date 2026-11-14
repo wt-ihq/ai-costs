@@ -11,6 +11,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-11-14",
+    title: "Faster pages",
+    items: [
+      "The Company and team pages send the browser far less data, so they open and switch period faster. The figures are the same.",
+      "The API Platforms page no longer re-reads all of its history each time it is opened.",
+      "Data opens faster: the Cursor reconciliation on the Health tab is now refreshed every 15 minutes instead of on every view.",
+    ],
+  },
+  {
     date: "2026-11-03",
     title: "Premium seat recommendations and Cursor usage",
     items: [

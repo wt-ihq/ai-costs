@@ -12,8 +12,10 @@ export default async function PersonPage({ params, searchParams }: { params: Pro
   const { person } = await params;
   const sp = await searchParams;
   const dim: Dim = sp.dim === "cost_type" ? "cost_type" : "vendor";
-  const scope = await getPersonScopeCached(person);
-  const usage = role === "admin" ? await getPersonCursorUsageCached(person) : null;
+  const [scope, usage] = await Promise.all([
+    getPersonScopeCached(person),
+    role === "admin" ? getPersonCursorUsageCached(person) : null,
+  ]);
   return (
     <>
       <PageHeader title={scope.title} subtitle="Individual spend — where it occurs and when." />

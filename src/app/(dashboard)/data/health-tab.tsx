@@ -1,9 +1,8 @@
 import React from "react";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { pseudoExplanation, splitSeatUsageCoverage, type SourceHealth } from "@/lib/queries/data-health";
-import { getDataHealthCached } from "@/lib/queries/cached";
+import { getCursorReconciliationCached, getDataHealthCached } from "@/lib/queries/cached";
 import { fetchEmployeesAll } from "@/lib/queries/common";
-import { getCursorReconciliation } from "@/lib/queries/cursor-reconciliation";
 import { Panel } from "@/components/ui";
 import { UnmatchedQueue } from "@/components/unmatched-queue";
 import { VENDOR_LABEL } from "@/lib/types";
@@ -78,7 +77,7 @@ export async function HealthTab() {
   const supabase = getSupabaseAdminClient();
   const [{ identity, sources, otherTools, unmatched, pseudo, employees, noDepartment }, reconciliation, deptRows, serviceAccounts] = await Promise.all([
     getDataHealthCached(),
-    getCursorReconciliation(supabase),
+    getCursorReconciliationCached(),
     // Read separately (not in the cached payload) so the cached shape is unchanged.
     fetchEmployeesAll(supabase, "department"),
     loadServiceAccounts(supabase),

@@ -1,6 +1,5 @@
 import { requireDashboardAccess } from "@/lib/auth-guard";
-import { getSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getApiPlatformsScope } from "@/lib/queries/api-platforms";
+import { getApiPlatformsScopeCached } from "@/lib/queries/cached";
 import { ApiPlatformsView } from "@/components/api-platforms/api-platforms-view";
 import { PageHeader } from "@/components/ui";
 
@@ -9,7 +8,7 @@ export const dynamic = "force-dynamic";
 export default async function ApiPlatformsPage({ searchParams }: { searchParams: Promise<{ period?: string; vendor?: string }> }) {
   await requireDashboardAccess();
   const sp = await searchParams;
-  const scope = await getApiPlatformsScope(getSupabaseAdminClient());
+  const scope = await getApiPlatformsScopeCached();
 
   return (
     <>

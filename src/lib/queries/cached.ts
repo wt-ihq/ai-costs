@@ -2,6 +2,8 @@ import { unstable_cache } from "next/cache";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getCompanyScope, getPersonScope, getSearchIndex, getTeamScope } from "./explore";
 import { packScope } from "@/lib/explore/build";
+import { rollUpScope } from "@/lib/explore/rollup";
+import { getApiPlatformsScope, packApiPlatformsScope } from "./api-platforms";
 import { getDataHealth } from "./data-health";
 import { getImportCoverageScope } from "./import-coverage";
 import { getModelUsageScope } from "./cursor-models";
@@ -10,6 +12,7 @@ import { getCursorTopModelScope } from "./cursor-top-model";
 import { getCursorSpendScope } from "./cursor-spend";
 import { getOpenRouterScope } from "./openrouter";
 import { loadRecommendations } from "@/lib/recommendations/load";
+import { getCursorReconciliation, type CursorReconciliation } from "./cursor-reconciliation";
 
 /**
  * Single invalidation tag for every derived-from-spend-facts read. The data
@@ -31,7 +34,7 @@ export const FACTS_TAG = "facts";
  * bump a new build can read an old-shaped entry and crash (this bit us when
  * scopes switched to the packed format).
  */
-const CACHE_VERSION = "v9"; // v9: Explore scopes carry lastUpdated (Breakdown badges)
+const CACHE_VERSION = "v10"; // v10: company and team scopes are rolled up (model and key blanked where unread); API platforms scope added
 
 const OPTS = { tags: [FACTS_TAG], revalidate: 3600 };
 
@@ -42,7 +45,7 @@ const OPTS = { tags: [FACTS_TAG], revalidate: 3600 };
  * payload size tells us whether entries exceed the data-cache item cap
  * (which silently disables caching). Cheap enough to keep permanently.
  */
-function instrumented<A extends unknown[], R>(name: string, fn: (...args: A) => Promise<R>, keyParts: string[]) {
+function instrumented<A extends unknown[], R>(name: string, fn: (...args: A) => Promise<R>, keyParts: string[], opts = OPTS) {
   const cached = unstable_cache(
     async (...args: A) => {
       const t0 = Date.now();
@@ -52,7 +55,7 @@ function instrumented<A extends unknown[], R>(name: string, fn: (...args: A) => 
       return result;
     },
     keyParts,
-    OPTS,
+    opts,
   );
   return async (...args: A): Promise<R> => {
     const t0 = Date.now();
@@ -65,15 +68,18 @@ function instrumented<A extends unknown[], R>(name: string, fn: (...args: A) => 
 // Scopes are cached (and shipped to the client) in PACKED form — the raw
 // company scope's 1.9MB exceeded the data-cache item cap, silently disabling
 // caching, and every byte here is also RSC payload the browser must download.
+// Company and team scopes are also ROLLED UP first (explore/rollup.ts): rows those
+// pages can't tell apart are summed into one, so far fewer rows are cached, sent
+// and re-added in the browser. The person scope keeps every row (its line items).
 export const getCompanyScopeCached = instrumented(
   "scope-company",
-  async () => packScope(await getCompanyScope(getSupabaseAdminClient())),
+  async () => packScope(rollUpScope(await getCompanyScope(getSupabaseAdminClient()))),
   ["scope-company", CACHE_VERSION],
 );
 
 export const getTeamScopeCached = instrumented(
   "scope-team",
-  async (team: string) => packScope(await getTeamScope(getSupabaseAdminClient(), team)),
+  async (team: string) => packScope(rollUpScope(await getTeamScope(getSupabaseAdminClient(), team))),
   ["scope-team", CACHE_VERSION],
 );
 
@@ -139,8 +145,41 @@ export const getOpenRouterScopeCached = instrumented(
   ["openrouter-scope", CACHE_VERSION],
 );
 
+// Every metered fact on record, read on each view until this was cached (it was the one data
+// page still fetched raw). Metered syncs and imports already bust FACTS_TAG.
+export const getApiPlatformsScopeCached = instrumented(
+  "api-platforms",
+  async () => packApiPlatformsScope(await getApiPlatformsScope(getSupabaseAdminClient())),
+  ["api-platforms", CACHE_VERSION],
+);
+
 export const getRecommendationsCached = instrumented(
   "recommendations",
   async () => loadRecommendations(getSupabaseAdminClient(), new Date()),
   ["recommendations", CACHE_VERSION],
 );
+
+// Data → Health's Cursor reconciliation calls Cursor's own API (a request per 100 members) and
+// then pages this billing cycle's on-demand facts — on every view of the Data page until it was
+// cached. Our side changes only when a sync or rebuild busts FACTS_TAG; Cursor's side moves all
+// day, so this entry is refreshed every 15 minutes rather than hourly. A failed check (null) is
+// thrown inside the cache so it is never stored: the next view simply tries again.
+const cursorReconciliationCached = instrumented(
+  "cursor-reconciliation",
+  async (): Promise<CursorReconciliation> => {
+    const result = await getCursorReconciliation(getSupabaseAdminClient());
+    if (!result) throw new Error("cursor reconciliation unavailable");
+    return result;
+  },
+  ["cursor-reconciliation", CACHE_VERSION],
+  { tags: [FACTS_TAG], revalidate: 900 },
+);
+
+/** The reconciliation, or null when the Cursor key is absent or the check failed (the panel is then hidden). */
+export async function getCursorReconciliationCached(): Promise<CursorReconciliation | null> {
+  try {
+    return await cursorReconciliationCached();
+  } catch {
+    return null;
+  }
+}

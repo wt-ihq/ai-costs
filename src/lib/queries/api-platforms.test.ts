@@ -89,3 +89,22 @@ describe("buildPersonRows", () => {
     expect(buildPersonRows([])).toEqual([]);
   });
 });
+
+describe("packApiPlatformsScope", () => {
+  it("round-trips the scope, owners and empty models included", async () => {
+    const { packApiPlatformsScope, unpackApiPlatformsScope } = await import("./api-platforms");
+    const scope = {
+      earliest: "2026-05",
+      names: [["anthropic:k1", "Prod key"]] as [string, string][],
+      rows: [
+        { day: "2026-05-01", source: "anthropic" as const, entityKey: "k1", model: "opus", costUsd: 12.5, ownerName: "Ada" },
+        { day: "2026-05-01", source: "vercel" as const, entityKey: "web", model: "", costUsd: 0.25, ownerName: null },
+        { day: "2026-05-02", source: "anthropic" as const, entityKey: "k1", model: "opus", costUsd: 3, ownerName: "Ada" },
+      ],
+    };
+    const packed = packApiPlatformsScope(scope);
+    expect(packed.days).toEqual(["2026-05-01", "2026-05-02"]);
+    expect(packed.owners).toEqual(["Ada"]);
+    expect(unpackApiPlatformsScope(packed)).toEqual(scope);
+  });
+});
